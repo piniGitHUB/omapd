@@ -15,3 +15,4 @@ Major missing features in omapd (in rough order of importance)
   # SSL support
   # MAP Client authentication
   # Running as a daemon
+  # More -- see [https://code.google.com/p/omapd/issues/list Issues]
