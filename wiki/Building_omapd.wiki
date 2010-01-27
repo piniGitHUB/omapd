@@ -1,4 +1,5 @@
 #summary How to build omapd on your computer.
+#labels Featured
 
 = Introduction =
 
