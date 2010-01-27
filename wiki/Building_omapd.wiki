@@ -11,8 +11,8 @@ You will need to download a [http://qt.nokia.com/downloads Qt SDK development en
 
 Once you have the Qt SDK installed, get a version of omapd to play with.
 
-Here you have a couple options:
-  # Use 'QtCreator` to open the omapd.pro file in the omapd source tree.  Build and run.
+Now you have a couple options:
+  # Use `QtCreator`  to open the omapd.pro file in the omapd source tree.  Build and run.
   # Run qmake (part of the Qt SDK) on the omapd.pro file
    * This creates a Makefile
    * Then type make
