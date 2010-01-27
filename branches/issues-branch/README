@@ -1,0 +1,19 @@
+omapd is an open source implementation of the IF-MAP v1.1 specification
+published by the Trusted Computing Group [1].
+
+To build omapd, you will need a Qt development environment [2].  Initial
+development of omapd was built against Qt v4.5.2.  Run qmake on the omapd.pro
+file, then run make.
+
+This implementation also leverages the qtsoap-2.6 opensource Qt Solution
+package [3] as a basis for SOAP messages and namespaces.  The qtsoap-2.6
+package had several shortcomings that had to be addressed before use.  Most
+notably these included: no support for attributes in SOAP XML elements.  These
+changes should be submitted to Qt for inclusion in the qtsoap package.  The
+original source files are included in this distribution.
+ 
+References
+----------
+[1] http://www.trustedcomputinggroup.org/resources/tnc_ifmap_binding_for_soap_specification
+[2] http://qt.nokia.com/products
+[3] http://qt.nokia.com/products/appdev/add-on-products/catalog/4/Utilities/qtsoap
