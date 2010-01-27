@@ -1,0 +1,35 @@
+#summary The ideas behind the implementation.
+
+= Introduction =
+
+There are numerous design constraints that come into play when starting a new software project.  Some of the driving factors in omapd design decisions are:
+  * Platform neutral implementation
+  * Leverage existing frameworks for XML, network, containers
+  * Avoid the messiness and licensing issues of gSoap
+  * Avoid the messiness of dealing with WSDLs
+  * Focus on the data structures to represent MAP graphs
+
+Prior to reading further, it may be a good idea to read through the IF-MAP specification.
+
+= omapd MAP Graph =
+
+== Identifiers and Links ==
+In IF-MAP all identifiers and links exist by virtue of having metadata published on them, so really the identifiers and links are a way of organizing the metadata.  A link is just two identifiers with metadata associated with the link.  Therefore the data structures really just need to store metadata and associate it with identifiers and links.  This sounds like a hash table. 
+
+In order to use a hash table to associate identifiers and links with metadata, the hash table keys need to be unique.  In the IF-MAP v1.1 base schema, 5 top-level identifier types are defined; but many of these identifiers have sub-types.  So what makes an identifier unique?  It is a tuple of:
+  * type
+  * sub-type
+  * value
+  * administrative-domain (in most cases)
+  * other type definition (in the case of `IdentityOther` type)
+
+To make things easier, the identifier types and sub-types are flattened.  Then the unique hash key for an identifier is: type|value|administrative-domain|other.
+
+Qt provides a QHash container class.  One QHash is used to hold associations of identifiers with metadata and another QHash is used to hold associations of links with metadata.
+
+TNC published a set of identifiers that correspond with the TNC use case, but notionally any identifier schema can be used.  The key is the key - you just want something to uniquely associate the metadata, and provide some basic structure to the users of the MAP graph.  Future versions of omapd will not have TNC identifier schema restrictions, but it will certainly always support TNC identifier schema.
+
+== Metadata ==
+Metadata on a link or an identifier can be any XML!!!  TNC published a metadata schema for the TNC use case, but that's just one use case.  Each of the QHash containers that store metadata use a QList of Metadata objects.  There is an item in the list corresponding to each metadata type that has been published on that identifier or link.  Each Metadata object is a QList of DOM nodes containing the metadata XML.
+
+== Traversing the MAP Graph ==
