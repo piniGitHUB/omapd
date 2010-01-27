@@ -30,6 +30,15 @@ Qt provides a QHash container class.  One QHash is used to hold associations of 
 TNC published a set of identifiers that correspond with the TNC use case, but notionally any identifier schema can be used.  The key is the key - you just want something to uniquely associate the metadata, and provide some basic structure to the users of the MAP graph.  Future versions of omapd will not have TNC identifier schema restrictions, but it will certainly always support TNC identifier schema.
 
 == Metadata ==
-Metadata on a link or an identifier can be any XML!!!  TNC published a metadata schema for the TNC use case, but that's just one use case.  Each of the QHash containers that store metadata use a QList of Metadata objects.  There is an item in the list corresponding to each metadata type that has been published on that identifier or link.  Each Metadata object is a QList of DOM nodes containing the metadata XML.
+Metadata on a link or an identifier can be any XML!!!  TNC published a metadata schema for the TNC use case, but that's just one use case.  Each of the QHash containers that store metadata use a QList of Metadata objects.  There is an item in the QList of Metadata objects corresponding to each metadata type that has been published on that identifier or link.  
+
+Each Metadata object is a QList of DOM nodes containing the metadata XML.  If the metadata type is single-valued, the list of DOM nodes will always only have one node.  If the metadata type is multi-valued, the list of DOM nodes will have a node for every appended metadata of that type.
 
 == Traversing the MAP Graph ==
+Another data structure is used to traverse the MAP graph and describes all existing links (remember they exist by virtue of having metadata associated with them).  This link graph is realized with a QMultiHash container, which allows the same key (a source identifier) to map to several different values (target identifiers).  Since we must be able to traverse the entire MAP graph regardless of where we start, the QMultiHash link table has a key-->value mapping for each identifier, e.g. there are two insertions into the link table for each link created.
+
+== Efficiently Tracking Publishers ==
+There are several reasons to want to efficiently track which publishers are publishing which metadata:
+  * purgePublisher operation
+  * session timeouts removing metadata from a publisher
+There are two QMultiHash tables for tracking publishers: one for tracking a publisher's metadata on identifiers, and another for tracking a publisher's metadata on links.  In each of these, the publisher-id is the key and the identifier or link is the value.
