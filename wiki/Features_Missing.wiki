@@ -1,4 +1,5 @@
 #summary The major missing pieces in omapd.
+#labels Featured
 
 If you are interested in participating in the development of omapd please consider tackling something on this list.
 
