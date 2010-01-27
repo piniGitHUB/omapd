@@ -1,0 +1,407 @@
+<!DOCTYPE QtCreatorProject>
+<qtcreator>
+ <data>
+  <variable>RunConfiguration0-CommandLineArguments</variable>
+  <valuelist type="QVariantList" />
+ </data>
+ <data>
+  <variable>RunConfiguration0-ProFile</variable>
+  <value type="QString" >omapd.pro</value>
+ </data>
+ <data>
+  <variable>RunConfiguration0-RunConfiguration.name</variable>
+  <value type="QString" >omapd</value>
+ </data>
+ <data>
+  <variable>RunConfiguration0-UseDyldImageSuffix</variable>
+  <value type="bool" >false</value>
+ </data>
+ <data>
+  <variable>RunConfiguration0-UseTerminal</variable>
+  <value type="bool" >false</value>
+ </data>
+ <data>
+  <variable>RunConfiguration0-UserEnvironmentChanges</variable>
+  <valuelist type="QVariantList" />
+ </data>
+ <data>
+  <variable>RunConfiguration0-UserSetName</variable>
+  <value type="bool" >false</value>
+ </data>
+ <data>
+  <variable>RunConfiguration0-type</variable>
+  <value type="QString" >Qt4ProjectManager.Qt4RunConfiguration</value>
+ </data>
+ <data>
+  <variable>activeRunConfiguration</variable>
+  <value type="int" >0</value>
+ </data>
+ <data>
+  <variable>activebuildconfiguration</variable>
+  <value type="QString" >Debug</value>
+ </data>
+ <data>
+  <variable>buildConfiguration-Debug</variable>
+  <valuemap type="QVariantMap" >
+   <value key="ProjectExplorer.BuildConfiguration.DisplayName" type="QString" >Debug</value>
+   <value key="QtVersionId" type="int" >2</value>
+   <value key="addQDumper" type="" ></value>
+  </valuemap>
+ </data>
+ <data>
+  <variable>buildconfiguration-Debug-buildstep0</variable>
+  <valuemap type="QVariantMap" >
+   <value key="ProjectExplorer.BuildConfiguration.DisplayName" type="QString" >Debug</value>
+   <valuelist key="abstractProcess.Environment" type="QVariantList" >
+    <value type="QString" >ALSA_CONFIG_PATH=/etc/alsa-pulse.conf</value>
+    <value type="QString" >CHOST=A3945578</value>
+    <value type="QString" >COLORTERM=1</value>
+    <value type="QString" >CPU=x86_64</value>
+    <value type="QString" >CSHEDIT=emacs</value>
+    <value type="QString" >CSHRCREAD=true</value>
+    <value type="QString" >CVS_RSH=ssh</value>
+    <value type="QString" >DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-3vS68ZSDPS,guid=622f4f265bcbfd90a938e1c74b5f073f</value>
+    <value type="QString" >DESKTOP_SESSION=gnome</value>
+    <value type="QString" >DESKTOP_STARTUP_ID=</value>
+    <value type="QString" >DISPLAY=:0.0</value>
+    <value type="QString" >ENV=/etc/bash.bashrc</value>
+    <value type="QString" >FROM_HEADER=</value>
+    <value type="QString" >GDMSESSION=gnome</value>
+    <value type="QString" >GDM_KEYBOARD_LAYOUT=us</value>
+    <value type="QString" >GDM_LANG=en_US.UTF-8</value>
+    <value type="QString" >GNOME_DESKTOP_SESSION_ID=this-is-deprecated</value>
+    <value type="QString" >GNOME_KEYRING_PID=5792</value>
+    <value type="QString" >GNOME_KEYRING_SOCKET=/tmp/keyring-q9MBri/socket</value>
+    <value type="QString" >GROUP=users</value>
+    <value type="QString" >GTK_IM_MODULE=cedilla</value>
+    <value type="QString" >GTK_RC_FILES=/etc/gtk/gtkrc:/home/mattes/.gtkrc-1.2-gnome2</value>
+    <value type="QString" >G_BROKEN_FILENAMES=1</value>
+    <value type="QString" >G_FILENAME_ENCODING=@locale,UTF-8,ISO-8859-1,CP1252</value>
+    <value type="QString" >HOME=/home/mattes</value>
+    <value type="QString" >HOST=A3945578</value>
+    <value type="QString" >HOSTNAME=A3945578.</value>
+    <value type="QString" >HOSTTYPE=x86_64</value>
+    <value type="QString" >ICEAUTHORITY=/home/mattes/.ICEauthority</value>
+    <value type="QString" >INFODIR=/usr/local/info:/usr/share/info:/usr/info</value>
+    <value type="QString" >INFOPATH=/usr/local/info:/usr/share/info:/usr/info</value>
+    <value type="QString" >INPUTRC=/etc/inputrc</value>
+    <value type="QString" >JAVA_BINDIR=/usr/lib64/jvm/jre/bin</value>
+    <value type="QString" >JAVA_HOME=/usr/lib64/jvm/jre</value>
+    <value type="QString" >JAVA_ROOT=/usr/lib64/jvm/jre</value>
+    <value type="QString" >JRE_HOME=/usr/lib64/jvm/jre</value>
+    <value type="QString" >LANG=C</value>
+    <value type="QString" >LD_LIBRARY_PATH=/local/pkgs/qtsdk-2009.03/lib/qtcreator:/usr/local/lib</value>
+    <value type="QString" >LESS=-M -I</value>
+    <value type="QString" >LESSCLOSE=lessclose.sh %s %s</value>
+    <value type="QString" >LESSKEY=/etc/lesskey.bin</value>
+    <value type="QString" >LESSOPEN=lessopen.sh %s</value>
+    <value type="QString" >LESS_ADVANCED_PREPROCESSOR=no</value>
+    <value type="QString" >LOGNAME=mattes</value>
+    <value type="QString" >LS_COLORS=no=00:fi=00:di=01;33:ln=01;36:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arj=01;31:*.taz=01;31:*.lzh=01;31:*.zip=01;31:*.z=01;31:*.Z=01;31:*.gz=01;31:*.bz2=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.jpg=01;35:*.jpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.mpg=01;35:*.mpeg=01;35:*.avi=01;35:*.fli=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.ogg=01;35:*.mp3=01;35:*.wav=01;35:</value>
+    <value type="QString" >MACHTYPE=x86_64-suse-linux</value>
+    <value type="QString" >MAIL=/var/spool/mail/mattes</value>
+    <value type="QString" >MANPATH=/usr/local/man:/usr/share/man</value>
+    <value type="QString" >MINICOM=-c on</value>
+    <value type="QString" >MORE=-sl</value>
+    <value type="QString" >NNTPSERVER=news</value>
+    <value type="QString" >ORBIT_SOCKETDIR=/tmp/orbit-mattes</value>
+    <value type="QString" >OSTYPE=linux</value>
+    <value type="QString" >PAGER=less</value>
+    <value type="QString" >PATH=/local/pkgs/qtsdk-2009.03/qt/bin:/local/bin:/local/sbin:/sbin:/usr/sbin:/home/mattes/bin:/usr/local/bin:/usr/bin:/bin:/usr/X11R6/bin:/usr/bin/X11:/usr/games:/opt/kde3/bin:/usr/lib/mit/bin:/usr/lib/mit/sbin</value>
+    <value type="QString" >PWD=/local/pkgs/qtsdk-2009.03/bin</value>
+    <value type="QString" >PYTHONSTARTUP=/etc/pythonstart</value>
+    <value type="QString" >QTDIR=/local/pkgs/qtsdk-2009.03/qt</value>
+    <value type="QString" >QT_HOME_DIR=/usr/share/desktop-data</value>
+    <value type="QString" >QT_IM_MODULE=xim</value>
+    <value type="QString" >QT_IM_SWITCHER=imsw-multi</value>
+    <value type="QString" >SDL_AUDIODRIVER=pulse</value>
+    <value type="QString" >SESSION_MANAGER=local/A3945578:@/tmp/.ICE-unix/5800,unix/A3945578:/tmp/.ICE-unix/5800</value>
+    <value type="QString" >SHELL=/bin/tcsh</value>
+    <value type="QString" >SHLVL=1</value>
+    <value type="QString" >SSH_AUTH_SOCK=/tmp/keyring-q9MBri/ssh</value>
+    <value type="QString" >TERM=xterm</value>
+    <value type="QString" >TMPDIR=/tmp</value>
+    <value type="QString" >TZ=America/Los_Angeles</value>
+    <value type="QString" >USER=mattes</value>
+    <value type="QString" >USERNAME=mattes</value>
+    <value type="QString" >VENDOR=suse</value>
+    <value type="QString" >WINDOWMANAGER=/usr/bin/gnome</value>
+    <value type="QString" >XAUTHLOCALHOSTNAME=localhost</value>
+    <value type="QString" >XAUTHORITY=/var/run/gdm/auth-for-mattes-Y9Jkpa/database</value>
+    <value type="QString" >XCURSOR_THEME=DMZ</value>
+    <value type="QString" >XDG_CONFIG_DIRS=/etc/xdg</value>
+    <value type="QString" >XDG_DATA_DIRS=/usr/local/share:/usr/share:/etc/opt/kde3/share:/opt/kde3/share:/usr/share/gnome/help</value>
+    <value type="QString" >XDG_SESSION_COOKIE=c7cb756ff7dd2ffd7e3c48d64a1ec37d-1264518973.117327-1440213540</value>
+    <value type="QString" >XKEYSYMDB=/usr/share/X11/XKeysymDB</value>
+    <value type="QString" >XMODIFIERS=@im=local</value>
+    <value type="QString" >XNLSPATH=/usr/share/X11/nls</value>
+    <value type="QString" >XSESSION_IS_UP=yes</value>
+    <value type="QString" >ftp_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >http_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >https_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >no_proxy=localhost, 127.0.0.1, boeing.com, 130.42.32.0</value>
+   </valuelist>
+   <valuelist key="abstractProcess.arguments" type="QVariantList" >
+    <value type="QString" >/home/mattes/BNGI/crawler/src/if-map-qt/svrtests/omapd/omapd.pro</value>
+    <value type="QString" >-spec</value>
+    <value type="QString" >linux-g++-64</value>
+    <value type="QString" >-r</value>
+    <value type="QString" >CONFIG+=debug</value>
+   </valuelist>
+   <value key="abstractProcess.command" type="QString" >/local/pkgs/qtsdk-2009.03/qt/bin/qmake</value>
+   <value key="abstractProcess.enabled" type="bool" >false</value>
+   <value key="abstractProcess.workingDirectory" type="QString" >/home/mattes/BNGI/crawler/src/if-map-qt/svrtests/omapd</value>
+   <value key="buildConfiguration" type="int" >2</value>
+  </valuemap>
+ </data>
+ <data>
+  <variable>buildconfiguration-Debug-buildstep1</variable>
+  <valuemap type="QVariantMap" >
+   <value key="ProjectExplorer.BuildConfiguration.DisplayName" type="QString" >Debug</value>
+   <valuelist key="abstractProcess.Environment" type="QVariantList" >
+    <value type="QString" >ALSA_CONFIG_PATH=/etc/alsa-pulse.conf</value>
+    <value type="QString" >CHOST=A3945578</value>
+    <value type="QString" >COLORTERM=1</value>
+    <value type="QString" >CPU=x86_64</value>
+    <value type="QString" >CSHEDIT=emacs</value>
+    <value type="QString" >CSHRCREAD=true</value>
+    <value type="QString" >CVS_RSH=ssh</value>
+    <value type="QString" >DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-3vS68ZSDPS,guid=622f4f265bcbfd90a938e1c74b5f073f</value>
+    <value type="QString" >DESKTOP_SESSION=gnome</value>
+    <value type="QString" >DESKTOP_STARTUP_ID=</value>
+    <value type="QString" >DISPLAY=:0.0</value>
+    <value type="QString" >ENV=/etc/bash.bashrc</value>
+    <value type="QString" >FROM_HEADER=</value>
+    <value type="QString" >GDMSESSION=gnome</value>
+    <value type="QString" >GDM_KEYBOARD_LAYOUT=us</value>
+    <value type="QString" >GDM_LANG=en_US.UTF-8</value>
+    <value type="QString" >GNOME_DESKTOP_SESSION_ID=this-is-deprecated</value>
+    <value type="QString" >GNOME_KEYRING_PID=5792</value>
+    <value type="QString" >GNOME_KEYRING_SOCKET=/tmp/keyring-q9MBri/socket</value>
+    <value type="QString" >GROUP=users</value>
+    <value type="QString" >GTK_IM_MODULE=cedilla</value>
+    <value type="QString" >GTK_RC_FILES=/etc/gtk/gtkrc:/home/mattes/.gtkrc-1.2-gnome2</value>
+    <value type="QString" >G_BROKEN_FILENAMES=1</value>
+    <value type="QString" >G_FILENAME_ENCODING=@locale,UTF-8,ISO-8859-1,CP1252</value>
+    <value type="QString" >HOME=/home/mattes</value>
+    <value type="QString" >HOST=A3945578</value>
+    <value type="QString" >HOSTNAME=A3945578.</value>
+    <value type="QString" >HOSTTYPE=x86_64</value>
+    <value type="QString" >ICEAUTHORITY=/home/mattes/.ICEauthority</value>
+    <value type="QString" >INFODIR=/usr/local/info:/usr/share/info:/usr/info</value>
+    <value type="QString" >INFOPATH=/usr/local/info:/usr/share/info:/usr/info</value>
+    <value type="QString" >INPUTRC=/etc/inputrc</value>
+    <value type="QString" >JAVA_BINDIR=/usr/lib64/jvm/jre/bin</value>
+    <value type="QString" >JAVA_HOME=/usr/lib64/jvm/jre</value>
+    <value type="QString" >JAVA_ROOT=/usr/lib64/jvm/jre</value>
+    <value type="QString" >JRE_HOME=/usr/lib64/jvm/jre</value>
+    <value type="QString" >LANG=C</value>
+    <value type="QString" >LD_LIBRARY_PATH=/local/pkgs/qtsdk-2009.03/lib/qtcreator:/usr/local/lib</value>
+    <value type="QString" >LESS=-M -I</value>
+    <value type="QString" >LESSCLOSE=lessclose.sh %s %s</value>
+    <value type="QString" >LESSKEY=/etc/lesskey.bin</value>
+    <value type="QString" >LESSOPEN=lessopen.sh %s</value>
+    <value type="QString" >LESS_ADVANCED_PREPROCESSOR=no</value>
+    <value type="QString" >LOGNAME=mattes</value>
+    <value type="QString" >LS_COLORS=no=00:fi=00:di=01;33:ln=01;36:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arj=01;31:*.taz=01;31:*.lzh=01;31:*.zip=01;31:*.z=01;31:*.Z=01;31:*.gz=01;31:*.bz2=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.jpg=01;35:*.jpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.mpg=01;35:*.mpeg=01;35:*.avi=01;35:*.fli=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.ogg=01;35:*.mp3=01;35:*.wav=01;35:</value>
+    <value type="QString" >MACHTYPE=x86_64-suse-linux</value>
+    <value type="QString" >MAIL=/var/spool/mail/mattes</value>
+    <value type="QString" >MANPATH=/usr/local/man:/usr/share/man</value>
+    <value type="QString" >MINICOM=-c on</value>
+    <value type="QString" >MORE=-sl</value>
+    <value type="QString" >NNTPSERVER=news</value>
+    <value type="QString" >ORBIT_SOCKETDIR=/tmp/orbit-mattes</value>
+    <value type="QString" >OSTYPE=linux</value>
+    <value type="QString" >PAGER=less</value>
+    <value type="QString" >PATH=/local/pkgs/qtsdk-2009.03/qt/bin:/local/bin:/local/sbin:/sbin:/usr/sbin:/home/mattes/bin:/usr/local/bin:/usr/bin:/bin:/usr/X11R6/bin:/usr/bin/X11:/usr/games:/opt/kde3/bin:/usr/lib/mit/bin:/usr/lib/mit/sbin</value>
+    <value type="QString" >PWD=/local/pkgs/qtsdk-2009.03/bin</value>
+    <value type="QString" >PYTHONSTARTUP=/etc/pythonstart</value>
+    <value type="QString" >QTDIR=/local/pkgs/qtsdk-2009.03/qt</value>
+    <value type="QString" >QT_HOME_DIR=/usr/share/desktop-data</value>
+    <value type="QString" >QT_IM_MODULE=xim</value>
+    <value type="QString" >QT_IM_SWITCHER=imsw-multi</value>
+    <value type="QString" >SDL_AUDIODRIVER=pulse</value>
+    <value type="QString" >SESSION_MANAGER=local/A3945578:@/tmp/.ICE-unix/5800,unix/A3945578:/tmp/.ICE-unix/5800</value>
+    <value type="QString" >SHELL=/bin/tcsh</value>
+    <value type="QString" >SHLVL=1</value>
+    <value type="QString" >SSH_AUTH_SOCK=/tmp/keyring-q9MBri/ssh</value>
+    <value type="QString" >TERM=xterm</value>
+    <value type="QString" >TMPDIR=/tmp</value>
+    <value type="QString" >TZ=America/Los_Angeles</value>
+    <value type="QString" >USER=mattes</value>
+    <value type="QString" >USERNAME=mattes</value>
+    <value type="QString" >VENDOR=suse</value>
+    <value type="QString" >WINDOWMANAGER=/usr/bin/gnome</value>
+    <value type="QString" >XAUTHLOCALHOSTNAME=localhost</value>
+    <value type="QString" >XAUTHORITY=/var/run/gdm/auth-for-mattes-Y9Jkpa/database</value>
+    <value type="QString" >XCURSOR_THEME=DMZ</value>
+    <value type="QString" >XDG_CONFIG_DIRS=/etc/xdg</value>
+    <value type="QString" >XDG_DATA_DIRS=/usr/local/share:/usr/share:/etc/opt/kde3/share:/opt/kde3/share:/usr/share/gnome/help</value>
+    <value type="QString" >XDG_SESSION_COOKIE=c7cb756ff7dd2ffd7e3c48d64a1ec37d-1264518973.117327-1440213540</value>
+    <value type="QString" >XKEYSYMDB=/usr/share/X11/XKeysymDB</value>
+    <value type="QString" >XMODIFIERS=@im=local</value>
+    <value type="QString" >XNLSPATH=/usr/share/X11/nls</value>
+    <value type="QString" >XSESSION_IS_UP=yes</value>
+    <value type="QString" >ftp_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >http_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >https_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >no_proxy=localhost, 127.0.0.1, boeing.com, 130.42.32.0</value>
+   </valuelist>
+   <valuelist key="abstractProcess.arguments" type="QVariantList" >
+    <value type="QString" >-w</value>
+   </valuelist>
+   <value key="abstractProcess.command" type="QString" >/usr/bin/make</value>
+   <value key="abstractProcess.enabled" type="bool" >true</value>
+   <value key="abstractProcess.workingDirectory" type="QString" >/home/mattes/BNGI/crawler/src/if-map-qt/svrtests/omapd</value>
+  </valuemap>
+ </data>
+ <data>
+  <variable>buildconfiguration-Debug-cleanstep0</variable>
+  <valuemap type="QVariantMap" >
+   <value key="ProjectExplorer.BuildConfiguration.DisplayName" type="QString" >Debug</value>
+   <valuelist key="abstractProcess.Environment" type="QVariantList" >
+    <value type="QString" >ALSA_CONFIG_PATH=/etc/alsa-pulse.conf</value>
+    <value type="QString" >CHOST=A3945578</value>
+    <value type="QString" >COLORTERM=1</value>
+    <value type="QString" >CPU=x86_64</value>
+    <value type="QString" >CSHEDIT=emacs</value>
+    <value type="QString" >CSHRCREAD=true</value>
+    <value type="QString" >CVS_RSH=ssh</value>
+    <value type="QString" >DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-3vS68ZSDPS,guid=622f4f265bcbfd90a938e1c74b5f073f</value>
+    <value type="QString" >DESKTOP_SESSION=gnome</value>
+    <value type="QString" >DESKTOP_STARTUP_ID=</value>
+    <value type="QString" >DISPLAY=:0.0</value>
+    <value type="QString" >ENV=/etc/bash.bashrc</value>
+    <value type="QString" >FROM_HEADER=</value>
+    <value type="QString" >GDMSESSION=gnome</value>
+    <value type="QString" >GDM_KEYBOARD_LAYOUT=us</value>
+    <value type="QString" >GDM_LANG=en_US.UTF-8</value>
+    <value type="QString" >GNOME_DESKTOP_SESSION_ID=this-is-deprecated</value>
+    <value type="QString" >GNOME_KEYRING_PID=5792</value>
+    <value type="QString" >GNOME_KEYRING_SOCKET=/tmp/keyring-q9MBri/socket</value>
+    <value type="QString" >GROUP=users</value>
+    <value type="QString" >GTK_IM_MODULE=cedilla</value>
+    <value type="QString" >GTK_RC_FILES=/etc/gtk/gtkrc:/home/mattes/.gtkrc-1.2-gnome2</value>
+    <value type="QString" >G_BROKEN_FILENAMES=1</value>
+    <value type="QString" >G_FILENAME_ENCODING=@locale,UTF-8,ISO-8859-1,CP1252</value>
+    <value type="QString" >HOME=/home/mattes</value>
+    <value type="QString" >HOST=A3945578</value>
+    <value type="QString" >HOSTNAME=A3945578.</value>
+    <value type="QString" >HOSTTYPE=x86_64</value>
+    <value type="QString" >ICEAUTHORITY=/home/mattes/.ICEauthority</value>
+    <value type="QString" >INFODIR=/usr/local/info:/usr/share/info:/usr/info</value>
+    <value type="QString" >INFOPATH=/usr/local/info:/usr/share/info:/usr/info</value>
+    <value type="QString" >INPUTRC=/etc/inputrc</value>
+    <value type="QString" >JAVA_BINDIR=/usr/lib64/jvm/jre/bin</value>
+    <value type="QString" >JAVA_HOME=/usr/lib64/jvm/jre</value>
+    <value type="QString" >JAVA_ROOT=/usr/lib64/jvm/jre</value>
+    <value type="QString" >JRE_HOME=/usr/lib64/jvm/jre</value>
+    <value type="QString" >LANG=C</value>
+    <value type="QString" >LD_LIBRARY_PATH=/local/pkgs/qtsdk-2009.03/lib/qtcreator:/usr/local/lib</value>
+    <value type="QString" >LESS=-M -I</value>
+    <value type="QString" >LESSCLOSE=lessclose.sh %s %s</value>
+    <value type="QString" >LESSKEY=/etc/lesskey.bin</value>
+    <value type="QString" >LESSOPEN=lessopen.sh %s</value>
+    <value type="QString" >LESS_ADVANCED_PREPROCESSOR=no</value>
+    <value type="QString" >LOGNAME=mattes</value>
+    <value type="QString" >LS_COLORS=no=00:fi=00:di=01;33:ln=01;36:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arj=01;31:*.taz=01;31:*.lzh=01;31:*.zip=01;31:*.z=01;31:*.Z=01;31:*.gz=01;31:*.bz2=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.jpg=01;35:*.jpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.mpg=01;35:*.mpeg=01;35:*.avi=01;35:*.fli=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.ogg=01;35:*.mp3=01;35:*.wav=01;35:</value>
+    <value type="QString" >MACHTYPE=x86_64-suse-linux</value>
+    <value type="QString" >MAIL=/var/spool/mail/mattes</value>
+    <value type="QString" >MANPATH=/usr/local/man:/usr/share/man</value>
+    <value type="QString" >MINICOM=-c on</value>
+    <value type="QString" >MORE=-sl</value>
+    <value type="QString" >NNTPSERVER=news</value>
+    <value type="QString" >ORBIT_SOCKETDIR=/tmp/orbit-mattes</value>
+    <value type="QString" >OSTYPE=linux</value>
+    <value type="QString" >PAGER=less</value>
+    <value type="QString" >PATH=/local/pkgs/qtsdk-2009.03/qt/bin:/local/bin:/local/sbin:/sbin:/usr/sbin:/home/mattes/bin:/usr/local/bin:/usr/bin:/bin:/usr/X11R6/bin:/usr/bin/X11:/usr/games:/opt/kde3/bin:/usr/lib/mit/bin:/usr/lib/mit/sbin</value>
+    <value type="QString" >PWD=/local/pkgs/qtsdk-2009.03/bin</value>
+    <value type="QString" >PYTHONSTARTUP=/etc/pythonstart</value>
+    <value type="QString" >QTDIR=/local/pkgs/qtsdk-2009.03/qt</value>
+    <value type="QString" >QT_HOME_DIR=/usr/share/desktop-data</value>
+    <value type="QString" >QT_IM_MODULE=xim</value>
+    <value type="QString" >QT_IM_SWITCHER=imsw-multi</value>
+    <value type="QString" >SDL_AUDIODRIVER=pulse</value>
+    <value type="QString" >SESSION_MANAGER=local/A3945578:@/tmp/.ICE-unix/5800,unix/A3945578:/tmp/.ICE-unix/5800</value>
+    <value type="QString" >SHELL=/bin/tcsh</value>
+    <value type="QString" >SHLVL=1</value>
+    <value type="QString" >SSH_AUTH_SOCK=/tmp/keyring-q9MBri/ssh</value>
+    <value type="QString" >TERM=xterm</value>
+    <value type="QString" >TMPDIR=/tmp</value>
+    <value type="QString" >TZ=America/Los_Angeles</value>
+    <value type="QString" >USER=mattes</value>
+    <value type="QString" >USERNAME=mattes</value>
+    <value type="QString" >VENDOR=suse</value>
+    <value type="QString" >WINDOWMANAGER=/usr/bin/gnome</value>
+    <value type="QString" >XAUTHLOCALHOSTNAME=localhost</value>
+    <value type="QString" >XAUTHORITY=/var/run/gdm/auth-for-mattes-Y9Jkpa/database</value>
+    <value type="QString" >XCURSOR_THEME=DMZ</value>
+    <value type="QString" >XDG_CONFIG_DIRS=/etc/xdg</value>
+    <value type="QString" >XDG_DATA_DIRS=/usr/local/share:/usr/share:/etc/opt/kde3/share:/opt/kde3/share:/usr/share/gnome/help</value>
+    <value type="QString" >XDG_SESSION_COOKIE=c7cb756ff7dd2ffd7e3c48d64a1ec37d-1264518973.117327-1440213540</value>
+    <value type="QString" >XKEYSYMDB=/usr/share/X11/XKeysymDB</value>
+    <value type="QString" >XMODIFIERS=@im=local</value>
+    <value type="QString" >XNLSPATH=/usr/share/X11/nls</value>
+    <value type="QString" >XSESSION_IS_UP=yes</value>
+    <value type="QString" >ftp_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >http_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >https_proxy=http://www-blv-proxy.boeing.com:31060</value>
+    <value type="QString" >no_proxy=localhost, 127.0.0.1, boeing.com, 130.42.32.0</value>
+   </valuelist>
+   <valuelist key="abstractProcess.arguments" type="QVariantList" >
+    <value type="QString" >clean</value>
+    <value type="QString" >-w</value>
+   </valuelist>
+   <value key="abstractProcess.command" type="QString" >/usr/bin/make</value>
+   <value key="abstractProcess.enabled" type="bool" >true</value>
+   <value key="abstractProcess.workingDirectory" type="QString" >/home/mattes/BNGI/crawler/src/if-map-qt/svrtests/omapd</value>
+  </valuemap>
+ </data>
+ <data>
+  <variable>buildconfigurations</variable>
+  <valuelist type="QVariantList" >
+   <value type="QString" >Debug</value>
+  </valuelist>
+ </data>
+ <data>
+  <variable>buildstep0</variable>
+  <valuemap type="QVariantMap" >
+   <value key="ProjectExplorer.BuildConfiguration.DisplayName" type="QString" ></value>
+   <value key="mkspec" type="QString" ></value>
+  </valuemap>
+ </data>
+ <data>
+  <variable>buildstep1</variable>
+  <valuemap type="QVariantMap" >
+   <value key="ProjectExplorer.BuildConfiguration.DisplayName" type="QString" ></value>
+  </valuemap>
+ </data>
+ <data>
+  <variable>buildsteps</variable>
+  <valuelist type="QVariantList" >
+   <value type="QString" >trolltech.qt4projectmanager.qmake</value>
+   <value type="QString" >trolltech.qt4projectmanager.make</value>
+  </valuelist>
+ </data>
+ <data>
+  <variable>cleanstep0</variable>
+  <valuemap type="QVariantMap" >
+   <value key="ProjectExplorer.BuildConfiguration.DisplayName" type="QString" ></value>
+   <value key="clean" type="bool" >true</value>
+  </valuemap>
+ </data>
+ <data>
+  <variable>cleansteps</variable>
+  <valuelist type="QVariantList" >
+   <value type="QString" >trolltech.qt4projectmanager.make</value>
+  </valuelist>
+ </data>
+ <data>
+  <variable>defaultFileEncoding</variable>
+  <value type="QByteArray" >System</value>
+ </data>
+ <data>
+  <variable>project</variable>
+  <valuemap type="QVariantMap" />
+ </data>
+</qtcreator>
