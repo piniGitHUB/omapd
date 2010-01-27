@@ -42,3 +42,29 @@ There are several reasons to want to efficiently track which publishers are publ
   * purgePublisher operation
   * session timeouts removing metadata from a publisher
 There are two QMultiHash tables for tracking publishers: one for tracking a publisher's metadata on identifiers, and another for tracking a publisher's metadata on links.  In each of these, the publisher-id is the key and the identifier or link is the value.
+
+= omapd Server objects =
+The omapd server is based on Qt's QTcpServer class.  The server needs to maintain a significant amount of state regarding MAP client connections, but this state is independent of the MAP graph.  Therefore the Server has containers to track:
+  * Active SSRC sessions
+  * Active ARC sessions
+  * Active polls
+  * Subscription lists
+
+== Active SSRC Sessions ==
+This is a QHash table of publisherId-->sessionId mappings.
+
+== Active ARC Sessions ==
+This is a QHash table of publisherId-->sessionId mappings.
+
+== Active Polls ==
+This is a QHash table of publisherId-->QTcpSocket mappings
+
+== Subscription Lists ==
+This is a QHash table of publisherId-->subscriptionList mappings
+
+=== Subscriptions ===
+Subscriptions are sub-graphs about which a client expects to receive asynchronous notifications when metadata on this sub-graph changes.  Subscriptions are defined by searches, and thus the sub-graph class is named `SearchGraph`.  When a client subscribes (or searches), a sub-graph is created, which is a table of identifiers and a table of links (that have metadata associated with them).  However, a sub-graph does not also keep track of the actual metadata on the tables of links and identifiers - this duplicates too much data.
+
+Whenever metadata is updated or deleted in a publish operation, all these sub-graphs must be checked.  If there is a change to the tables of links and identifiers, and those changes match the search parameters of the subscription, the sub-graph is marked as dirty.  Any outstanding polls are then checked to see if they have dirty sub-graphs and if so, search results are sent to the MAP client.
+
+Since each sub-graph must be checked for each metadata publish operation, it is important that the lifecycle of a sub-graph be limited to the session of the MAP client.
