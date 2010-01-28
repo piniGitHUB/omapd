@@ -66,7 +66,7 @@ public:
                       };
     Q_DECLARE_FLAGS(NonStdBehaviorOptions, NonStdBehavior);
 
-    Server(MapGraph *mapGraph, quint16 port = 8080, QObject *parent = 0);
+    Server(MapGraph *mapGraph, quint16 port = 8081, QObject *parent = 0);
     //void incomingConnection(int socket);
     int readHeader(QTcpSocket *socket);
     int readRequestData(QTcpSocket *socket);
