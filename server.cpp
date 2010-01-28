@@ -32,8 +32,8 @@ Server::Server(MapGraph *mapGraph, quint16 port, QObject *parent)
 
     // TODO: Add SSL
 
-    //_debug = Server::ShowHTTPState | Server::ShowXML;
-    _debug = Server::DebugNone;
+    _debug = Server::ShowHTTPState | Server::ShowXML;
+    //_debug = Server::DebugNone;
     _nonStdBehavior = Server::EnablePubIdHint | Server::IgnoreSessionId;
 
     bool listening = listen(QHostAddress::Any, port);
@@ -395,7 +395,10 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
             }
         }
         QtSoapType *pubMsgResponse = soapResponseForOperation(method, requestError);
-        respMsg.addBodyItem(pubMsgResponse);
+        QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->insert(pubMsgResponse);
+        
+        respMsg.addBodyItem(respStruct);
 
     } else if (method.compare("search", Qt::CaseInsensitive) == 0 && validSessId) {
         QtSoapStruct *searchResponse;
@@ -443,7 +446,9 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
                 // TODO: Should send SOAP Client Fault
             }
         }
-        respMsg.addBodyItem(searchResponse);
+        QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->insert(searchResponse);
+        respMsg.addBodyItem(respStruct);
 
     } else if (method.compare("subscribe", Qt::CaseInsensitive) == 0 && validSessId) {
         QtSoapType *subMsgResponse;
@@ -575,8 +580,9 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
             }
         }
         subMsgResponse = soapResponseForOperation(method, requestError);
-
-        respMsg.addBodyItem(subMsgResponse);
+        QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->insert(subMsgResponse);
+        respMsg.addBodyItem(respStruct);
 
     } else if (method.compare("poll", Qt::CaseInsensitive) == 0 && validSessId) {
         QtSoapStruct *pollResult;
@@ -595,7 +601,9 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
                     // No immediate client response
                     respondNow = false;
                 } else {
-                    respMsg.addBodyItem(pollResult);
+                    QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+                    respStruct->insert(pollResult);
+                    respMsg.addBodyItem(respStruct);
                 }
             }
         } else {
@@ -603,7 +611,9 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
             qDebug() << fnName << "No active ARC session for poll from publisherId:" << publisherId;
             requestError = IfmapInvalidSessionID;
             pollResult = (QtSoapStruct *)soapResponseForOperation(method, requestError);
-            respMsg.addBodyItem(pollResult);
+            QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+            respStruct->insert(pollResult);
+            respMsg.addBodyItem(respStruct);
         }
 
     } else if (method.compare("purgePublisher", Qt::CaseInsensitive) == 0 && validSessId) {
@@ -627,7 +637,9 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
             // TODO: Should result in SOAP Client Fault
         }
         QtSoapType *purgePubResponse = soapResponseForOperation(method, requestError);
-        respMsg.addBodyItem(purgePubResponse);
+        QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->insert(purgePubResponse);
+        respMsg.addBodyItem(respStruct);
 
     } else {
         respMsg.setFaultCode(QtSoapMessage::Client);

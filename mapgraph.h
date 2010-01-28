@@ -31,7 +31,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #define IFMAP_MAX_SIZE 100000;
 
 static QString IFMAP_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP/1";
-static QString IFMAP_META_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP/1";
+static QString IFMAP_META_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP-METADATA/1";
 
 class SearchGraph
 {
