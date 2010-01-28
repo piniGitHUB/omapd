@@ -51,6 +51,11 @@ Server::Server(MapGraph *mapGraph, quint16 port, QObject *parent)
 
         // Seed RNG for session-ids
         qsrand(QDateTime::currentDateTime().toTime_t());
+
+        // Register IF-MAP 1.1 Namespaces
+        QtSoapNamespaces &registry = QtSoapNamespaces::instance();
+        registry.registerNamespace("ifmap", IFMAP_NS_1);
+        registry.registerNamespace("meta", IFMAP_META_NS_1);
     }
 }
 
@@ -396,6 +401,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
         }
         QtSoapType *pubMsgResponse = soapResponseForOperation(method, requestError);
         QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->setAttribute("validation","None");
         respStruct->insert(pubMsgResponse);
         
         respMsg.addBodyItem(respStruct);
@@ -447,6 +453,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
             }
         }
         QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->setAttribute("validation","None");
         respStruct->insert(searchResponse);
         respMsg.addBodyItem(respStruct);
 
@@ -581,6 +588,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
         }
         subMsgResponse = soapResponseForOperation(method, requestError);
         QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->setAttribute("validation","None");
         respStruct->insert(subMsgResponse);
         respMsg.addBodyItem(respStruct);
 
@@ -602,6 +610,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
                     respondNow = false;
                 } else {
                     QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+                    respStruct->setAttribute("validation","None");
                     respStruct->insert(pollResult);
                     respMsg.addBodyItem(respStruct);
                 }
@@ -612,6 +621,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
             requestError = IfmapInvalidSessionID;
             pollResult = (QtSoapStruct *)soapResponseForOperation(method, requestError);
             QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+            respStruct->setAttribute("validation","None");
             respStruct->insert(pollResult);
             respMsg.addBodyItem(respStruct);
         }
@@ -638,6 +648,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
         }
         QtSoapType *purgePubResponse = soapResponseForOperation(method, requestError);
         QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+        respStruct->setAttribute("validation","None");
         respStruct->insert(purgePubResponse);
         respMsg.addBodyItem(respStruct);
 
@@ -777,6 +788,7 @@ void Server::sendResponse(QTcpSocket *socket, const QtSoapMessage & respMsg)
     header.setContentType("text/xml");
     //header.setValue("Content-Encoding","UTF-8");
     header.setContentLength( respArr.size() );
+    header.setValue("Server","omapd");
 
     if (socket->isValid()) {
         socket->write(header.toString().toUtf8() );
@@ -1374,11 +1386,15 @@ void Server::buildPollResults()
 
             int searchResultSize = pollResultsForPublisherId(pollResult, pubId);
             if (searchResultSize) {
+                QtSoapStruct *respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
+                respStruct->setAttribute("validation","None");
+                respStruct->insert(pollResult);
+
                 QtSoapMessage respMsg;
                 QString sessId = _activeARCSessions.value(pubId);
                 QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id",IFMAP_NS_1),sessId);
                 respMsg.addHeaderItem(sessIdItem);
-                respMsg.addBodyItem(pollResult);
+                respMsg.addBodyItem(respStruct);
 
                 // Send it off
                 sendResponse(_activePolls.value(pubId), respMsg);
