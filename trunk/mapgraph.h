@@ -49,6 +49,8 @@ public:
     QSet<Link> linkList;
     // Two SearchGraphs are equal iff their names are equal
     bool operator==(const SearchGraph &other) const;
+
+    static QString translateFilter(QString ifmapFilter);
 };
 
 class MapGraph
@@ -62,11 +64,11 @@ public:
 
     void deleteMetaWithPublisherId(QString pubId);
 
-    QSet<Link> matchLinksAtId(Id targetId, QString matchLinks);
-    bool metadataPassesFilter(QList<Meta> metaList, QString filter);
+    // List of all identifiers that targetId is on a link with
+    QList<Id> linksTo(Id targetId) { return _linksTo.values(targetId); }
 
-    QList<Meta> metaForLink(Link link);
-    QList<Meta> metaForId(Id id);
+    QList<Meta> metaForLink(Link link) { return _linkMeta.value(link); }
+    QList<Meta> metaForId(Id id) { return _idMeta.value(id); }
 
 private:
     QHash<Id, QList<Meta> > _idMeta; // Id --> all metadata on Id

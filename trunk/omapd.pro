@@ -1,5 +1,6 @@
 QT += network \
-    xml
+    xml \
+    xmlpatterns
 QT -= gui
 TARGET = omapd
 CONFIG += console

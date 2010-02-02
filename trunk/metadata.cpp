@@ -26,28 +26,6 @@ Meta::Meta(Meta::Cardinality cardinality)
 {
 }
 
-Meta::Meta(QString metaString, Meta::Cardinality cardinality)
-        : _cardinality(cardinality)
-{
-    _metaXMLStrings = QStringList(metaString);
-}
-
-void Meta::addMetadataString(QString metaString)
-{
-    switch (_cardinality) {
-        case Meta::SingleValue:
-            _metaXMLStrings = QStringList(metaString);
-            break;
-        case Meta::MultiValue:
-            if (_metaXMLStrings.isEmpty() ) {
-                _metaXMLStrings = QStringList(metaString);
-            } else {
-                _metaXMLStrings << metaString;
-            }
-            break;
-    }
-}
-
 // Two Meta objects are equal iff their elementName and namespace members are the same
 bool Meta::operator ==(const Meta &other) const
 {
