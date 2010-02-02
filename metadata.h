@@ -34,16 +34,13 @@ public:
             };
 
     Meta(Meta::Cardinality cardinality = Meta::SingleValue);
-    Meta(QString metaString, Meta::Cardinality cardinality = Meta::SingleValue);
 
     Meta::Cardinality cardinality() { return _cardinality; }
-    QStringList metadataXML() const { return _metaXMLStrings; }
     QList<QDomNode> metaDomNodes() const { return _metaDomNodes; }
     QString elementName() const { return _elementName; }
     QString elementNS() const { return _elementNS; }
 
     void addMetadataDomNode(QDomNode metaNode) { _metaDomNodes << metaNode; }
-    void addMetadataString(QString metaString);
     void setElementName(QString elementName) { _elementName = elementName; }
     void setNamespace(QString ns) { _elementNS = ns; }
 
@@ -54,7 +51,6 @@ private:
     Meta::Cardinality _cardinality;
     QString _elementName;
     QString _elementNS;
-    QStringList _metaXMLStrings;  // If singleValue will only have one item in here
     QList<QDomNode> _metaDomNodes;
 };
 

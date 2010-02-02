@@ -22,6 +22,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QtNetwork>
 #include <QtCore>
 #include <QtXml>
+#include <QXmlQuery>
 
 #include "server.h"
 
@@ -32,7 +33,7 @@ Server::Server(MapGraph *mapGraph, quint16 port, QObject *parent)
 
     // TODO: Add SSL
 
-    _debug = Server::ShowHTTPState | Server::ShowXML;
+    _debug = Server::ShowHTTPState | Server::ShowXML | Server::ShowXMLFilterResults | Server::ShowXMLFilterStatements;
     //_debug = Server::DebugNone;
     _nonStdBehavior = Server::EnablePubIdHint | Server::IgnoreSessionId;
 
@@ -443,6 +444,8 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
                 if (! underMaxSize) {
                     requestError = IfmapSearchResultsTooBig;
                     //TODO: Do I need to first delete existing searchResponse allocation?
+                    //  ---> YES
+                    delete searchResponse;
                     searchResponse = (QtSoapStruct *)soapResponseForOperation(method, requestError);
                 }
 
@@ -737,12 +740,15 @@ bool Server::searchParameters(QDomNamedNodeMap searchAttrs, int *maxDepth, QStri
         qDebug() << fnName << "Using default search parameter max-depth:" << *maxDepth;
     }
 
+    /* SPEC: Can't find normative text for behavior if match-links is missing or empty.
+    */
     if (searchAttrs.contains("match-links")) {
-        *matchLinks = searchAttrs.namedItem("match-links").toAttr().value();
+        QString ifmapMatchLinks = searchAttrs.namedItem("match-links").toAttr().value();
+        *matchLinks = SearchGraph::translateFilter(ifmapMatchLinks);
         qDebug() << fnName << "Got search parameter match-links:" << *matchLinks;
     } else {
-        *matchLinks = QString("*");
-        qDebug() << fnName << "Using default search parameter match-links:" << matchLinks;
+        *matchLinks = QString("");
+        qDebug() << fnName << "Using default search parameter match-links:" << *matchLinks;
     }
 
     /* IF-MAP 1:3.8.2.7: MAP Servers MUST support size constraints up to
@@ -767,11 +773,12 @@ bool Server::searchParameters(QDomNamedNodeMap searchAttrs, int *maxDepth, QStri
     }
 
     if (searchAttrs.contains("result-filter")) {
-        *resultFilter = searchAttrs.namedItem("result-filter").toAttr().value();
+        QString ifmapResultFilter = searchAttrs.namedItem("result-filter").toAttr().value();
+        *resultFilter = SearchGraph::translateFilter(ifmapResultFilter);
         qDebug() << fnName << "Got search parameter result-filter:" << *resultFilter;
     } else {
         *resultFilter = QString("*");
-        qDebug() << fnName << "Using default search parameter result-filter:" << resultFilter;
+        qDebug() << fnName << "Using default search parameter result-filter:" << *resultFilter;
     }
 
     return false;
@@ -825,6 +832,8 @@ QtSoapType* Server::soapResponseForOperation(QString operation, bool operationEr
         }
     } else if (operation.compare("search", Qt::CaseInsensitive) == 0) {
         if (operationError) {
+            respMsg = new QtSoapStruct(QtSoapQName("errorResult", IFMAP_NS_1));
+            respMsg->setAttribute("errorCode","SearchResultsTooBig");
         } else {
             respMsg = new QtSoapStruct(QtSoapQName("searchResult",IFMAP_NS_1));
         }
@@ -958,18 +967,154 @@ QtSoapStruct* Server::soapStructForId(Id id)
     return idOuterStruct;
 }
 
+int Server::filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct *metaResult)
+{
+    const char *fnName = "Server::filteredMetadata:";
+    int resultSize = 0;
+    bool matchAll = false;
+
+    /* The filter will be either a match-links or result-filter filter, depending on
+       where this method is called.
+    */
+    /* Per IF-MAP 1:3.8.2.3:match-links specifies the criteria for positive matching
+       for including metadata from any link visited in the search. match-links also
+       specifies the criteria for including linked identifiers in the search.
+    */
+    /* Per IF-MAP 1:3.8.2.5: result-filter
+       The filter specifies any further rules for deleting data from the results. If
+       there is no result-filter attribute, all metadata on all identifiers and links
+       that match the search is returned to the client. If an empty filter is attribute
+       is specified, the identifiers and links that match the search are returned to
+       the client with no metadata.
+    */
+
+    if (filter.isEmpty()) {
+        qDebug() << fnName << "Empty filter string matches nothing";
+        return 0;
+    } else if (filter == "*") {
+        matchAll = true;
+    }
+
+    QString qString;
+    QTextStream queryStream(&qString);
+
+    if (!matchAll) {
+        QStringList metaNS;
+        QListIterator<Meta> it1(metaList);
+        while (it1.hasNext()) {
+            Meta aMeta = it1.next();
+            metaNS << aMeta.elementNS();
+        }
+
+        metaNS.removeDuplicates();
+
+        /* TODO: I should be using the namespaces/prefixes sent by the client in their
+           <search> element and/or in their match-links and result-filter filter text.
+           To get something working, I'm just using the prefix that was used when the
+           metadata was published, but this may be a different prefix than what is used
+           in filter.  I'm also using the standard IFMAP_META_NS_1 namespace with meta
+           prefix that is registered in the Server::Server() method.
+        */
+        QStringListIterator nsit(metaNS);
+        while (nsit.hasNext()) {
+            QString nsuri = nsit.next();
+            queryStream << "declare namespace "
+                    << QtSoapNamespaces::instance().prefixFor(nsuri)
+                    << " = \""
+                    << nsuri
+                    << "\";";
+        }
+
+        queryStream << "<metadata>";
+    }
+
+    QListIterator<Meta> it2(metaList);
+    while (it2.hasNext()) {
+        Meta aMeta = it2.next();
+        QList<QDomNode> metaNodes = aMeta.metaDomNodes();
+        QListIterator<QDomNode> metaIt(metaNodes);
+        while (metaIt.hasNext()) {
+            QDomNode aMetaNode = metaIt.next();
+            queryStream << aMetaNode;
+        }
+    }
+
+    if (!matchAll) {
+        queryStream << "</metadata>";
+
+        queryStream << "//"
+                << filter;
+    }
+
+    QString queryStr = queryStream.readAll();
+
+    if (_debug.testFlag(Server::ShowXMLFilterStatements))
+        qDebug() << fnName << "Query Statement:" << endl << queryStr;
+
+    QXmlQuery query;
+    QString result;
+    bool qrc;
+
+    if (!matchAll) {
+        query.setQuery(queryStr);
+        qrc = query.evaluateTo(&result);
+    } else {
+        result = queryStr;
+        qrc = true;
+    }
+
+    if (! qrc) {
+        qDebug() << fnName << "Error running query!";
+    } else {
+        if (! result.trimmed().isEmpty()) {
+            resultSize = result.size();
+
+            if (_debug.testFlag(Server::ShowXMLFilterResults))
+                qDebug() << fnName << "Query Result:" << endl << result;
+
+            if (metaResult) {
+                result.prepend("<metadata>");
+                result.append("</metadata>");
+
+                // Package up result into metaResult
+                int errorLine, errorColumn;
+                QString errorMsg;
+                QDomDocument resultDom;
+                if (!resultDom.setContent(result, true, &errorMsg, &errorLine, &errorColumn)) {
+                    qDebug() << fnName << "Document parsing errorMsg:" << errorMsg;
+                } else {
+                    QDomNode node = resultDom.documentElement();
+                    bool res = metaResult->parse(node);
+                    if (!res) {
+                        qDebug() << fnName << "Error parsing QtSoapStruct from DOM node";
+                        resultSize = 0;
+                    }
+                }
+            }
+        }
+    }
+
+    return resultSize;
+}
+
 bool Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int maxSize, QString resultFilter, QSet<Id> idList, QSet<Link> linkList)
 {
     const char *fnName = "Server::addSearchResultsWithResultFilter:";
 
-    // TODO: Do a running check on curSize and
     // return false if we exceed maxSize
-    int curSize = 0;
-    if (curSize > maxSize) return false;
+    bool underMaxSize = true;
 
-    qDebug() << fnName << "linkList size:" << linkList.size();
+    /* Per IF-MAP 1:3.8.3: Since all identifiers for a given identifier type
+       are always valid to search, the MAP Server MUST never return an
+       identifier not found error when searching for an identifier. In this
+       case, the MAP Server MUST return the identifier with no metadata or
+       links attached to it.
+    */
+
+    int curSize = 0;
+
     QSetIterator<Link> linkIt(linkList);
-    while (linkIt.hasNext()) {
+    while (linkIt.hasNext() && underMaxSize) {
         Link link = linkIt.next();
         QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
         qDebug() << fnName << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
@@ -978,41 +1123,18 @@ bool Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int ma
             QtSoapStruct *idStruct1 = soapStructForId(link.first);
             QtSoapStruct *idStruct2 = soapStructForId(link.second);
 
-            QtSoapStruct *metaResult = 0;
-            bool gotOne = false;
-            QListIterator<Meta> metaIt(linkMetaList);
-            while (metaIt.hasNext()) {
-                Meta linkMeta = metaIt.next();
-                QList<QDomNode> metaNodes = linkMeta.metaDomNodes();
-                qDebug() << fnName << "metaNodes size:" << metaNodes.size();
-                QListIterator<QDomNode> nodeIt(metaNodes);
-                while (nodeIt.hasNext()) {
-                    QDomNode metaNode = nodeIt.next();
-                    bool metaPassesFilter = true;
-                    //TODO: Implement and apply resultFilter
-                    if (metaPassesFilter) {
-                        if (!gotOne) {
-                            metaResult = new QtSoapStruct(QtSoapQName("metadata"));
-                            gotOne = true;
-                        }
-                        if (metaNode.firstChild().isElement()) {
-                            QtSoapStruct *metaResultEntry = new QtSoapStruct();
-                            metaResultEntry->parse(metaNode);
-                            metaResult->insert(metaResultEntry);
-                        } else {
-                            QtSoapSimpleType *metaResultEntry = new QtSoapSimpleType();
-                            metaResultEntry->parse(metaNode);
-                            metaResult->insert(metaResultEntry);
-                        }
-                    } else {
-                        qDebug() << fnName << "Metadata with name:" << linkMeta.elementName()
-                                 << "does not pass resultFilter:" << resultFilter;
-                    }
-                }
-            }
+            QtSoapStruct *metaResult = new QtSoapStruct();
+            int mSize = filteredMetadata(linkMetaList, resultFilter, metaResult);
 
-            if (gotOne) {
+            if (mSize > 0) {
                 linkResult->insert(metaResult);
+                curSize += mSize;
+                if (curSize > maxSize) {
+                    qDebug() << fnName << "search results exceeded max-size with curSize:" << curSize;
+                    underMaxSize = false;
+                }
+            } else {
+                delete metaResult;
             }
             linkResult->insert(idStruct2);
             linkResult->insert(idStruct1);
@@ -1021,54 +1143,36 @@ bool Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int ma
     }
 
     QSetIterator<Id> idIt(idList);
-    while (idIt.hasNext()) {
+    while (idIt.hasNext() && underMaxSize) {
         Id id = idIt.next();
         QList<Meta> idMetaList = _mapGraph->metaForId(id);
+
+        QtSoapStruct *idResult = new QtSoapStruct(QtSoapQName("identifierResult"));
+        QtSoapStruct *idStruct = soapStructForId(id);
+
         if (!idMetaList.isEmpty()) {
-            QtSoapStruct *idResult = new QtSoapStruct(QtSoapQName("identifierResult"));
-            QtSoapStruct *idStruct = soapStructForId(id);
 
-            QtSoapStruct *metaResult = 0;
-            bool gotOne = false;
-            QListIterator<Meta> metaIt(idMetaList);
-            while (metaIt.hasNext()) {
-                Meta idMeta = metaIt.next();
-                QList<QDomNode> metaNodes = idMeta.metaDomNodes();
-                QListIterator<QDomNode> nodeIt(metaNodes);
-                while (nodeIt.hasNext()) {
-                    QDomNode metaNode = nodeIt.next();
-                    bool metaPassesFilter = true;
-                    //TODO: Implement and apply resultFilter
-                    if (metaPassesFilter) {
-                        if (!gotOne) {
-                            metaResult = new QtSoapStruct(QtSoapQName("metadata"));
-                            gotOne = true;
-                        }
-                        if (metaNode.firstChild().isElement()) {
-                            QtSoapStruct *metaResultEntry = new QtSoapStruct();
-                            metaResultEntry->parse(metaNode);
-                            metaResult->insert(metaResultEntry);
-                        } else {
-                            QtSoapSimpleType *metaResultEntry = new QtSoapSimpleType();
-                            metaResultEntry->parse(metaNode);
-                            metaResult->insert(metaResultEntry);
-                        }
-                    } else {
-                        qDebug() << fnName << "Metadata with name:" << idMeta.elementName()
-                                 << "does not pass resultFilter:" << resultFilter;
-                    }
-                }
-            }
+            QtSoapStruct *metaResult = new QtSoapStruct();
+            int mSize = filteredMetadata(idMetaList, resultFilter, metaResult);
 
-            if (gotOne) {
+            if (mSize > 0) {
                 idResult->insert(metaResult);
+                curSize += mSize;
+                if (curSize > maxSize) {
+                    qDebug() << fnName << "search results exceeded max-size with curSize;" << curSize;
+                    underMaxSize = false;
+                }
+            } else {
+                delete metaResult;
             }
-            idResult->insert(idStruct);
-            soapResponse->insert(idResult);
+
         }
+
+        idResult->insert(idStruct);
+        soapResponse->insert(idResult);
     }
 
-    return true;
+    return underMaxSize;
 }
 
 void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
@@ -1095,7 +1199,22 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
     idList->insert(startId);
 
     // 5. Get list of links that have startId in link and pass matchLinks filter
-    QSet<Link > linksWithCurId = _mapGraph->matchLinksAtId(startId, matchLinks);
+    QSet<Link> linksWithCurId;
+    QList<Id> startIdLinks = _mapGraph->linksTo(startId);
+    QListIterator<Id> idIter(startIdLinks);
+    while (idIter.hasNext()) {
+        // matchId is the other end of the link
+        Id matchId = idIter.next();
+        // Get identifier-order independent link
+        Link link = Identifier::makeLinkFromIds(startId, matchId);
+        // Get metadata on this link
+        QList<Meta> curLinkMeta = _mapGraph->metaForLink(link);
+        //If any of this metadata matches matchLinks add link to idMatchList
+        if (filteredMetadata(curLinkMeta, matchLinks) > 0) {
+            qDebug() << fnName << "Adding link:" << link;
+            linksWithCurId.insert(link);
+        }
+    }
 
     // Remove links we've already seen before
     linksWithCurId.subtract(*linkList);
@@ -1208,8 +1327,6 @@ void Server::markSubscriptionsForPolls(Link link, bool isLink)
 Link Server::keyFromNodeList(QDomNodeList ids, bool isLink)
 {
     Link key;
-    QString idString;
-    QTextStream idStream(&idString);
 
     if (! isLink) {
         Id id = idFromNode(ids.at(0).firstChild());

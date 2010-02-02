@@ -30,6 +30,36 @@ bool SearchGraph::operator==(const SearchGraph &other) const
         return false;
 }
 
+QString SearchGraph::translateFilter(QString ifmapFilter)
+{
+    const char *fnName = "SearchGraph::translateFilter:";
+
+    /* non-predicate expressions joined by "or" need to be translated
+       into a parenthesized expression separated by "|".
+
+       Examples:
+       meta:ip-mac or scada:node
+       --> (meta:ip-mac | scada:node)
+
+       meta:role[@publisher-id = "myPubId" or name="myRole"] or meta:ip-mac
+       --> (meta:role[@publisher-id = "myPubId" or name="myRole"] | meta:ip-mac)
+    */
+
+    // TODO: Do this with QRegExp
+
+    QString qtFilter = ifmapFilter;
+    if (ifmapFilter.contains("or", Qt::CaseInsensitive)) {
+        qDebug() << fnName << "WARNING! filter translation is woefully incomplete!";
+        qDebug() << fnName << "filter before translation:" << ifmapFilter;
+        qtFilter = ifmapFilter.replace("or","|");
+        qtFilter.prepend("(");
+        qtFilter.append(")");
+        qDebug() << fnName << "filter after translation:" << qtFilter;
+    }
+
+    return qtFilter;
+}
+
 MapGraph::MapGraph()
 {
 }
@@ -39,9 +69,6 @@ void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, QString p
     const char *fnName = "MapGraph::addMeta:";
 
     qDebug() << fnName << "number of metadata nodes:" << metaNodes.count();
-
-    QString idString;
-    QTextStream idStream(&idString);
 
     for (int i=0; i<metaNodes.count(); i++) {
         QString metaName = metaNodes.at(i).localName();
@@ -302,62 +329,6 @@ void MapGraph::deleteMetaWithPublisherId(QString pubId)
     //dumpMap();
 }
 
-QSet<Link> MapGraph::matchLinksAtId(Id targetId, QString matchLinks)
-{
-    const char *fnName = "MapGraph::matchLinks:";
-    QSet<Link > idMatchList;
-
-    // List of all identifiers that targetId is on a link with
-    QList<Id> matchIds = _linksTo.values(targetId);
-
-    QListIterator<Id> idIter(matchIds);
-    while (idIter.hasNext()) {
-        // matchId is the other end of the link
-        Id matchId = idIter.next();
-        // Get identifier-order independent link
-        Link link = Identifier::makeLinkFromIds(targetId, matchId);
-        // Get metadata on this link
-        QList<Meta> curLinkMeta = _linkMeta.value(link);
-        //If any of this metadata matches matchLinks add link to idMatchList
-        if (metadataPassesFilter(curLinkMeta, matchLinks)) {
-            qDebug() << fnName << "Adding link:" << link;
-            idMatchList.insert(link);
-        }
-    }
-
-    return idMatchList;
-}
-
-bool MapGraph::metadataPassesFilter(QList<Meta> metaList, QString filter)
-{
-    bool foundMatch = false;
-
-    return true;
-
-    // TODO: implement filtering
-    QListIterator<Meta> it(metaList);
-    while (it.hasNext() && !foundMatch) {
-        Meta aMeta = it.next();
-        // This is the simplest possible application of the filter for proof of concept
-        // and needs to be worked out according to IF-MAP spec
-        if (aMeta.elementName() == filter) {
-            foundMatch = true;
-        }
-    }
-
-    return foundMatch;
-}
-
-QList<Meta> MapGraph::metaForLink(Link link)
-{
-    return _linkMeta.value(link);
-}
-
-QList<Meta> MapGraph::metaForId(Id id)
-{
-    return _idMeta.value(id);
-}
-
 void MapGraph::dumpMap()
 {
     const char *fnName = "MapGraph::dumpMap:";
@@ -376,7 +347,6 @@ void MapGraph::dumpMap()
         QListIterator<Meta> it(metaList);
         while (it.hasNext()) {
             Meta meta = it.next();
-            //qDebug() << "--->" << meta.metadataXML().join("\n") << endl;
             QListIterator<QDomNode> mit(meta.metaDomNodes());
             while (mit.hasNext()) {
                 idStream << mit.next();
@@ -396,7 +366,6 @@ void MapGraph::dumpMap()
         QListIterator<Meta> it(metaList);
         while (it.hasNext()) {
             Meta meta = it.next();
-            //qDebug() << "--->" << meta.metadataXML().join("\n") << endl;
             QListIterator<QDomNode> mit(meta.metaDomNodes());
             while (mit.hasNext()) {
                 idStream << mit.next();

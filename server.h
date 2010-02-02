@@ -55,7 +55,9 @@ public:
                 ShowXML = 0x2,
                 ShowHTTPHeaders = 0x4,
                 ShowHTTPState = 0x8,
-                ShowXMLParsing = 0x16
+                ShowXMLParsing = 0x16,
+                ShowXMLFilterResults = 0x32,
+                ShowXMLFilterStatements = 0x64
             };
     Q_DECLARE_FLAGS(DebugOptions, Debug);
 
@@ -104,6 +106,7 @@ private:
 
     bool searchParameters(QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter);
 
+    int filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct *metaResult = 0);
     bool addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int maxSize, QString resultFilter, QSet<Id> idList, QSet<Link> linkList);
     void buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
                 int currentDepth,

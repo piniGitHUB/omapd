@@ -1857,6 +1857,12 @@ bool QtSoapStruct::parse(QDomNode node)
 	    return false;
 	}
 
+	//DM: Register prefixes so they can be mapped for QXmlQuery namespace delcarations
+	if (! QtSoapNamespaces::instance().namespaceRegistered(n.namespaceURI())) {
+	    QtSoapNamespaces::instance().registerNamespace(n.prefix(), n.namespaceURI());
+	    //qDebug() << "QtSoapStruct::parse:" << n.localName() << n.namespaceURI() << n.prefix(); 
+	}
+
 	/*
 	//<DM: try to find attributes>
 	qDebug() << "QtSoapStruct::parse:" << n.toElement().tagName() 
@@ -3434,4 +3440,21 @@ QString QtSoapNamespaces::prefixFor(const QString &uri)
 	}
 
     return "";
+}
+
+/* DM: Test if namespace has been registered yet
+ */
+bool QtSoapNamespaces::namespaceRegistered(const QString &uri)
+{
+    if (namespaces.find(uri) != namespaces.end())
+        return true;
+    else
+        return false;
+}
+
+/* DM: Add reverse lookup
+ */
+QString QtSoapNamespaces::namespaceForPrefix(const QString &prefix)
+{
+    return namespaces.key(prefix,"xmlns:");
 }

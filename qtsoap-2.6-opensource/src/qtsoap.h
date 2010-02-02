@@ -575,6 +575,11 @@ public:
     void registerNamespace(const QString &prefix, const QString &uri);
     QString prefixFor(const QString &ns);
 
+    // DM: reverse lookup
+    QString namespaceForPrefix(const QString &prefix);
+    // DM: test if uri registered
+    bool namespaceRegistered(const QString &uri);
+
     static QtSoapNamespaces &instance();
 
 private:
