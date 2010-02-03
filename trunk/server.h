@@ -106,7 +106,7 @@ private:
 
     bool searchParameters(QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter);
 
-    int filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct *metaResult = 0);
+    int filteredMetadata(QList<Meta> metaList, QString filter, bool invert = false, QtSoapStruct *metaResult = 0);
     bool addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int maxSize, QString resultFilter, QSet<Id> idList, QSet<Link> linkList);
     void buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
                 int currentDepth,
