@@ -64,7 +64,7 @@ MapGraph::MapGraph()
 {
 }
 
-void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, QString publisherId)
+void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, bool republishing, QString publisherId)
 {
     const char *fnName = "MapGraph::addMeta:";
 
@@ -76,11 +76,16 @@ void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, QString p
         QString cardinality = metaNodes.at(i).attributes().namedItem("cardinality").toAttr().value();
         Meta::Cardinality cardinalityValue = (cardinality == "singleValue") ? Meta::SingleValue : Meta::MultiValue;
 
-        // Add publisherId to meta node
-        metaNodes.at(i).toElement().setAttribute("publisher-id",publisherId);
-        // Add timestamp to meta node
-        // TODO: Make sure timestamp is of correct type per IF-MAP spec
-        metaNodes.at(i).toElement().setAttribute("timestamp",QDateTime::currentDateTime().toString("dd.MM.yyyy hh:mm:ss"));
+        if (republishing) {
+            // Get publisherId from metaNode
+            publisherId = metaNodes.at(i).attributes().namedItem("publisher-id").toAttr().value();
+        } else {
+            // Add publisherId to meta node
+            metaNodes.at(i).toElement().setAttribute("publisher-id",publisherId);
+            // Add timestamp to meta node
+            // TODO: Make sure timestamp is of correct type per IF-MAP spec
+            metaNodes.at(i).toElement().setAttribute("timestamp",QDateTime::currentDateTime().toString("dd.MM.yyyy hh:mm:ss"));
+        }
 
         QDomNode metaDomNode = metaNodes.at(i);
 
@@ -103,29 +108,34 @@ void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, QString p
             if (! _linksTo.contains(link.first, link.second)) _linksTo.insert(link.first, link.second);
             if (! _linksTo.contains(link.second, link.first)) _linksTo.insert(link.second, link.first);
 
+            /* Track links published by this publisherId
+               NB: this is inefficient in the for-loop when not republishing and working
+               with multiple metaNodes - since the publisherId stays the same.
+            */
+            if (! _publisherLinks.contains(publisherId, link)) {
+                _publisherLinks.insert(publisherId, link);
+            }
         } else {
             // Place updated metadata back on identifier
             _idMeta.insert(link.first, existingMetaList);
+
+            /* Track identifiers published by this publisherId
+               NB: this is inefficient in the for-loop when not republishing and working
+               with multiple metaNodes - since the publisherId stays the same.
+            */
+            if (! _publisherIds.contains(publisherId, link.first)) {
+                _publisherIds.insert(publisherId, link.first);
+            }
         }
     }
 
     if (isLink) {
-        // Track links published by this publisherId
-        if (! _publisherLinks.contains(publisherId, link)) {
-            _publisherLinks.insert(publisherId, link);
-        }
-
-        qDebug() << fnName << "_idLink has size:" << _linkMeta.size();
+        qDebug() << fnName << "_linkMeta has size:" << _linkMeta.size();
     } else {
-        // Track identifiers published by this publisherId
-        if (! _publisherIds.contains(publisherId, link.first)) {
-            _publisherIds.insert(publisherId, link.first);
-        }
-
         qDebug() << fnName << "_idMeta has size:" << _idMeta.size();
     }
 
-    //dumpMap();
+    dumpMap();
 }
 
 Meta MapGraph::createAddReplaceMeta(QList<Meta> *existingMetaList, QString metaName, QString metaNS, Meta::Cardinality cardinality, QDomNode metaDomNode)
@@ -185,60 +195,53 @@ Meta MapGraph::createAddReplaceMeta(QList<Meta> *existingMetaList, QString metaN
     return aMeta;
 }
 
-void MapGraph::deleteMetaWithFilter(Link link, bool isLink, bool haveFilter, QString filter)
+void MapGraph::replaceMetaNodes(Link link, bool isLink, QDomNodeList metaNodesToKeep)
 {
-    const char *fnName = "MapGraph::deleteMetaWithFilter:";
+    const char *fnName = "MapGraph::replaceMetaNodes:";
+
     if (isLink) {
-        if (!haveFilter || (filter.compare("*") == 0)) {
-            // IF-MAP: if filter is not given, delete all metadata
+        // Don't need to remove entries from _linksTo, because we are either going to
+        // put metaNodesToKeep back on link or remove the _linksTo entries later.
 
-            // Easy - just delete all metadata on Identifier
-            _linkMeta.remove(link);
+        // Remove all metadata from link
+        _linkMeta.remove(link);
 
-            // Also delete entries from _publisherLinks list for this Link
-            QList<QString> publishersOnLink = _publisherLinks.keys(link);
-            QListIterator<QString> pubIt(publishersOnLink);
-            while (pubIt.hasNext()) {
-                QString pubId = pubIt.next();
-                _publisherLinks.remove(pubId, link);
-            }
-
-            // Also delete entries from _linksTo table, since deleting all meta on this link
-            _linksTo.remove(link.first, link.second);
-            _linksTo.remove(link.second, link.first);
-
-        } else if (haveFilter && filter.isEmpty()) {
-            // IF-MAP: if filter is empty string, do nothing
-            qDebug() << fnName << "Empty filter string given --> nothing deleted";
-        } else {
-            // Harder - apply filter
-            // TODO - apply filter ;-)
+        // Remove all publisherIds that published on this link
+        QList<QString> pubIdsOnLink = _publisherLinks.keys(link);
+        QListIterator<QString> pubIt(pubIdsOnLink);
+        while (pubIt.hasNext()) {
+            QString pubId = pubIt.next();
+            _publisherLinks.remove(pubId, link);
         }
 
     } else {
-        if (!haveFilter || (filter.compare("*") == 0)) {
-            // IF-MAP: if filter is not given, delete all metadata
+        // Remove all metadata from identifier
+        _idMeta.remove(link.first);
 
-            // Easy - just delete all metadata on Identifier
-            _idMeta.remove(link.first);
-
-            // Also delete entries from _publisherIds list for this Identifier
-            QList<QString> publishersOnId = _publisherIds.keys(link.first);
-            QListIterator<QString> pubIt(publishersOnId);
-            while (pubIt.hasNext()) {
-                QString pubId = pubIt.next();
-                _publisherIds.remove(pubId, link.first);
-            }
-        } else if (haveFilter && filter.isEmpty()) {
-            // IF-MAP: if filter is empty string, do nothing
-            qDebug() << fnName << "Empty filter string given --> nothing deleted";
-        } else {
-            // Harder - apply filter
-            // TODO - apply filter ;-)
+        // Remove all publisherIds that published on this identifier
+        QList<QString> pubIdsOnId = _publisherIds.keys(link.first);
+        QListIterator<QString> pubIt(pubIdsOnId);
+        while (pubIt.hasNext()) {
+            QString pubId = pubIt.next();
+            _publisherIds.remove(pubId, link.first);
         }
     }
 
-    //dumpMap();
+    // Now that all existing metadata (and associated relationships) are deleted,
+    // add it back.
+    if (! metaNodesToKeep.isEmpty()) {
+        addMeta(link, metaNodesToKeep, isLink, true);
+    } else {
+        if (isLink) {
+            // Remove entries from _linksTo now that there is no metadata on link
+            _linksTo.remove(link.first, link.second);
+            _linksTo.remove(link.second, link.first);
+            qDebug() << fnName << "All metadata deleted on link:" << link;
+        } else {
+            qDebug() << fnName << "All metadata deleted on identifier:" << link.first;
+        }
+        dumpMap();
+    }
 }
 
 void MapGraph::deleteMetaWithPublisherId(QString pubId)

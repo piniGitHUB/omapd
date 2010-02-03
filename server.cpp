@@ -348,10 +348,10 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
                     qDebug() << fnName << "number of identifiers:" << ids.length();
                     bool isLink = (ids.length() == 2) ? true : false;
                     Link key = keyFromNodeList(ids, isLink);
-                    _mapGraph->addMeta(key, meta, isLink, publisherId);
+                    _mapGraph->addMeta(key, meta, isLink, false, publisherId);
 
                     // Determine if the update effects any subscriptions
-                    markSubscriptionsForPolls(key, isLink);
+                    if (!requestError) markSubscriptionsForPolls(key, isLink);
 
                 } else if (pubOperation.compare("delete", Qt::CaseInsensitive) == 0) {
                     QDomDocument doc("placeholder");
@@ -362,9 +362,12 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
                     bool haveFilter = el.attributes().contains("filter");
                     if (haveFilter) {
                         filter = el.attributes().namedItem("filter").toAttr().value();
+                        filter = SearchGraph::translateFilter(filter);
                         qDebug() << fnName << "delete filter:" << filter;
                     } else {
-                        qDebug() << fnName << "no delete filter provided";
+                        // SPEC: In IF-MAP 1:3.8.1.2 behavior is not clear if no delete filter
+                        // provided.
+                        qDebug() << fnName << "no delete filter provided, deleting ALL metadata";
                     }
 
                     QDomNodeList ids = doc.elementsByTagName("identifier");
@@ -378,11 +381,57 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
                     bool isLink = (ids.length() == 2) ? true : false;
                     Link key = keyFromNodeList(ids, isLink);
 
-                    _mapGraph->deleteMetaWithFilter(key, isLink, haveFilter, filter);
+                    QList<Meta> metaList;
+                    if (isLink) metaList = _mapGraph->metaForLink(key);
+                    else metaList = _mapGraph->metaForId(key.first);
 
-                    // Determine if the delete effects any subscriptions
-                    markSubscriptionsForPolls(key, isLink);
+                    if (! metaList.isEmpty() && haveFilter) {
+                        /* First need to know if the delete filter will match anything,
+                           because if it does match, then we'll need to notify any
+                           active subscribers.
+                        */
+                        int dSize = filteredMetadata(metaList, filter, false);
+                        if (dSize > 0) {
+                            // Since the delete filter actually matched something, apply it
+                            QtSoapStruct *metaResult = new QtSoapStruct();
+                            int mSize = filteredMetadata(metaList, filter, true, metaResult);
+                            if (mSize > 0) {
+                                // Have some un-deleted metadata to replace existing metadata
+                                QDomDocument metaDoc("placeholder");
+                                QDomElement metaEl = metaResult->toDomElement(metaDoc);
+                                doc.appendChild(metaEl);
 
+                                QDomNodeList metaNodesToKeep = metaEl.childNodes();
+                                qDebug() << fnName << "Found number of metadata DomNodes to keep:" << metaNodesToKeep.size();
+                                _mapGraph->replaceMetaNodes(key, isLink, metaNodesToKeep);
+                            } else if (mSize == 0) {
+                                // All metadata matched delete filter and needs to removed
+                                _mapGraph->replaceMetaNodes(key, isLink);
+                            } else {
+                                // There was an error running the query
+                                // Error - ServerError
+                                requestError = IfmapSystemError;
+                            }
+
+                            // Determine if the delete effects any subscriptions
+                            if (!requestError) markSubscriptionsForPolls(key, isLink);
+
+                        } else if (dSize < 0) {
+                            // There was an error running the query
+                            // Error - ServerError
+                            requestError = IfmapSystemError;
+                        } else {
+                            qDebug() << fnName << "Delete filter matches nothing!";
+                        }
+
+                    } else if (! metaList.isEmpty()) {
+                        // No filter provided so we just delete all metadata
+                        _mapGraph->replaceMetaNodes(key, isLink);
+                        markSubscriptionsForPolls(key, isLink);
+
+                    } else {
+                        qDebug() << fnName << "No metadata to delete!";
+                    }
                 } else {
                     // Error!
                     requestError = IfmapFailure;
@@ -967,14 +1016,18 @@ QtSoapStruct* Server::soapStructForId(Id id)
     return idOuterStruct;
 }
 
-int Server::filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct *metaResult)
+/* Returns -1 on QXmlQuery Error
+*/
+int Server::filteredMetadata(QList<Meta> metaList, QString filter, bool invert, QtSoapStruct *metaResult)
 {
     const char *fnName = "Server::filteredMetadata:";
     int resultSize = 0;
     bool matchAll = false;
 
-    /* The filter will be either a match-links or result-filter filter, depending on
-       where this method is called.
+    /* The filter will be either a match-links, result-filter, or delete filter,
+       depending on where this method is called.  The "invert" parameter reverses the
+       sense of the filter, so if the filter is a delete filter, be sure
+       to set invert = true.
     */
     /* Per IF-MAP 1:3.8.2.3:match-links specifies the criteria for positive matching
        for including metadata from any link visited in the search. match-links also
@@ -1042,8 +1095,16 @@ int Server::filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct 
     if (!matchAll) {
         queryStream << "</metadata>";
 
-        queryStream << "//"
-                << filter;
+        if (invert) {
+            // We have a delete filter and want to return the
+            // metadata that is left after deleting using XPath's fn:except
+            queryStream << "/./(* except "
+                    << filter
+                    << ")";
+        } else {
+            queryStream << "//"
+                    << filter;
+        }
     }
 
     QString queryStr = queryStream.readAll();
@@ -1065,6 +1126,7 @@ int Server::filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct 
 
     if (! qrc) {
         qDebug() << fnName << "Error running query!";
+        resultSize = -1;
     } else {
         if (! result.trimmed().isEmpty()) {
             resultSize = result.size();
@@ -1124,7 +1186,7 @@ bool Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int ma
             QtSoapStruct *idStruct2 = soapStructForId(link.second);
 
             QtSoapStruct *metaResult = new QtSoapStruct();
-            int mSize = filteredMetadata(linkMetaList, resultFilter, metaResult);
+            int mSize = filteredMetadata(linkMetaList, resultFilter, false, metaResult);
 
             if (mSize > 0) {
                 linkResult->insert(metaResult);
@@ -1153,7 +1215,7 @@ bool Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int ma
         if (!idMetaList.isEmpty()) {
 
             QtSoapStruct *metaResult = new QtSoapStruct();
-            int mSize = filteredMetadata(idMetaList, resultFilter, metaResult);
+            int mSize = filteredMetadata(idMetaList, resultFilter, false, metaResult);
 
             if (mSize > 0) {
                 idResult->insert(metaResult);
@@ -1210,7 +1272,7 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
         // Get metadata on this link
         QList<Meta> curLinkMeta = _mapGraph->metaForLink(link);
         //If any of this metadata matches matchLinks add link to idMatchList
-        if (filteredMetadata(curLinkMeta, matchLinks) > 0) {
+        if (filteredMetadata(curLinkMeta, matchLinks, false) > 0) {
             qDebug() << fnName << "Adding link:" << link;
             linksWithCurId.insert(link);
         }

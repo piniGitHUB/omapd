@@ -58,10 +58,9 @@ class MapGraph
 public:
     MapGraph();
 
-    void addMeta(Link key, QDomNodeList metaNodes, bool isLink, QString publisherId);
+    void addMeta(Link key, QDomNodeList metaNodes, bool isLink, bool republishing, QString publisherId = "");
     Meta createAddReplaceMeta(QList<Meta> *existingMetaList, QString metaName, QString metaNS, Meta::Cardinality cardinality, QDomNode metaXML);
-    void deleteMetaWithFilter(Link link, bool isLink, bool haveFilter, QString filter);
-
+    void replaceMetaNodes(Link link, bool isLink, QDomNodeList metaNodesToKeep = QDomNodeList());
     void deleteMetaWithPublisherId(QString pubId);
 
     // List of all identifiers that targetId is on a link with
