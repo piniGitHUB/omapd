@@ -5,10 +5,7 @@ If you are interested in participating in the development of omapd please consid
 
 Major missing features in omapd (in rough order of importance)
   # Persistent data store
-  # Applying filters
-   * delete filter
-   * match-links - completed
-   * result-filter - completed
+  # Translating filters from IF-MAP Filter syntax to XPath 2.0 syntax
   # Test suite to validate specification conformance
   # Loading run-time options from a config file
   # Metadata XML Validation
