@@ -83,8 +83,17 @@ void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, bool repu
             // Add publisherId to meta node
             metaNodes.at(i).toElement().setAttribute("publisher-id",publisherId);
             // Add timestamp to meta node
-            // TODO: Make sure timestamp is of correct type per IF-MAP spec
-            metaNodes.at(i).toElement().setAttribute("timestamp",QDateTime::currentDateTime().toString("dd.MM.yyyy hh:mm:ss"));
+            /* The dateTime is specified in the following form "YYYY-MM-DDThh:mm:ss" where:
+                * YYYY indicates the year
+                * MM indicates the month
+                * DD indicates the day
+                * T indicates the start of the required time section
+                * hh indicates the hour
+                * mm indicates the minute
+                * ss indicates the second
+                Note: All components are required!
+            */
+            metaNodes.at(i).toElement().setAttribute("timestamp",QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ss"));
         }
 
         QDomNode metaDomNode = metaNodes.at(i);
@@ -198,6 +207,8 @@ Meta MapGraph::createAddReplaceMeta(QList<Meta> *existingMetaList, QString metaN
 void MapGraph::replaceMetaNodes(Link link, bool isLink, QDomNodeList metaNodesToKeep)
 {
     const char *fnName = "MapGraph::replaceMetaNodes:";
+
+    // First delete existing metadata, then add it back on if there is any
 
     if (isLink) {
         // Don't need to remove entries from _linksTo, because we are either going to
