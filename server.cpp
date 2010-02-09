@@ -204,14 +204,18 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
     //       it is impossible to otherwise distinguish client identities.
     //       However, this would make it possible for a client to publish metadata
     //       in the guise of a different client.
-    //       If used, the "pubIdHint" attribute must be in every IF-MAP method.
+    //       If used, the "pubIdHint" attribute is only included in the new-session method.
     if (_nonStdBehavior.testFlag(Server::EnablePubIdHint)) {
-        if (reqMsg.method().attributes().contains("pubIdHint")) {
+        if (method.compare("new-session", Qt::CaseInsensitive) == 0 &&
+            reqMsg.method().attributes().contains("pubIdHint")) {
             QString pubIdHint = reqMsg.method().attributes().namedItem("pubIdHint").toAttr().value();
             qDebug() << fnName << "Got pubIdHint:" << pubIdHint << "From publisherId:" << publisherId;
             publisherId += ":";
             publisherId += pubIdHint;
             qDebug() << fnName << "NON-STANDARD: Using pubIdHint attribute in new-session";
+        } else if (! reqMsgSessId.isEmpty()) {
+            // See if we can lookup the publisher-id for this client
+            publisherId = _activeSSRCSessions.key(reqMsgSessId,publisherId);
         }
     }
 
