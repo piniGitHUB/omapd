@@ -116,7 +116,7 @@ private:
     void markSubscriptionsForPolls(Link link, bool isLink);
 
     int pollResultsForPublisherId(QtSoapStruct *pollResult, QString publisherId);
-    QtSoapType* soapResponseForOperation(QString operation, bool operationError);
+    QtSoapType* soapResponseForOperation(QString operation, IFMAP_ERRORCODES_1 operationError);
     QtSoapStruct* soapStructForId(Id id);
 
     bool terminateARCSession(QString publisherId);
