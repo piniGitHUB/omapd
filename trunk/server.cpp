@@ -864,7 +864,7 @@ void Server::sendResponse(QTcpSocket *socket, const QtSoapMessage & respMsg)
     }
 }
 
-QtSoapType* Server::soapResponseForOperation(QString operation, bool operationError)
+QtSoapType* Server::soapResponseForOperation(QString operation, IFMAP_ERRORCODES_1 operationError)
 {
     QtSoapType *respMsg = 0;
 
@@ -1460,7 +1460,7 @@ Id Server::idFromNode(QDomNode idNode)
                 idType = Identifier::IdentityDistinguishedName;
             } else if (type.compare("dns-name", Qt::CaseInsensitive) == 0) {
                 idType = Identifier::IdentityDnsName;
-            } else if (type.contains("email-address", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("email-address", Qt::CaseInsensitive) == 0) {
                 idType = Identifier::IdentityEmailAddress;
             } else if (type.compare("kerberos-principal", Qt::CaseInsensitive) == 0) {
                 idType = Identifier::IdentityKerberosPrincipal;
@@ -1565,7 +1565,7 @@ void Server::buildPollResults()
         // Check if publisher has active poll
         if (_activePolls.contains(pubId)) {
             qDebug() << fnName << "Building poll results for publisher with active poll:" << pubId;
-            QtSoapStruct *pollResult = (QtSoapStruct *)soapResponseForOperation("poll", false);
+            QtSoapStruct *pollResult = (QtSoapStruct *)soapResponseForOperation("poll", ::ErrorNone);
 
             int searchResultSize = pollResultsForPublisherId(pollResult, pubId);
             if (searchResultSize) {
