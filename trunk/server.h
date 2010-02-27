@@ -50,14 +50,14 @@ class Server : public QTcpServer
     Q_OBJECT
 public:
     enum Debug {
-                DebugNone = 0x0,
-                ShowClientOps = 0x1,
-                ShowXML = 0x2,
-                ShowHTTPHeaders = 0x4,
-                ShowHTTPState = 0x8,
-                ShowXMLParsing = 0x16,
-                ShowXMLFilterResults = 0x32,
-                ShowXMLFilterStatements = 0x64
+                DebugNone = 0x00,
+                ShowClientOps = 0x01,
+                ShowXML = 0x02,
+                ShowHTTPHeaders = 0x04,
+                ShowHTTPState = 0x08,
+                ShowXMLParsing = 0x10,
+                ShowXMLFilterResults = 0x20,
+                ShowXMLFilterStatements = 0x40
             };
     Q_DECLARE_FLAGS(DebugOptions, Debug);
 
