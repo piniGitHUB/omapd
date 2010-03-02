@@ -84,6 +84,45 @@ QString Identifier::idStringForType(Identifier::IdType idType)
 
 }
 
+QString Identifier::idBaseStringForType(Identifier::IdType idType)
+{
+    QString str("");
+    switch (idType) {
+        case Identifier::IdNone:
+            break;
+        case Identifier::AccessRequest:
+            str = "access-request";
+            break;
+        case Identifier::DeviceAikName:
+        case Identifier::DeviceName:
+            str = "device";
+            break;
+        case Identifier::IpAddressIPv4:
+        case Identifier::IpAddressIPv6:
+            str = "ip-address";
+            break;
+        case Identifier::MacAddress:
+            str = "mac-address";
+            break;
+        case Identifier::IdentityAikName:
+        case Identifier::IdentityDistinguishedName:
+        case Identifier::IdentityDnsName:
+        case Identifier::IdentityEmailAddress:
+        case Identifier::IdentityKerberosPrincipal:
+        case Identifier::IdentityTrustedPlatformModule:
+        case Identifier::IdentityUsername:
+        case Identifier::IdentitySipUri:
+        case Identifier::IdentityHipHit:
+        case Identifier::IdentityTelUri:
+        case Identifier::IdentityOther:
+            str = "identity";
+            break;
+    }
+
+    return str;
+
+}
+
 Link Identifier::makeLinkFromIds(Id id1, Id id2)
 {
     Link link;
