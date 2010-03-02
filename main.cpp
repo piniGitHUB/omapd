@@ -38,13 +38,17 @@ int main(int argc, char *argv[])
         * enable/disable non-standard features
     */
 
-    // Create an instance of the MAP Graph
-    MapGraph *mapGraph = new MapGraph();
 
     //TODO: Threadpool the server objects and synchronize access to the MAP Graph
+
+    MapGraph *mapGraph11 = new MapGraph();
     // Start a server with this MAP graph
-    Server *server = new Server(mapGraph);
-    qDebug() << "Started server:" << server;
+    Server *server11 = new Server(mapGraph11, 8081);
+    //server11->setDebug(Server::ShowHTTPState | Server::ShowXML | Server::ShowXMLFilterResults | Server::ShowXMLFilterStatements);
+    server11->setDebug(Server::ShowXML | Server::ShowMAPGraphAfterChange | Server::ShowXMLFilterStatements);
+    server11->setNonStandardBehavior(Server::EnablePubIdHint | Server::IgnoreSessionId);
+    server11->setMapVersionSupport(Server::SupportIfmapV11);
+    qDebug() << "Started server:" << server11;
 
     return a.exec();
 }

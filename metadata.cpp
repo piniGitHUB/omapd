@@ -21,9 +21,24 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "metadata.h"
 
-Meta::Meta(Meta::Cardinality cardinality)
-        : _cardinality(cardinality)
+Meta::Meta(Meta::Cardinality cardinality, Meta::Lifetime lifetime)
+        : _cardinality(cardinality), _lifetime(lifetime)
 {
+}
+
+QString Meta::lifetimeString()
+{
+    QString str("");
+    switch (_lifetime) {
+    case Meta::LifetimeSession:
+        str = "session";
+        break;
+    case Meta::LifetimeForever:
+        str = "forever";
+        break;
+    }
+
+    return str;
 }
 
 // Two Meta objects are equal iff their elementName and namespace members are the same

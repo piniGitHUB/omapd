@@ -579,6 +579,8 @@ public:
     QString namespaceForPrefix(const QString &prefix);
     // DM: test if uri registered
     bool namespaceRegistered(const QString &uri);
+    // DM: get namespace map
+    QStringList namespaceList() { return namespaces.uniqueKeys(); }
 
     static QtSoapNamespaces &instance();
 

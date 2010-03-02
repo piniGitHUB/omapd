@@ -33,25 +33,44 @@ public:
                 MultiValue
             };
 
-    Meta(Meta::Cardinality cardinality = Meta::SingleValue);
+    enum Lifetime {
+                LifetimeSession = 0,
+                LifetimeForever
+    };
+
+    enum PublishOperationType {
+                PublishUpdate = 0,
+                PublishDelete
+    };
+
+    Meta(Meta::Cardinality cardinality = Meta::SingleValue,
+         Meta::Lifetime lifetime = Meta::LifetimeSession);
 
     Meta::Cardinality cardinality() { return _cardinality; }
-    QList<QDomNode> metaDomNodes() const { return _metaDomNodes; }
+    Meta::Lifetime lifetime() const { return _lifetime; }
+    QString lifetimeString();
+
+    QDomNode metaNode() const { return _metaNode; }
     QString elementName() const { return _elementName; }
     QString elementNS() const { return _elementNS; }
+    QString publisherId() const { return _publisherId; }
 
-    void addMetadataDomNode(QDomNode metaNode) { _metaDomNodes << metaNode; }
+    void setMetaNode(QDomNode metaNode) { _metaNode = metaNode; }
     void setElementName(QString elementName) { _elementName = elementName; }
     void setNamespace(QString ns) { _elementNS = ns; }
+    void setLifetime(Meta::Lifetime lifetime) { _lifetime = lifetime; }
+    void setPublisherId(QString pubId) { _publisherId = pubId; }
 
     // Two Meta objects are equal iff their elementName and namespace members are the same
     bool operator==(const Meta &other) const;
 
 private:
     Meta::Cardinality _cardinality;
+    Meta::Lifetime _lifetime;
+    QString _publisherId;
     QString _elementName;
     QString _elementNS;
-    QList<QDomNode> _metaDomNodes;
+    QDomNode _metaNode;
 };
 
 #endif // METADATA_H

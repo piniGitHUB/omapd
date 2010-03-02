@@ -19,7 +19,16 @@ You should have received a copy of the GNU General Public License
 along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <qtsoap.h>
 #include "mapgraph.h"
+
+SearchGraph::SearchGraph()
+{
+     sentFirstResult = false;
+     response = QtSoapStruct(QtSoapQName("pollResult"));
+     curSize = 0;
+     hasErrorResult = false;
+}
 
 bool SearchGraph::operator==(const SearchGraph &other) const
 {
@@ -60,44 +69,36 @@ QString SearchGraph::translateFilter(QString ifmapFilter)
     return qtFilter;
 }
 
+QString SearchGraph::intersectFilter(QString matchLinksFilter, QString resultFilter)
+{
+    /* This method creates an intersect filter for XPath
+       as the logical AND combination of the match-links
+       filter and the result-filter.
+
+       The passed-in filters MUST first individually be translated
+       using SearchGraph::translateFilter().
+    */
+    QString qtFilter = "(";
+    qtFilter += matchLinksFilter;
+    qtFilter += " intersect ";
+    qtFilter += resultFilter;
+    qtFilter += ")";
+
+    return qtFilter;
+}
+
 MapGraph::MapGraph()
 {
 }
 
-void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, bool republishing, QString publisherId)
+void MapGraph::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, QString publisherId)
 {
     const char *fnName = "MapGraph::addMeta:";
 
-    qDebug() << fnName << "number of metadata nodes:" << metaNodes.count();
+    //qDebug() << fnName << "number of metadata objects:" << publisherMeta.size();
 
-    for (int i=0; i<metaNodes.count(); i++) {
-        QString metaName = metaNodes.at(i).localName();
-        QString metaNS = metaNodes.at(i).namespaceURI();
-        QString cardinality = metaNodes.at(i).attributes().namedItem("cardinality").toAttr().value();
-        Meta::Cardinality cardinalityValue = (cardinality == "singleValue") ? Meta::SingleValue : Meta::MultiValue;
-
-        if (republishing) {
-            // Get publisherId from metaNode
-            publisherId = metaNodes.at(i).attributes().namedItem("publisher-id").toAttr().value();
-        } else {
-            // Add publisherId to meta node
-            metaNodes.at(i).toElement().setAttribute("publisher-id",publisherId);
-            // Add timestamp to meta node
-            /* The dateTime is specified in the following form "YYYY-MM-DDThh:mm:ss" where:
-                * YYYY indicates the year
-                * MM indicates the month
-                * DD indicates the day
-                * T indicates the start of the required time section
-                * hh indicates the hour
-                * mm indicates the minute
-                * ss indicates the second
-                Note: All components are required!
-            */
-            metaNodes.at(i).toElement().setAttribute("timestamp",QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ss"));
-        }
-
-        QDomNode metaDomNode = metaNodes.at(i);
-
+    QListIterator<Meta> newMetaIt(publisherMeta);
+    while (newMetaIt.hasNext()) {
         // All Metadata currently on identifier/link
         QList<Meta> existingMetaList;
         if (isLink) {
@@ -106,116 +107,63 @@ void MapGraph::addMeta(Link link, QDomNodeList metaNodes, bool isLink, bool repu
              existingMetaList = _idMeta.take(link.first);
         }
 
-        Meta meta = createAddReplaceMeta(&existingMetaList, metaName, metaNS, cardinalityValue, metaDomNode);
-        existingMetaList << meta;
+        Meta newMeta = newMetaIt.next();
+
+        // This matches metadata with same element name and element namespace
+        int existingMetaIndex = existingMetaList.indexOf(newMeta);
+        if (existingMetaIndex != -1) {
+            if (newMeta.cardinality() == Meta::SingleValue) {
+                // replace
+                qDebug() << fnName << "Replacing singleValue meta:" << newMeta.elementName();
+                existingMetaList.replace(existingMetaIndex, newMeta);
+            } else {
+                // add to list
+                qDebug() << fnName << "Appending multiValue meta:" << newMeta.elementName();
+                existingMetaList << newMeta;
+            }
+        } else {
+            // no existing metadata of this type so add to list regardless of cardinality
+            qDebug() << fnName << "Adding meta:" << newMeta.elementName();
+            existingMetaList << newMeta;
+        }
 
         if (isLink) {
             // Place updated metadata back on link
             _linkMeta.insert(link, existingMetaList);
-
-            // Update lists of identifier linkages
-            if (! _linksTo.contains(link.first, link.second)) _linksTo.insert(link.first, link.second);
-            if (! _linksTo.contains(link.second, link.first)) _linksTo.insert(link.second, link.first);
-
-            /* Track links published by this publisherId
-               NB: this is inefficient in the for-loop when not republishing and working
-               with multiple metaNodes - since the publisherId stays the same.
-            */
-            if (! _publisherLinks.contains(publisherId, link)) {
-                _publisherLinks.insert(publisherId, link);
-            }
         } else {
             // Place updated metadata back on identifier
             _idMeta.insert(link.first, existingMetaList);
-
-            /* Track identifiers published by this publisherId
-               NB: this is inefficient in the for-loop when not republishing and working
-               with multiple metaNodes - since the publisherId stays the same.
-            */
-            if (! _publisherIds.contains(publisherId, link.first)) {
-                _publisherIds.insert(publisherId, link.first);
-            }
         }
     }
 
-    if (isLink) {
+    if (isLink) {        
+        // Update lists of identifier linkages
+        if (! _linksTo.contains(link.first, link.second)) _linksTo.insert(link.first, link.second);
+        if (! _linksTo.contains(link.second, link.first)) _linksTo.insert(link.second, link.first);
+
+        // Track links published by this publisherId
+        if (! _publisherLinks.contains(publisherId, link)) _publisherLinks.insert(publisherId, link);
+
         qDebug() << fnName << "_linkMeta has size:" << _linkMeta.size();
     } else {
+        // Track identifiers published by this publisherId
+        if (! _publisherIds.contains(publisherId, link.first)) _publisherIds.insert(publisherId, link.first);
+
         qDebug() << fnName << "_idMeta has size:" << _idMeta.size();
     }
-
-    dumpMap();
 }
 
-Meta MapGraph::createAddReplaceMeta(QList<Meta> *existingMetaList, QString metaName, QString metaNS, Meta::Cardinality cardinality, QDomNode metaDomNode)
+void MapGraph::replaceMeta(Link link, bool isLink, QList<Meta> newMetaList)
 {
-    const char *fnName = "MapGraph::createAddReplaceMeta:";
-    Meta aMeta(cardinality);
-
-    /*
-    For each metadata, check if there is this elementName of metadata in the list.
-    If this elementName is already on identifier, check cardinality.
-    If singleValue, replace.
-    If multiValue, append.
-    */
-
-    if (existingMetaList->isEmpty()) {
-        // Easy - we will create new metadata
-        qDebug() << fnName << "existingMetaList is empty";
-        aMeta.addMetadataDomNode(metaDomNode);
-        aMeta.setElementName(metaName);
-        aMeta.setNamespace(metaNS);
-    } else {
-        // Harder - append (if multiValue), replace (if singleValue), or create (if DNE) metadata
-        bool foundMatch = false;
-        int index = 0;
-        Meta metaMatch(cardinality);
-
-        while (!foundMatch && index < existingMetaList->size()) {
-            metaMatch = existingMetaList->at(index);
-            if (metaMatch.elementName() == metaName && metaMatch.elementNS() == metaNS) {
-                foundMatch = true;
-            }
-            index++;
-        }
-        index--;
-
-        if (foundMatch && cardinality == Meta::MultiValue) {
-            // found multiValue metadata - add to it
-            qDebug() << fnName << "Adding to existing multiValue metadata";
-            aMeta = existingMetaList->takeAt(index);
-            aMeta.addMetadataDomNode(metaDomNode);
-        } else if (foundMatch && cardinality == Meta::SingleValue) {
-            // found singleValue metadata - replace it
-            qDebug() << fnName << "Replacing existing singleValue metadata";
-            existingMetaList->removeAt(index);
-            aMeta.addMetadataDomNode(metaDomNode);
-            aMeta.setElementName(metaName);
-            aMeta.setNamespace(metaNS);
-        } else {
-            qDebug() << fnName << "Did not find existing metadata";
-            aMeta.addMetadataDomNode(metaDomNode);
-            aMeta.setElementName(metaName);
-            aMeta.setNamespace(metaNS);
-        }
-
-    }
-
-    return aMeta;
-}
-
-void MapGraph::replaceMetaNodes(Link link, bool isLink, QDomNodeList metaNodesToKeep)
-{
-    const char *fnName = "MapGraph::replaceMetaNodes:";
-
-    // First delete existing metadata, then add it back on if there is any
+    //const char *fnName = "MapGraph::replaceMeta:";
 
     if (isLink) {
-        // Don't need to remove entries from _linksTo, because we are either going to
-        // put metaNodesToKeep back on link or remove the _linksTo entries later.
-
-        // Remove all metadata from link
+        // Remove metadata on link
         _linkMeta.remove(link);
+
+        // Remove entries from _linksTo
+        _linksTo.remove(link.first, link.second);
+        _linksTo.remove(link.second, link.first);
 
         // Remove all publisherIds that published on this link
         QList<QString> pubIdsOnLink = _publisherLinks.keys(link);
@@ -226,7 +174,7 @@ void MapGraph::replaceMetaNodes(Link link, bool isLink, QDomNodeList metaNodesTo
         }
 
     } else {
-        // Remove all metadata from identifier
+        // Remove metadata on identifier
         _idMeta.remove(link.first);
 
         // Remove all publisherIds that published on this identifier
@@ -238,26 +186,39 @@ void MapGraph::replaceMetaNodes(Link link, bool isLink, QDomNodeList metaNodesTo
         }
     }
 
-    // Now that all existing metadata (and associated relationships) are deleted,
-    // add it back.
-    if (! metaNodesToKeep.isEmpty()) {
-        addMeta(link, metaNodesToKeep, isLink, true);
-    } else {
+    if (! newMetaList.isEmpty()) {
         if (isLink) {
-            // Remove entries from _linksTo now that there is no metadata on link
-            _linksTo.remove(link.first, link.second);
-            _linksTo.remove(link.second, link.first);
-            qDebug() << fnName << "All metadata deleted on link:" << link;
+            // Place updated metadata back on link
+            _linkMeta.insert(link, newMetaList);
+
+            // Update lists of identifier linkages
+            if (! _linksTo.contains(link.first, link.second)) _linksTo.insert(link.first, link.second);
+            if (! _linksTo.contains(link.second, link.first)) _linksTo.insert(link.second, link.first);
+
+            QListIterator<Meta> metaIt(newMetaList);
+            while (metaIt.hasNext()) {
+                QString pubId = metaIt.next().publisherId();
+                // Track links published by this publisherId
+                if (! _publisherLinks.contains(pubId, link)) _publisherLinks.insert(pubId, link);
+            }
         } else {
-            qDebug() << fnName << "All metadata deleted on identifier:" << link.first;
+            // Place updated metadata back on identifier
+            _idMeta.insert(link.first, newMetaList);
+
+            QListIterator<Meta> metaIt(newMetaList);
+            while (metaIt.hasNext()) {
+                QString pubId = metaIt.next().publisherId();
+                // Track identifiers published by this publisherId
+                if (! _publisherIds.contains(pubId, link.first)) _publisherIds.insert(pubId, link.first);
+            }
         }
-        dumpMap();
     }
 }
 
-void MapGraph::deleteMetaWithPublisherId(QString pubId)
+bool MapGraph::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Meta> > *idMetaDeleted, QHash<Link, QList<Meta> > *linkMetaDeleted, bool sessionMetaOnly)
 {
     const char *fnName = "MapGraph::deleteMetaWithPublisherId:";
+    bool somethingDeleted = false;
 
     // Delete publisher's metadata on identifiers
     QList<Id> idsWithPub = _publisherIds.values(pubId);
@@ -265,39 +226,49 @@ void MapGraph::deleteMetaWithPublisherId(QString pubId)
     QListIterator<Id> idIt(idsWithPub);
     while (idIt.hasNext()) {
         Id idPub = idIt.next();
-        qDebug() << fnName << "Will try to delete publisher metadata on id:" << idPub;
+        QList<Meta> deletedMetaList;
+        bool publisherHasMetaOnId = false;
 
-        // Get metadata on this identifier -- by definition this list in non-empty
-        QList<Meta> metaForPublisher = _idMeta.value(idPub);
-        QListIterator<Meta> metaIt(metaForPublisher);
-        while (metaIt.hasNext()) {
-            Meta aMeta = metaIt.next();
-            QList<QDomNode> metaNodes = aMeta.metaDomNodes();
-            // metaNodes list will have 1 item if singleValue, 1 or more if multiValue
-            for (int index = 0; index < metaNodes.size(); index++) {
-                // publisher-id attribute guaranteed to exist because I put in in there
-                QString testPubId = metaNodes.at(index).attributes().namedItem("publisher-id").toAttr().value();
-                if (testPubId == pubId) {
-                    metaNodes.removeAt(index);
+        // Remove metadata on this identifier -- by definition this list in non-empty
+        QList<Meta> metaOnId = _idMeta.take(idPub);
+        qDebug() << fnName << "Examining metadata (" << metaOnId.size() << ") on id:" << idPub;
+        for (int metaIndex = metaOnId.size()-1; metaIndex >= 0; metaIndex--) {
+            QString testPubId = metaOnId.at(metaIndex).publisherId();
+
+            if (pubId.compare(testPubId) == 0) {
+                if (sessionMetaOnly) {
+                    // Only delete session-level metadata
+                    if (metaOnId.at(metaIndex).lifetime() == Meta::LifetimeSession) {
+                        qDebug() << fnName << "Removed session identifier Meta:" << metaOnId.at(metaIndex).elementName();
+                        deletedMetaList << metaOnId.takeAt(metaIndex);
+                    } else {
+                        // Not removing metadata for this publisher with lifetime=forever
+                        publisherHasMetaOnId = true;
+                    }
+                } else {
+                    // Delete metadata regardless of lifetime
+                    qDebug() << fnName << "Removed identifier Meta:" << metaOnId.at(metaIndex).elementName();
+                    deletedMetaList << metaOnId.takeAt(metaIndex);
                 }
             }
-
-            if (metaNodes.isEmpty()) {
-                // we removed one singleValue or all multiValue dom nodes
-                metaForPublisher.removeOne(aMeta);
-            }
         }
 
-        // Update table of identifiers <--> metadata
-        if (metaForPublisher.isEmpty()) {
-            _idMeta.remove(idPub);
-        } else {
-            _idMeta.insert(idPub, metaForPublisher);
+        // Keep track of deleted metadata
+        if (! deletedMetaList.isEmpty()) {
+            idMetaDeleted->insert(idPub, deletedMetaList);
+            somethingDeleted = true;
+        }
+
+        // Replace remaining metadata on table of identifiers <--> metadata
+        if (! metaOnId.isEmpty()) {
+            _idMeta.insert(idPub, metaOnId);
+        }
+
+        // Update table of publisher <--> identifiers
+        if (! publisherHasMetaOnId) {
+            _publisherIds.remove(pubId, idPub);
         }
     }
-    // Update table of publisher <--> identifiers
-    _publisherIds.remove(pubId);
-
 
     // Delete publisher's metadata on links
     QList<Link> linksWithPub = _publisherLinks.values(pubId);
@@ -305,42 +276,55 @@ void MapGraph::deleteMetaWithPublisherId(QString pubId)
     QListIterator<Link> linkIt(linksWithPub);
     while (linkIt.hasNext()) {
         Link linkPub = linkIt.next();
-        qDebug() << fnName << "Will try to delete publisher metadata on link:" << linkPub;
+        QList<Meta> deletedMetaList;
+        bool publisherHasMetaOnLink = false;
 
-        // Get metadata on this link -- by definition this list is non-empty
-        QList<Meta> metaForPublisher = _linkMeta.value(linkPub);
-        QListIterator<Meta> metaIt(metaForPublisher);
-        while (metaIt.hasNext()) {
-            Meta aMeta = metaIt.next();
-            QList<QDomNode> metaNodes = aMeta.metaDomNodes();
-            // metaNodes list will have 1 item if singleValue, 1 or more if multiValue
-            for (int index = 0; index < metaNodes.size(); index++) {
-                // publisher-id guaranteed to exist because I put in in there
-                QString testPubId = metaNodes.at(index).attributes().namedItem("publisher-id").toAttr().value();
-                if (testPubId == pubId) {
-                    metaNodes.removeAt(index);
+        // Remove metadata on this link -- by definition this list is non-empty
+        QList<Meta> metaOnLink = _linkMeta.take(linkPub);
+        qDebug() << fnName << "Examining publisher metadata (" << metaOnLink.size() << ") on link:" << linkPub;
+        for (int metaIndex = metaOnLink.size()-1; metaIndex >= 0; metaIndex--) {
+            QString testPubId = metaOnLink.at(metaIndex).publisherId();
+
+            if (pubId.compare(testPubId) == 0) {
+                if (sessionMetaOnly) {
+                    // Only delete session-level metadata
+                    if (metaOnLink.at(metaIndex).lifetime() == Meta::LifetimeSession) {
+                        qDebug() << fnName << "Removed session link Meta:" << metaOnLink.at(metaIndex).elementName();
+                        deletedMetaList << metaOnLink.takeAt(metaIndex);
+                    } else {
+                        // Not removing metadata for this publisher with lifetime=forever
+                        publisherHasMetaOnLink = true;
+                    }
+                } else {
+                    // Delete metadata regardless of lifetime
+                    qDebug() << fnName << "Removed link Meta:" << metaOnLink.at(metaIndex).elementName();
+                    deletedMetaList << metaOnLink.takeAt(metaIndex);
                 }
             }
-
-            if (metaNodes.isEmpty()) {
-                // we removed one singleValue or all multiValue dom nodes
-                metaForPublisher.removeOne(aMeta);
-            }
         }
-        // Update table of links <--> metadata, and list of identifier links
-        if (metaForPublisher.isEmpty()) {
-            _linkMeta.remove(linkPub);
+
+        // Keep track of deleted metadata
+        if (! deletedMetaList.isEmpty()) {
+            linkMetaDeleted->insert(linkPub, deletedMetaList);
+            somethingDeleted = true;
+        }
+
+        if (metaOnLink.isEmpty()) {
+            // Update list of identifier links
             _linksTo.remove(linkPub.first, linkPub.second);
             _linksTo.remove(linkPub.second, linkPub.first);
         } else {
-            _linkMeta.insert(linkPub, metaForPublisher);
+            // Replace remaining metadata table of links <--> metadata
+            _linkMeta.insert(linkPub, metaOnLink);
         }
 
+        // Update table of publisher <--> links
+        if (! publisherHasMetaOnLink) {
+            _publisherLinks.remove(pubId, linkPub);
+        }
     }
-    // Update table of publisher <--> links
-    _publisherLinks.remove(pubId);
 
-    //dumpMap();
+    return somethingDeleted;
 }
 
 void MapGraph::dumpMap()
@@ -361,12 +345,9 @@ void MapGraph::dumpMap()
         QListIterator<Meta> it(metaList);
         while (it.hasNext()) {
             Meta meta = it.next();
-            QListIterator<QDomNode> mit(meta.metaDomNodes());
-            while (mit.hasNext()) {
-                idStream << mit.next();
-            }
+            idStream << meta.metaNode();
             QString metaXML = idStream.readAll();
-            qDebug() << "--->" <<  metaXML << endl;
+            qDebug() << meta.lifetimeString() << "--->" <<  metaXML << endl;
         }
     }
 
@@ -380,12 +361,9 @@ void MapGraph::dumpMap()
         QListIterator<Meta> it(metaList);
         while (it.hasNext()) {
             Meta meta = it.next();
-            QListIterator<QDomNode> mit(meta.metaDomNodes());
-            while (mit.hasNext()) {
-                idStream << mit.next();
-            }
+            idStream << meta.metaNode();
             QString metaXML = idStream.readAll();
-            qDebug() << "--->" <<  metaXML << endl;
+            qDebug() << meta.lifetimeString() << "--->" <<  metaXML << endl;
         }
     }
 

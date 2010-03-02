@@ -57,6 +57,7 @@ public:
     Identifier(Identifier::IdType type, QString value, QString ad = QString(), QString other = QString());
 
     static QString idStringForType(Identifier::IdType idType);
+    static QString idBaseStringForType(Identifier::IdType idType);
     static Link makeLinkFromIds(Id id1, Id id2);
 
     // Two Identifier objects are equal iff their type, namespace, value, and other members are the same

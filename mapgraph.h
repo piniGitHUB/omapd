@@ -24,11 +24,13 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QtCore>
 #include <QtXml>
+#include <qtsoap.h>
 
 #include "identifier.h"
 #include "metadata.h"
 
 #define IFMAP_MAX_SIZE 100000;
+#define IFMAP_MAX_DEPTH_MAX 10000;
 
 static QString IFMAP_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP/1";
 static QString IFMAP_META_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP-METADATA/1";
@@ -36,10 +38,8 @@ static QString IFMAP_META_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMA
 class SearchGraph
 {
 public:
-    SearchGraph() {dirty = true;}
+    SearchGraph();
     QString name;
-    bool dirty;
-
     Id startId;
     QString matchLinks;
     QString resultFilter;
@@ -47,10 +47,17 @@ public:
     int maxSize;
     QSet<Id> idList;
     QSet<Link> linkList;
+
+    QtSoapStruct response;
+    int curSize;
+    bool hasErrorResult;
+    bool sentFirstResult;
+
     // Two SearchGraphs are equal iff their names are equal
     bool operator==(const SearchGraph &other) const;
 
     static QString translateFilter(QString ifmapFilter);
+    static QString intersectFilter(QString matchLinksFilter, QString resultFilter);
 };
 
 class MapGraph
@@ -58,10 +65,11 @@ class MapGraph
 public:
     MapGraph();
 
-    void addMeta(Link key, QDomNodeList metaNodes, bool isLink, bool republishing, QString publisherId = "");
-    Meta createAddReplaceMeta(QList<Meta> *existingMetaList, QString metaName, QString metaNS, Meta::Cardinality cardinality, QDomNode metaXML);
-    void replaceMetaNodes(Link link, bool isLink, QDomNodeList metaNodesToKeep = QDomNodeList());
-    void deleteMetaWithPublisherId(QString pubId);
+    void dumpMap();
+
+    void addMeta(Link key, bool isLink, QList<Meta> publisherMeta, QString publisherId);
+    bool deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Meta> > *idMetaDeleted, QHash<Link, QList<Meta> > *linkMetaDeleted, bool sessionMetaOnly = false);
+    void replaceMeta(Link link, bool isLink, QList<Meta> newMetaList = QList<Meta>());
 
     // List of all identifiers that targetId is on a link with
     QList<Id> linksTo(Id targetId) { return _linksTo.values(targetId); }
@@ -75,8 +83,6 @@ private:
     QMultiHash<Id, Id> _linksTo;  // id1 --> id2 and id2 --> id1
     QMultiHash<QString, Id> _publisherIds;  // publisherId --> Id (useful for purgePublisher)
     QMultiHash<QString, Link> _publisherLinks;  // publisherId --> Link (useful for purgePublisher)
-
-    void dumpMap();
 };
 
 #endif // MAPGRAPH_H
