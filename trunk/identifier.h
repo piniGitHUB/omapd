@@ -45,7 +45,6 @@ public:
         IdentityTrustedPlatformModule,
         IdentityUsername,
         IdentitySipUri,
-        IdentityHipHit,
         IdentityTelUri,
         IdentityOther,
         IpAddressIPv4,

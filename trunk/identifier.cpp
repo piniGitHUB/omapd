@@ -69,9 +69,6 @@ QString Identifier::idStringForType(Identifier::IdType idType)
         case Identifier::IdentitySipUri:
             str = "IdentitySipUri";
             break;
-        case Identifier::IdentityHipHit:
-            str = "IdentityHipHit";
-            break;
         case Identifier::IdentityTelUri:
             str = "IdentityTelUri";
             break;
@@ -112,7 +109,6 @@ QString Identifier::idBaseStringForType(Identifier::IdType idType)
         case Identifier::IdentityTrustedPlatformModule:
         case Identifier::IdentityUsername:
         case Identifier::IdentitySipUri:
-        case Identifier::IdentityHipHit:
         case Identifier::IdentityTelUri:
         case Identifier::IdentityOther:
             str = "identity";
