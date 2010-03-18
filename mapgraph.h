@@ -39,25 +39,30 @@ class SearchGraph
 {
 public:
     SearchGraph();
-    QString name;
-    Id startId;
-    QString matchLinks;
-    QString resultFilter;
-    int maxDepth;
-    int maxSize;
-    QSet<Id> idList;
-    QSet<Link> linkList;
+    QString _name;
+    Id _startId;
+    QString _matchLinks;
+    QString _resultFilter;
+    int _maxDepth;
+    int _maxSize;
 
-    QtSoapStruct response;
-    int curSize;
-    bool hasErrorResult;
-    bool sentFirstResult;
+    QMap<QString, QString> _searchNamespaces;
+    QSet<Id> _idList;
+    QSet<Link> _linkList;
+
+    QList<QtSoapStruct *> _responseElements;
+    int _curSize;
+    bool _hasErrorResult;
+    bool _sentFirstResult;
 
     // Two SearchGraphs are equal iff their names are equal
     bool operator==(const SearchGraph &other) const;
 
+    void clearResponse();
+
     static QString translateFilter(QString ifmapFilter);
     static QString intersectFilter(QString matchLinksFilter, QString resultFilter);
+    static QStringList filterPrefixes(QString filter);
 };
 
 class MapGraph
@@ -66,6 +71,10 @@ public:
     MapGraph();
 
     void dumpMap();
+    void clearMap();
+
+    void addMetaNamespace(QString namespaceURI, QString prefix) { _metaNamespaces.insert(prefix, namespaceURI); }
+    QMap<QString,QString> metaNamespaces() const { return _metaNamespaces; }
 
     void addMeta(Link key, bool isLink, QList<Meta> publisherMeta, QString publisherId);
     bool deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Meta> > *idMetaDeleted, QHash<Link, QList<Meta> > *linkMetaDeleted, bool sessionMetaOnly = false);
@@ -83,6 +92,9 @@ private:
     QMultiHash<Id, Id> _linksTo;  // id1 --> id2 and id2 --> id1
     QMultiHash<QString, Id> _publisherIds;  // publisherId --> Id (useful for purgePublisher)
     QMultiHash<QString, Link> _publisherLinks;  // publisherId --> Link (useful for purgePublisher)
+
+    // Private registry of metadata namespaces (prefix --> namespaceURI)
+    QMap<QString, QString> _metaNamespaces;
 };
 
 #endif // MAPGRAPH_H

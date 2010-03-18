@@ -31,11 +31,8 @@ Server::Server(MapGraph *mapGraph, quint16 port, QObject *parent)
 {
     const char *fnName = "Server::Server:";
 
-    // TODO: Add SSL
-
     _debug = Server::DebugNone;
     _nonStdBehavior = Server::DisableNonStdBehavior;
-    _mapVersionSupport = Server::SupportIfmapV11;
 
     bool listening = listen(QHostAddress::Any, port);
     if (!listening) {
@@ -43,7 +40,11 @@ Server::Server(MapGraph *mapGraph, quint16 port, QObject *parent)
     } else {
         this->setMaxPendingConnections(30); // 30 is QTcpServer default
 
-        connect(this, SIGNAL(newConnection()), this, SLOT(newClientConnection()));
+        if (! _nonStdBehavior.testFlag(Server::DisableHTTPS)) {
+            // Set server cert, private key, CRLs, etc.
+        }
+
+        //connect(this, SIGNAL(newConnection()), this, SLOT(newClientConnection()));
         connect(this, SIGNAL(headerReceived(QTcpSocket*,QNetworkRequest)),
                 this, SLOT(processHeader(QTcpSocket*,QNetworkRequest)));
 
@@ -55,14 +56,133 @@ Server::Server(MapGraph *mapGraph, quint16 port, QObject *parent)
 
         // Seed RNG for session-ids
         qsrand(QDateTime::currentDateTime().toTime_t());
+    }
+}
 
-        // Register IF-MAP Namespaces
-        QtSoapNamespaces &registry = QtSoapNamespaces::instance();
-        if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
-            registry.registerNamespace("ifmap", IFMAP_NS_1);
-            registry.registerNamespace("meta", IFMAP_META_NS_1);
+void Server::incomingConnection(int socketDescriptor)
+{
+    const char *fnName = "Server::incomingConnection:";
+    if (_nonStdBehavior.testFlag(Server::DisableHTTPS)) {
+        QTcpSocket *socket = new QTcpSocket(this);
+        if (socket->setSocketDescriptor(socketDescriptor)) {
+            connect(socket, SIGNAL(readyRead()), this, SLOT(readClient()));
+            connect(socket, SIGNAL(disconnected()), this, SLOT(discardClient()));
+            connect(socket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
+                    this, SLOT(clientConnState(QAbstractSocket::SocketState)));
+        } else {
+            qDebug() << fnName << "Error setting socket descriptor on QTcpSocket";
+            delete socket;
+        }
+    } else {
+        QSslSocket *sslSocket = new QSslSocket(this);
+        if (sslSocket->setSocketDescriptor(socketDescriptor)) {
+
+            sslSocket->setCiphers(QSslSocket::supportedCiphers());
+            // TODO: Figure out how to just support QSsl::SslV3 & QSsl::TlsV1
+            // QSsl::AnyProtocol accepts QSsl::SslV2 which is insecure
+            sslSocket->setProtocol(QSsl::AnyProtocol);
+
+            // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
+            if (_nonStdBehavior.testFlag(Server::DisableClientCertVerify)) {
+                // QueryPeer just asks for the client cert, but does not verify it
+                sslSocket->setPeerVerifyMode(QSslSocket::QueryPeer);
+            } else {
+                sslSocket->setPeerVerifyMode(QSslSocket::VerifyPeer);
+            }
+
+            // Connect SSL error signals to local slots
+            connect(sslSocket, SIGNAL(peerVerifyError(QSslError)),
+                    this, SLOT(clientSSLVerifyError(QSslError)));
+            connect(sslSocket, SIGNAL(sslErrors(QList<QSslError>)),
+                    this, SLOT(clientSSLErrors(QList<QSslError>)));
+
+            // Setup server private keys
+            // TODO: Make these configurable
+            sslSocket->setPrivateKey("server.key");
+            QFile certFile("server.pem");
+            QList<QSslCertificate> serverCerts = QSslCertificate::fromPath("server.pem");
+            QSslCertificate serverCert = serverCerts.at(0);
+            if (serverCert.isValid()) {
+                qDebug() << fnName << "Successfully set server certificate:"
+                        << serverCert.subjectInfo(QSslCertificate::CommonName)
+                        << "for peer:" << sslSocket->peerAddress().toString();
+                sslSocket->setLocalCertificate(serverCert);
+
+                connect(sslSocket, SIGNAL(encrypted()), this, SLOT(socketReady()));
+                sslSocket->startServerEncryption();
+
+            } else {
+                qDebug() << fnName << "Error setting server certificate";
+            }
+        } else {
+            qDebug() << fnName << "Error setting SSL socket descriptor on QSslSocket";
+            delete sslSocket;
         }
     }
+}
+
+void Server::clientSSLVerifyError(const QSslError &error)
+{
+    const char *fnName = "Server::clientSSLVerifyError:";
+    //QSslSocket *sslSocket = (QSslSocket *)sender();
+
+    qDebug() << fnName << error.errorString();
+}
+
+void Server::clientSSLErrors(const QList<QSslError> &errors)
+{
+    const char *fnName = "Server::clientSSLErrors:";
+    QSslSocket *sslSocket = (QSslSocket *)sender();
+
+    foreach (const QSslError &error, errors) {
+        qDebug() << fnName << error.errorString();
+    }
+
+    qDebug() << fnName << "Calling ignoreSslErrors";
+    sslSocket->ignoreSslErrors();
+}
+
+void Server::socketReady()
+{
+    const char *fnName = "Server::socketReady:";
+    QSslSocket *sslSocket = (QSslSocket *)sender();
+    qDebug() << fnName << "Successful SSL handshake with peer:" << sslSocket->peerAddress().toString();
+
+    bool clientAuthorized = false;
+
+    if (_nonStdBehavior.testFlag(Server::DisableClientCertVerify)) {
+        qDebug() << fnName << "Client authorized because Server::DisableClientCertVerify is set, for peer:"
+                 << sslSocket->peerAddress().toString();
+        clientAuthorized = true;
+    } else {
+        clientAuthorized = authorizeClient(sslSocket);
+    }
+
+    if (clientAuthorized) {
+        connect(sslSocket, SIGNAL(readyRead()), this, SLOT(readClient()));
+        connect(sslSocket, SIGNAL(disconnected()), this, SLOT(discardClient()));
+        connect(sslSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
+                this, SLOT(clientConnState(QAbstractSocket::SocketState)));
+    } else {
+        if (_debug.testFlag(Server::ShowClientOps))
+            qDebug() << fnName << "Disconnecting unauthorized client at:" << sslSocket->peerAddress().toString();
+        sslSocket->disconnectFromHost();
+        sslSocket->deleteLater();
+    }
+}
+
+bool Server::authorizeClient(QSslSocket *sslSocket)
+{
+    const char *fnName = "Server::authorizeClient:";
+
+    QList<QSslCertificate> clientCerts = sslSocket->peerCertificateChain();
+    qDebug() << fnName << "Cert chain for client at:" << sslSocket->peerAddress().toString();
+    for (int i=0; i<clientCerts.size(); i++) {
+        qDebug() << fnName << "-- CN:" << clientCerts.at(i).subjectInfo(QSslCertificate::CommonName);
+    }
+
+    // TODO: add authorization and policy layer
+    return true;
 }
 
 void Server::newClientConnection()
@@ -123,11 +243,31 @@ void Server::readClient()
         nBytesAvailable = socket->bytesAvailable();
     }
 
+    if (_debug.testFlag(Server::ShowRawSocketData))
+        qDebug() << fnName << "Raw Socket Data:" << endl << requestByteArr;
+
+    int lIndex = requestByteArr.indexOf("<");
+    int rIndex = requestByteArr.lastIndexOf(">");
+    QString reqStr = requestByteArr.mid(lIndex, rIndex - lIndex + 1);
+
+    bool nsPrefixProcessing = _serverCapability.testFlag(Server::PatchedQtForNamespaceReporting) ? true : false;
+    if (nsPrefixProcessing && _debug.testFlag(Server::ShowClientOps)) {
+        qDebug() << fnName << "Assuming you have patched Qt to support namespace-prefix processing!!!!";
+        qDebug() << fnName << "If your SOAP Envelopes are not being read, disable Server::PatchedQtForNamespaceReporting";
+    }
+
     // TODO: Improve reading of SOAP requests spanning multiple calls to this method
     QtSoapMessage reqMsg;
-    bool valid = reqMsg.setContent(requestByteArr);
+    bool valid;
+    if (nsPrefixProcessing) {
+        valid = reqMsg.setContent(reqStr, nsPrefixProcessing);
+    } else {
+        valid = reqMsg.setContent(requestByteArr.mid(lIndex, rIndex - lIndex + 1));
+    }
     if (!valid) {
         qDebug() << fnName << "Did not receive full or valid SOAP Message";
+        if (_debug.testFlag(Server::ShowClientOps))
+            qDebug() << fnName << reqStr;
     } else {
         /* TODO: If I get a valid SOAP Message, should I remove the socket
            from the set of _headersReceived, or just let this happen in
@@ -194,6 +334,48 @@ void Server::processHeader(QTcpSocket *socket, QNetworkRequest requestHdrs)
         }
     }
 
+    if (requestHdrs.hasRawHeader(QByteArray("Authorization"))) {
+        if (_debug.testFlag(Server::ShowHTTPHeaders))
+            qDebug() << fnName << "Got Authorization header";
+        QByteArray basicAuthValue = requestHdrs.rawHeader(QByteArray("Authorization"));
+        if (! basicAuthValue.isEmpty() && basicAuthValue.contains(QByteArray("Basic"))) {
+            basicAuthValue = basicAuthValue.mid(6);
+            if (_debug.testFlag(Server::ShowHTTPHeaders)) {
+                qDebug() << fnName << "Got Basic Auth value:" << basicAuthValue;
+            }
+            if (_serverCapability.testFlag(Server::CreateClientConfigs)) {
+                registerClient(socket, QString(basicAuthValue));
+            }
+        }
+    }
+}
+
+void Server::registerClient(QTcpSocket *socket, QString clientKey)
+{
+    const char *fnName = "Server::registerClient:";
+
+    if (_debug.testFlag(Server::ShowClientOps)) {
+        qDebug() << fnName << "Registering client with key:" << clientKey
+                 << "from host:" << socket->peerAddress().toString();
+    }
+    _mapClientConnections.insert(clientKey, socket);
+
+    if (_mapClientRegistry.contains(clientKey)) {
+        // Already have a publisher-id for this client
+        if (_debug.testFlag(Server::ShowClientOps)) {
+            qDebug() << fnName << "Already have client configuration with pub-id:" << _mapClientRegistry.value(clientKey);
+        }
+    } else {
+        // Create a new publisher-id for this client
+        QString pubid;
+        pubid.setNum(qrand());
+        QByteArray pubidhash = QCryptographicHash::hash(pubid.toAscii(), QCryptographicHash::Md5);
+        pubid = QString(pubidhash.toHex());
+        _mapClientRegistry.insert(clientKey,pubid);
+        if (_debug.testFlag(Server::ShowClientOps)) {
+            qDebug() << fnName << "Created client configuration with pub-id:" << _mapClientRegistry.value(clientKey);
+        }
+    }
 }
 
 void Server::sendHttpResponse(QTcpSocket *socket, int hdrNumber, QString hdrText)
@@ -259,24 +441,30 @@ void Server::discardClient()
     socket->deleteLater();
 }
 
-QString Server::computePubId(QTcpSocket *socket, QString appId)
+QString Server::assignPublisherId(QTcpSocket *socket)
 {
-    // TODO: Make publisherId depend on peer identity, not IP address
-    QString publisherId = socket->peerAddress().toString();
+    const char *fnName = "Server::assignPublisherId:";
+    QString publisherId;
 
-    if (! appId.isEmpty()) {
-        publisherId += ":";
-        publisherId += appId;
+    if (_serverCapability.testFlag(Server::CreateClientConfigs)) {
+        QString clientKey = _mapClientConnections.key(socket);
+        publisherId = _mapClientRegistry.value(clientKey);
+        if (publisherId.isEmpty()) {
+            publisherId = socket->peerAddress().toString();
+            qDebug() << fnName << "Error looking up client configuration for client from:" << publisherId;
+        }
+    } else {
+        // Look up client configuration
     }
 
     return publisherId;
 }
 
-IFMAP_ERRORCODES_1 Server::validateSessionId(QtSoapMessage msg, QTcpSocket *socket, QString* sessionId)
+IFMAP_ERRORCODES Server::validateSessionId(QtSoapMessage msg, QTcpSocket *socket, QString* sessionId)
 {
     const char *fnName = "Server::validateSessionId:";
 
-    IFMAP_ERRORCODES_1 error = ::ErrorNone;
+    IFMAP_ERRORCODES error = ::ErrorNone;
 
     if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
         QtSoapStruct soapHdr = msg.header();
@@ -295,13 +483,8 @@ IFMAP_ERRORCODES_1 Server::validateSessionId(QtSoapMessage msg, QTcpSocket *sock
         // NON-STANDARD BEHAVIOR!!!
         // This let's someone curl in a bunch of messages without worrying about
         // maintaining SSRC state.
-
-        // NOTE: It is not possible to use curl and combine Server::IgnoreSessionId
-        // and Server::EnablePubIdHint because of the lack of the pubIdHint in subsequent
-        // messages after newSession.
-
         qDebug() << fnName << "NON-STANDARD: Ignoring invalid or missing session-id";
-        QString publisherId = computePubId(socket);
+        QString publisherId = assignPublisherId(socket);
         if (_activeSSRCSessions.contains(publisherId)) {
             *sessionId = _activeSSRCSessions.value(publisherId);
         }
@@ -343,6 +526,29 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
     if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
         newSessMN = "new-session";
         attachSessMN = "attach-session";
+
+        if (method.isEmpty() && ns.isEmpty() && _mapVersionSupport.testFlag(Server::SupportIfmapV10)) {
+            QtSoapStruct soapHdr = reqMsg.header();
+            QtSoapSimpleType newSessionReq = (QtSoapSimpleType &)soapHdr.at(QtSoapQName("new-session",IFMAP_NS_1));
+            QtSoapSimpleType attachSessionReq = (QtSoapSimpleType &)soapHdr.at(QtSoapQName("attach-session",IFMAP_NS_1));
+
+            QString newSession = newSessionReq.name().name();
+            QString attachSession = attachSessionReq.name().name();
+            qDebug() << fnName << "new-session header element:" << newSession;
+            qDebug() << fnName << "attach-session header element:" << attachSession;
+            if (! newSession.isEmpty()) {
+                if (_debug.testFlag(Server::ShowClientOps))
+                    qDebug() << fnName << "Got IF-MAP 1.0 new-session request";
+                method = "new-session";
+                ns = IFMAP_NS_1;
+            } else if (! attachSession.isEmpty()) {
+                if (_debug.testFlag(Server::ShowClientOps))
+                    qDebug() << fnName << "Got IF-MAP 1.0 attach-session request";
+                method = "attach-session";
+                ns = IFMAP_NS_1;
+                // TODO: Get session-id into body
+            }
+        }
         if (ns.compare(IFMAP_NS_1) != 0) {
             namespaceError = true;
         }
@@ -354,7 +560,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
         respMsg.setFaultString("Invalid IF-MAP Schema Version");
         sendResponse(socket, respMsg);
     } else if (method.compare(newSessMN) == 0) {
-        processNewSession(socket, reqMsg);
+        processNewSession(socket);
     } else if (method.compare(attachSessMN) == 0) {
         processAttachSession(socket, reqMsg);
     } else if (method.compare("publish") == 0) {
@@ -377,27 +583,9 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
     return;
 }
 
-void Server::processNewSession(QTcpSocket *socket, QtSoapMessage reqMsg)
+void Server::processNewSession(QTcpSocket *socket)
 {
-    const char *fnName = "Server::processNewSession:";
-
-    // NON-STANDARD BEHAVIOR!!!
-    // SPEC: A publisherId hint from the client might be a nice addition to the spec
-    //       and could be a unique id the client believes it has.  The server of
-    //       course can override the hint.  But this would help a lot when
-    //       it is impossible to otherwise distinguish client identities.
-    //       However, this would make it possible for a client to publish metadata
-    //       in the guise of a different client.
-    //       If used, the "pubIdHint" attribute is only included in the newSession method.
-    QString pubIdHint;
-    if (_nonStdBehavior.testFlag(Server::EnablePubIdHint) &&
-        reqMsg.method().attributes().contains("pubIdHint")) {
-        pubIdHint = reqMsg.method().attributes().namedItem("pubIdHint").toAttr().value();
-        qDebug() << fnName << "Got pubIdHint:" << pubIdHint;
-        qDebug() << fnName << "NON-STANDARD: Using pubIdHint attribute in newSession";
-    }
-
-    QString publisherId = computePubId(socket, pubIdHint);
+    QString publisherId = assignPublisherId(socket);
 
     QString sessId;
     // Check if we have an SSRC session already for this publisherId
@@ -426,6 +614,33 @@ void Server::processNewSession(QTcpSocket *socket, QtSoapMessage reqMsg)
     sendResponse(socket, respMsg);
 }
 
+void Server::processRenewSession(QTcpSocket *socket, QtSoapMessage reqMsg)
+{
+    QString sessId;
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
+
+    sendResponse(socket, soapResponseMsg(soapResponseForOperation("renewSession", requestError)));
+}
+
+void Server::processEndSession(QTcpSocket *socket, QtSoapMessage reqMsg)
+{
+    const char *fnName = "Server::processEndSession:";
+
+    QString sessId;
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
+
+    if (!requestError) {
+        QString publisherId = _activeSSRCSessions.key(sessId);
+        terminateSession(sessId);
+        if (_debug.testFlag(Server::ShowClientOps)) {
+            qDebug() << fnName << "Terminated session-id:" << sessId
+                     << "for publisher-id:" << publisherId;
+        }
+    }
+
+    sendResponse(socket, soapResponseMsg(soapResponseForOperation("endSession", requestError)));
+}
+
 void Server::processAttachSession(QTcpSocket *socket, QtSoapMessage reqMsg)
 {
     const char *fnName = "Server::processAttachSession:";
@@ -437,7 +652,7 @@ void Server::processAttachSession(QTcpSocket *socket, QtSoapMessage reqMsg)
     }
 
     QString sessId;
-    IFMAP_ERRORCODES_1 requestError = validateSessionId(reqMsg, socket, &sessId);
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
     QString publisherId = _activeSSRCSessions.key(sessId);
 
     if (!requestError) {
@@ -480,7 +695,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
     const char *fnName = "Server::processPublish:";
 
     QString sessId;
-    IFMAP_ERRORCODES_1 requestError = validateSessionId(reqMsg, socket, &sessId);
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
     QString publisherId = _activeSSRCSessions.key(sessId);
 
     QtSoapStruct &pubMeth = (QtSoapStruct &)reqMsg.method();
@@ -494,7 +709,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
         if (_debug.testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Publish operation:" << pubOperation;
         }
-        if (pubOperation.compare("update", Qt::CaseInsensitive) == 0) {
+        if (pubOperation.compare("update") == 0) {
 
             QDomDocument doc("placeholder");
             QDomElement el = pubItem->toDomElement(doc);
@@ -530,22 +745,43 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
             }
             bool isLink = (idCount == 2) ? true : false;
 
-            if (pubOperation.compare("update", Qt::CaseInsensitive) == 0) {
+            if (pubOperation.compare("update") == 0) {
                 _mapGraph->addMeta(key, isLink, publisherMetaList, publisherId);
 
                 // update subscriptions
-                updateSubscriptions(key, isLink, publisherMetaList, Meta::PublishUpdate);
+                updateSubscriptions(key, isLink, Meta::PublishUpdate);
             }
 
-        } else if (pubOperation.compare("delete", Qt::CaseInsensitive) == 0) {
+        } else if (pubOperation.compare("delete") == 0) {
             QDomDocument doc("placeholder");
             QDomElement el = pubItem->toDomElement(doc);
             doc.appendChild(el);
 
             QString filter = QString();
+            QMap<QString, QString> filterNamespaces;
             bool haveFilter = el.attributes().contains("filter");
             if (haveFilter) {
                 filter = el.attributes().namedItem("filter").toAttr().value();
+
+                QStringList filterPrefixes = SearchGraph::filterPrefixes(filter);
+                QStringListIterator prefIt(filterPrefixes);
+                while (prefIt.hasNext()) {
+                    QString prefix = prefIt.next(), ns;
+                    if (_serverCapability.testFlag(Server::PatchedQtForNamespaceReporting)) {
+                        ns = reqMsg.namespaceForPrefix(prefix);
+                    } else {
+                        ns = _mapGraph->metaNamespaces().value(prefix);
+                    }
+
+                    if (ns.isEmpty()) {
+                        qDebug() << fnName << "WARNING: No namespace found for search prefix:" << prefix;
+                    } else {
+                        if (_debug.testFlag(Server::ShowClientOps))
+                            qDebug() << fnName << "Saving prefix:" << prefix << "for namespace:" << ns;
+                        filterNamespaces.insert(prefix, ns);
+                    }
+                }
+
                 filter = SearchGraph::translateFilter(filter);
                 if (_debug.testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "delete filter:" << filter;
@@ -586,7 +822,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
                        because if it does match, then we'll need to notify any
                        active subscribers.
                     */
-                    int dSize = filteredMetadata(aMeta, filter);
+                    int dSize = filteredMetadata(aMeta, filter, filterNamespaces);
                     if (dSize == 0) {
                         // Keep this metadata (delete filter did not match)
                         keepMetaList.append(aMeta);
@@ -627,7 +863,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
             }
 
             if (metadataDeleted && !requestError) {
-                updateSubscriptions(key, isLink, deleteMetaList, Meta::PublishDelete);
+                updateSubscriptions(key, isLink, Meta::PublishDelete);
             }
         } else {
             // Error!
@@ -635,10 +871,6 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
             qDebug() << fnName << "Client Error: Invalid publish sub-operation:" << pubOperation;
         }
     }
-
-    // The entire publish operation
-    // MUST appear atomic to other clients.  So if multiple sub-operations, they need
-    // to ALL be applied before any other search is allowed, or subscriptions matched.
 
     // At this point all the publishes have occurred, we can check subscriptions
     if (!requestError) {
@@ -661,7 +893,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
     const char *fnName = "Server::processSubscribe:";
 
     QString sessId;
-    IFMAP_ERRORCODES_1 requestError = validateSessionId(reqMsg, socket, &sessId);
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
     QString publisherId = _activeSSRCSessions.key(sessId);
 
     if (_debug.testFlag(Server::ShowClientOps)) {
@@ -675,7 +907,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
         if (_debug.testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Subscribe operation:" << subOperation;
         }
-        if (subOperation.compare("update", Qt::CaseInsensitive) == 0) {
+        if (subOperation.compare("update") == 0) {
 
             QDomDocument doc("placeholder");
             QDomElement el = subItem->toDomElement(doc);
@@ -712,14 +944,15 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
             Id startingId = key.first;
             QString matchLinks, resultFilter;
             int maxDepth, maxSize;
-            requestError = searchParameters(subItem->attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter);
+            QMap<QString,QString> searchNamespaces;
+            requestError = searchParameters(reqMsg, subItem->attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter, searchNamespaces);
 
             if (!requestError) {
                 // Only store one subscription list per client
                 QSet<Id> idList;
                 QSet<Link > linkList;
                 int currentDepth = -1;
-                buildSearchGraph(startingId, matchLinks, maxDepth, currentDepth, &idList, &linkList);
+                buildSearchGraph(startingId, matchLinks, maxDepth, searchNamespaces, currentDepth, &idList, &linkList);
 
                 if (_debug.testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "Subscription:" << subName;
@@ -728,39 +961,42 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
                 }
 
                 SearchGraph sub;
-                sub.name = subName;
-                sub.startId = startingId;
-                sub.maxDepth = maxDepth;
-                sub.matchLinks = matchLinks;
-                sub.maxSize = maxSize;
-                sub.resultFilter = resultFilter;
-                sub.idList = idList;
-                sub.linkList = linkList;
+                sub._name = subName;
+                sub._startId = startingId;
+                sub._maxDepth = maxDepth;
+                sub._matchLinks = matchLinks;
+                sub._maxSize = maxSize;
+                sub._resultFilter = resultFilter;
+                sub._searchNamespaces = searchNamespaces;
+                sub._idList = idList;
+                sub._linkList = linkList;
 
+                /* 10Mar2010 I don't believe I should build searchResults at this time - wait for poll!
                 QtSoapStruct *searchResult = new QtSoapStruct(QtSoapQName("searchResult"));
-                searchResult->setAttribute("name", sub.name);
+                searchResult->setAttribute("name", sub._name);
 
-                IFMAP_ERRORCODES_1 addError = ::ErrorNone;
-                int sSize = addSearchResultsWithResultFilter(searchResult, sub.maxSize, sub.matchLinks, sub.resultFilter, sub.idList, sub.linkList, &addError);
-                sub.curSize += sSize;
+                IFMAP_ERRORCODES_2 addError = ::ErrorNone;
+                int sSize = addSearchResultsWithResultFilter(searchResult, sub._maxSize, sub._matchLinks, sub._resultFilter, sub._idList, sub._linkList, &addError);
+                sub._curSize += sSize;
 
-                sub.response.insert(searchResult);
+                sub._response.insert(searchResult);
 
                 // Check if we have exceeded our max size for the subscription
-                if (sub.curSize > sub.maxSize) {
-                    qDebug() << fnName << "search results exceeded max-size with curSize:" << sub.curSize;
-                    sub.hasErrorResult = true;
+                if (sub._curSize > sub._maxSize) {
+                    qDebug() << fnName << "search results exceeded max-size with curSize:" << sub._curSize;
+                    sub._hasErrorResult = true;
 
                     // TODO: Do I need to delete searchResult?
-                    sub.response.clear();
+                    sub._response.clear();
 
                     QString errString = Server::errorString(::IfmapPollResultsTooBig);
                     QtSoapStruct *errorResult = new QtSoapStruct(QtSoapQName("errorResult"));
                     errorResult->setAttribute("errorCode",errString);
-                    errorResult->setAttribute("name", sub.name);
+                    errorResult->setAttribute("name", sub._name);
 
-                    sub.response.insert(errorResult);
+                    sub._response.insert(errorResult);
                 }
+                */
 
                 QList<SearchGraph> subList = _subscriptionLists.value(publisherId);
                 if (subList.isEmpty()) {
@@ -784,13 +1020,13 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
                     emit checkActivePolls();
                 }
             }
-        } else if (subOperation.compare("delete", Qt::CaseInsensitive) == 0) {
+        } else if (subOperation.compare("delete") == 0) {
             QString subName;
             if (subItem->attributes().contains("name")) {
                 subName = subItem->attributes().namedItem("name").toAttr().value();
 
                 SearchGraph delSub;
-                delSub.name = subName;
+                delSub._name = subName;
 
                 QList<SearchGraph> subList = _subscriptionLists.take(publisherId);
                 if (! subList.isEmpty()) {
@@ -836,54 +1072,59 @@ void Server::processSearch(QTcpSocket *socket, QtSoapMessage reqMsg)
     QtSoapStruct *searchResponse;
 
     QString sessId;
-    IFMAP_ERRORCODES_1 requestError = validateSessionId(reqMsg, socket, &sessId);
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
 
-    QtSoapStruct &searchMeth = (QtSoapStruct&)reqMsg.method();
-    QDomDocument doc("placeholder");
-    QDomElement el = searchMeth.toDomElement(doc);
-    doc.appendChild(el);
+    if (!requestError) {
+        QtSoapStruct &searchMeth = (QtSoapStruct&)reqMsg.method();
+        QDomDocument doc("placeholder");
+        QDomElement el = searchMeth.toDomElement(doc);
+        doc.appendChild(el);
 
-    QDomNodeList ids;
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
-        ids = doc.elementsByTagName("identifier");
-    }
-    int idCount = 0;
-    Link key = keyFromNodeList(ids, &idCount, &requestError);
-    if (requestError != ::ErrorNone) {
-        qDebug() << fnName << "Client Error: Error parsing identifiers:" << requestError;
-        searchResponse = (QtSoapStruct *)soapResponseForOperation("search", requestError);
-    } else if (idCount != 1) {
-        // Don't need to allocate searchResponse for ::IfmapClientSoapFault
-        requestError = ::IfmapClientSoapFault;
-        qDebug() << fnName << "Client Error: Incorrect number of identifiers in search:" << idCount;
-    } else {
-        Id startingId = key.first;
-
-        QString matchLinks, resultFilter;
-        int maxDepth, maxSize;
-        requestError = searchParameters(searchMeth.attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter);
-
-        if (!requestError) {
-            QSet<Id> idList;
-            QSet<Link > linkList;
-            int currentDepth = -1;
-            buildSearchGraph(startingId, matchLinks, maxDepth, currentDepth, &idList, &linkList);
-
-            if (_debug.testFlag(Server::ShowClientOps)) {
-                qDebug() << fnName << "Search Lists";
-                qDebug() << fnName << "    idList size:" << idList.size();
-                qDebug() << fnName << "    linkList size:" << linkList.size();
-            }
-
+        QDomNodeList ids;
+        if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            ids = doc.elementsByTagName("identifier");
+        }
+        int idCount = 0;
+        Link key = keyFromNodeList(ids, &idCount, &requestError);
+        if (requestError != ::ErrorNone) {
+            qDebug() << fnName << "Client Error: Error parsing identifiers:" << requestError;
             searchResponse = (QtSoapStruct *)soapResponseForOperation("search", requestError);
-            addSearchResultsWithResultFilter(searchResponse, maxSize, matchLinks, resultFilter, idList, linkList, &requestError);
-            if (requestError == ::IfmapClientSoapFault) {
-                delete searchResponse;
-            } else if (requestError != ::ErrorNone) {
-                delete searchResponse;
+        } else if (idCount != 1) {
+            // Don't need to allocate searchResponse for ::IfmapClientSoapFault
+            requestError = ::IfmapClientSoapFault;
+            qDebug() << fnName << "Client Error: Incorrect number of identifiers in search:" << idCount;
+        } else {
+            Id startingId = key.first;
+
+            QString matchLinks, resultFilter, terminalId;
+            int maxDepth, maxSize;
+            QMap<QString,QString> searchNamespaces;
+            requestError = searchParameters(reqMsg, searchMeth.attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter, searchNamespaces);
+
+            if (!requestError) {
+                QSet<Id> idList;
+                QSet<Link > linkList;
+                int currentDepth = -1;
+                buildSearchGraph(startingId, matchLinks, maxDepth, searchNamespaces, currentDepth, &idList, &linkList);
+
+                if (_debug.testFlag(Server::ShowClientOps)) {
+                    qDebug() << fnName << "Search Lists";
+                    qDebug() << fnName << "    idList size:" << idList.size();
+                    qDebug() << fnName << "    linkList size:" << linkList.size();
+                }
+
                 searchResponse = (QtSoapStruct *)soapResponseForOperation("search", requestError);
+                addSearchResultsWithResultFilter(searchResponse, maxSize, matchLinks, resultFilter, searchNamespaces, idList, linkList, &requestError);
+                if (requestError == ::IfmapClientSoapFault) {
+                    delete searchResponse;
+                } else if (requestError != ::ErrorNone) {
+                    delete searchResponse;
+                    searchResponse = (QtSoapStruct *)soapResponseForOperation("search", requestError);
+                }
             }
         }
+    } else {
+        searchResponse = (QtSoapStruct *)soapResponseForOperation("search", requestError);
     }
 
     QtSoapMessage respMsg = soapResponseMsg(searchResponse, requestError);
@@ -900,7 +1141,7 @@ void Server::processPurgePublisher(QTcpSocket *socket, QtSoapMessage reqMsg)
     const char *fnName = "Server::processPurgePublisher:";
 
     QString sessId;
-    IFMAP_ERRORCODES_1 requestError = validateSessionId(reqMsg, socket, &sessId);
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
     QString publisherId = _activeSSRCSessions.key(sessId);
 
     QString purgePubId, purgePubIdAttrName;
@@ -952,7 +1193,7 @@ void Server::processPoll(QTcpSocket *socket, QtSoapMessage reqMsg)
     const char *fnName = "Server::processPoll:";
 
     QString sessId;
-    IFMAP_ERRORCODES_1 requestError = validateSessionId(reqMsg, socket, &sessId);
+    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
     QString publisherId = _activeSSRCSessions.key(sessId);
 
     if (!requestError) {
@@ -1052,7 +1293,7 @@ bool Server::terminateARCSession(QString sessionId)
     return hadExistingARCSession;
 }
 
-IFMAP_ERRORCODES_1 Server::searchParameters(QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter)
+IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter, QMap<QString, QString> &searchNamespaces)
 {
     const char *fnName = "Server::searchParameters:";
 
@@ -1075,7 +1316,28 @@ IFMAP_ERRORCODES_1 Server::searchParameters(QDomNamedNodeMap searchAttrs, int *m
 
     if (searchAttrs.contains("match-links")) {
         QString ifmapMatchLinks = searchAttrs.namedItem("match-links").toAttr().value();
+
+        QStringList mlPrefixes = SearchGraph::filterPrefixes(ifmapMatchLinks);
+        QStringListIterator prefIt(mlPrefixes);
+        while (prefIt.hasNext()) {
+            QString prefix = prefIt.next(), ns;
+            if (_serverCapability.testFlag(Server::PatchedQtForNamespaceReporting)) {
+                ns = msg.namespaceForPrefix(prefix);
+            } else {
+                ns = _mapGraph->metaNamespaces().value(prefix);
+            }
+
+            if (ns.isEmpty()) {
+                qDebug() << fnName << "WARNING: No namespace found for search prefix:" << prefix;
+            } else {
+                if (_debug.testFlag(Server::ShowClientOps))
+                    qDebug() << fnName << "Saving prefix:" << prefix << "for namespace:" << ns;
+                searchNamespaces.insert(prefix, ns);
+            }
+        }
+
         *matchLinks = SearchGraph::translateFilter(ifmapMatchLinks);
+
         if (_debug.testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Got search parameter match-links:" << *matchLinks;
         }
@@ -1101,7 +1363,28 @@ IFMAP_ERRORCODES_1 Server::searchParameters(QDomNamedNodeMap searchAttrs, int *m
 
     if (searchAttrs.contains("result-filter")) {
         QString ifmapResultFilter = searchAttrs.namedItem("result-filter").toAttr().value();
+
+        QStringList rfPrefixes = SearchGraph::filterPrefixes(ifmapResultFilter);
+        QStringListIterator prefIt(rfPrefixes);
+        while (prefIt.hasNext()) {
+            QString prefix = prefIt.next(), ns;
+            if (_serverCapability.testFlag(Server::PatchedQtForNamespaceReporting)) {
+                ns = msg.namespaceForPrefix(prefix);
+            } else {
+                ns = _mapGraph->metaNamespaces().value(prefix);
+            }
+
+            if (ns.isEmpty()) {
+                qDebug() << fnName << "WARNING: No namespace found for search prefix:" << prefix;
+            } else {
+                if (_debug.testFlag(Server::ShowClientOps))
+                    qDebug() << fnName << "Saving prefix:" << prefix << "for namespace:" << ns;
+                searchNamespaces.insert(prefix, ns);
+            }
+        }
+
         *resultFilter = SearchGraph::translateFilter(ifmapResultFilter);
+
         if (_debug.testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Got search parameter result-filter:" << *resultFilter;
         }
@@ -1113,7 +1396,7 @@ IFMAP_ERRORCODES_1 Server::searchParameters(QDomNamedNodeMap searchAttrs, int *m
     return ::ErrorNone;
 }
 
-QString Server::errorString(IFMAP_ERRORCODES_1 error)
+QString Server::errorString(IFMAP_ERRORCODES error)
 {
     QString str("");
 
@@ -1166,7 +1449,7 @@ QString Server::errorString(IFMAP_ERRORCODES_1 error)
     return str;
 }
 
-QtSoapMessage Server::soapResponseMsg(QtSoapType *content, IFMAP_ERRORCODES_1 errorCode)
+QtSoapMessage Server::soapResponseMsg(QtSoapType *content, IFMAP_ERRORCODES errorCode)
 {
     QtSoapMessage msg;
 
@@ -1185,7 +1468,7 @@ QtSoapMessage Server::soapResponseMsg(QtSoapType *content, IFMAP_ERRORCODES_1 er
     return msg;
 }
 
-QtSoapType* Server::soapResponseForOperation(QString operation, IFMAP_ERRORCODES_1 operationError)
+QtSoapType* Server::soapResponseForOperation(QString operation, IFMAP_ERRORCODES operationError)
 {
     const char *fnName = "Server::soapResponseForOperation:";
     QtSoapType *respMsg = 0;
@@ -1198,24 +1481,24 @@ QtSoapType* Server::soapResponseForOperation(QString operation, IFMAP_ERRORCODES
         QString errString = Server::errorString(operationError);
         respMsg = new QtSoapStruct(QtSoapQName("errorResult"));
         respMsg->setAttribute("errorCode",errString);
-    } else if (operation.compare("newSession", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("newSession") == 0) {
         respMsg = new QtSoapSimpleType(QtSoapQName("newSessionResult"));
-    } else if (operation.compare("renewSession", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("renewSession") == 0) {
         respMsg = new QtSoapSimpleType(QtSoapQName("renewSessionResult"));
-    } else if (operation.compare("endSession", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("endSession") == 0) {
         respMsg = new QtSoapSimpleType(QtSoapQName("endSessionResult"));
-    } else if (operation.compare("attachSession", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("attachSession") == 0) {
         respMsg = new QtSoapSimpleType(QtSoapQName("attachSessionResult"));
-    } else if (operation.compare("publish", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("publish") == 0) {
         respMsg = new QtSoapSimpleType(QtSoapQName("publishReceived"));
-    } else if (operation.compare("search", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("search") == 0) {
         respMsg = new QtSoapStruct(QtSoapQName("searchResult"));
-    } else if (operation.compare("subscribe", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("subscribe") == 0) {
         respMsg = new QtSoapSimpleType(QtSoapQName("subscribeReceived"));
-    } else if (operation.compare("poll", Qt::CaseInsensitive) == 0) {
+    } else if (operation.compare("poll") == 0) {
         respMsg = new QtSoapStruct(QtSoapQName("pollResult"));
-    } else if (operation.compare("purgePublisher", Qt::CaseInsensitive) == 0) {
-        respMsg = new QtSoapSimpleType(QtSoapQName("purgePublishReceived"));
+    } else if (operation.compare("purgePublisher") == 0) {
+        respMsg = new QtSoapSimpleType(QtSoapQName("purgePublisherReceived"));
     }
 
     return respMsg;
@@ -1296,11 +1579,6 @@ QtSoapType* Server::soapStructForId(Id id)
             soapId->setAttribute("name", id.value());
             soapId->setAttribute("type", "sip-uri");
             break;
-        case Identifier::IdentityHipHit:
-            soapId = new QtSoapSimpleType(QtSoapQName("identity"));
-            soapId->setAttribute("name", id.value());
-            soapId->setAttribute("type", "hip-hit");
-            break;
         case Identifier::IdentityTelUri:
             soapId = new QtSoapSimpleType(QtSoapQName("identity"));
             soapId->setAttribute("name", id.value());
@@ -1314,7 +1592,9 @@ QtSoapType* Server::soapStructForId(Id id)
             break;
     }
 
-    if ( id.type() != Identifier::DeviceAikName && id.type() != Identifier::DeviceName
+    if ( id.type() != Identifier::DeviceAikName &&
+         id.type() != Identifier::DeviceName &&
+         (id.type() != Identifier::AccessRequest || _mapVersionSupport.testFlag(Server::SupportIfmapV11))
          && !(id.ad().isEmpty()) ) {
         soapId->setAttribute("administrative-domain", id.ad());
     }
@@ -1328,7 +1608,7 @@ QtSoapType* Server::soapStructForId(Id id)
     return 0;
 }
 
-QList<Meta> Server::metaFromNodeList(QDomNodeList metaNodes, Meta::Lifetime lifetime, QString publisherId, IFMAP_ERRORCODES_1 *errorCode)
+QList<Meta> Server::metaFromNodeList(QDomNodeList metaNodes, Meta::Lifetime lifetime, QString publisherId, IFMAP_ERRORCODES *errorCode)
 {
     const char *fnName = "Server::metaFromNodeList:";
     QList<Meta> metaList;
@@ -1345,29 +1625,17 @@ QList<Meta> Server::metaFromNodeList(QDomNodeList metaNodes, Meta::Lifetime life
     }
 
     for (int i=0; i<metaNodes.count(); i++) {
-        QString metaName = metaNodes.at(i).localName();
         QString metaNS = metaNodes.at(i).namespaceURI();
-        QString metaPrefix = metaNodes.at(i).prefix();
         QString cardinality = metaNodes.at(i).attributes().namedItem(cardinalityAttrName).toAttr().value();
         Meta::Cardinality cardinalityValue = (cardinality == "multiValue") ? Meta::MultiValue : Meta::SingleValue;
 
         // TODO: Perform comprehensive metadata validation if desired
 
-        // Check metadata has a qualified namespace and register it in global namespace registry
-        if (metaNS.isEmpty() || metaPrefix.isEmpty()) {
+        // Check metadata has a qualified namespace
+        if (metaNS.isEmpty()) {
             *errorCode = ::IfmapInvalidMetadata;
-            qDebug() << fnName << "Client Error: metadata does not have associated namespace:" << metaName;
+            qDebug() << fnName << "Client Error: metadata does not have associated namespace:" << metaNodes.at(i).nodeName();
             continue;
-        } else {
-            QtSoapNamespaces ns = QtSoapNamespaces::instance();
-            if (!ns.namespaceRegistered(metaNS)) {
-                qDebug() << fnName << "Registering prefix:" << metaPrefix << "for namespace:" << metaNS;
-                ns.registerNamespace(metaPrefix, metaNS);
-            } else {
-                QString aPrefix = ns.prefixFor(metaNS);
-                qDebug() << fnName << "Have already registered namespace:" << metaNS
-                        << "with prefix:" << aPrefix;
-            }
         }
 
         // Add publisherId to meta node
@@ -1388,8 +1656,6 @@ QList<Meta> Server::metaFromNodeList(QDomNodeList metaNodes, Meta::Lifetime life
         QDomNode metaDomNode = metaNodes.at(i);
 
         Meta aMeta(cardinalityValue, lifetime);
-        aMeta.setElementName(metaName);
-        aMeta.setNamespace(metaNS);
         aMeta.setMetaNode(metaDomNode.cloneNode());
         aMeta.setPublisherId(publisherId);
 
@@ -1399,7 +1665,7 @@ QList<Meta> Server::metaFromNodeList(QDomNodeList metaNodes, Meta::Lifetime life
     return metaList;
 }
 
-Link Server::keyFromNodeList(QDomNodeList ids, int *idCount, IFMAP_ERRORCODES_1 *errorCode)
+Link Server::keyFromNodeList(QDomNodeList ids, int *idCount, IFMAP_ERRORCODES *errorCode)
 {
     Link key;
     Id id1;
@@ -1432,7 +1698,7 @@ Link Server::keyFromNodeList(QDomNodeList ids, int *idCount, IFMAP_ERRORCODES_1 
     return key;
 }
 
-Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES_1 *errorCode)
+Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
 {
     const char *fnName = "Server::idFromNode:";
 
@@ -1450,7 +1716,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES_1 *errorCode)
     // TODO: Do some rudimentary type checking on the value, e.g.
     // (QHostAddress::setAddress ( const QString & address )) == true
     QString idName = idNode.toElement().tagName();
-    if (idName.compare("access-request", Qt::CaseInsensitive) == 0) {
+    if (idName.compare("access-request") == 0) {
         idType = Identifier::AccessRequest;
 
         if (attrs.contains("name")) {
@@ -1464,15 +1730,15 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES_1 *errorCode)
             parseError = true;
             *errorCode = ::IfmapInvalidIdentifier;
         }
-    } else if (idName.compare("device", Qt::CaseInsensitive) == 0) {
+    } else if (idName.compare("device") == 0) {
         QString deviceType = idNode.firstChildElement().tagName();
-        if (deviceType.compare("aik-name", Qt::CaseInsensitive) == 0) {
+        if (deviceType.compare("aik-name") == 0 && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
             idType = Identifier::DeviceAikName;
             value = idNode.firstChildElement().text();
             if (_debug.testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got device aik-name:" << value;
             }
-        } else if (deviceType.compare("name", Qt::CaseInsensitive) == 0) {
+        } else if (deviceType.compare("name") == 0) {
             idType = Identifier::DeviceName;
             value = idNode.firstChildElement().text();
             if (_debug.testFlag(Server::ShowClientOps)) {
@@ -1483,31 +1749,29 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES_1 *errorCode)
             parseError = true;
             *errorCode = ::IfmapInvalidIdentifier;
         }
-    } else if (idName.compare("identity", Qt::CaseInsensitive) == 0) {
+    } else if (idName.compare("identity") == 0) {
         QString type;
         if (attrs.contains("type")) {
             type = attrs.namedItem("type").toAttr().value();
-            if (type.compare("aik-name", Qt::CaseInsensitive) == 0) {
+            if (type.compare("aik-name") == 0) {
                 idType = Identifier::IdentityAikName;
-            } else if (type.compare("distinguished-name", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("distinguished-name") == 0) {
                 idType = Identifier::IdentityDistinguishedName;
-            } else if (type.compare("dns-name", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("dns-name") == 0) {
                 idType = Identifier::IdentityDnsName;
-            } else if (type.compare("email-address", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("email-address") == 0) {
                 idType = Identifier::IdentityEmailAddress;
-            } else if (type.compare("kerberos-principal", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("kerberos-principal") == 0) {
                 idType = Identifier::IdentityKerberosPrincipal;
-            } else if (type.compare("trusted-platform-module", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("trusted-platform-module") == 0 && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
                 idType = Identifier::IdentityTrustedPlatformModule;
-            } else if (type.compare("username", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("username") == 0) {
                 idType = Identifier::IdentityUsername;
-            } else if (type.compare("sip-uri", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("sip-uri") == 0) {
                 idType = Identifier::IdentitySipUri;
-            } else if (type.compare("hip-hit", Qt::CaseInsensitive) == 0) {
-                idType = Identifier::IdentityHipHit;
-            } else if (type.compare("tel-uri", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("tel-uri") == 0) {
                 idType = Identifier::IdentityTelUri;
-            } else if (type.compare("other", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("other") == 0) {
                 idType = Identifier::IdentityOther;
             } else {
                 // Error - unknown identity type
@@ -1544,13 +1808,13 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES_1 *errorCode)
                 *errorCode = ::IfmapInvalidIdentifier;
             }
         }
-    } else if (idName.compare("ip-address", Qt::CaseInsensitive) == 0) {
+    } else if (idName.compare("ip-address") == 0) {
         QString type;
         if (attrs.contains("type")) {
             type = attrs.namedItem("type").toAttr().value();
-            if (type.compare("IPv4", Qt::CaseInsensitive) == 0) {
+            if (type.compare("IPv4") == 0) {
                 idType = Identifier::IpAddressIPv4;
-            } else if (type.compare("IPv6", Qt::CaseInsensitive) == 0) {
+            } else if (type.compare("IPv6") == 0) {
                 idType = Identifier::IpAddressIPv6;
             } else {
                 // Error - did not correctly specify type
@@ -1572,7 +1836,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES_1 *errorCode)
             *errorCode = ::IfmapInvalidIdentifier;
         }
 
-    } else if (idName.compare("mac-address", Qt::CaseInsensitive) == 0) {
+    } else if (idName.compare("mac-address") == 0) {
         idType = Identifier::MacAddress;
 
         if (attrs.contains("value")) {
@@ -1611,26 +1875,21 @@ Id Server::otherIdForLink(Link link, Id targetId)
         return link.first;
 }
 
-int Server::filteredMetadata(Meta meta, QString filter, QtSoapStruct *metaResult)
+int Server::filteredMetadata(Meta meta, QString filter, QMap<QString, QString> searchNamespaces, QtSoapStruct *metaResult)
 {
     QList<Meta> singleMetaList;
     singleMetaList.append(meta);
-    return filteredMetadata(singleMetaList, filter, metaResult);
+    return filteredMetadata(singleMetaList, filter, searchNamespaces, metaResult);
 }
 
 /* Returns -1 on QXmlQuery Error, else string length of metadata results
 */
-int Server::filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct *metaResult)
+int Server::filteredMetadata(QList<Meta> metaList, QString filter, QMap<QString, QString> searchNamespaces, QtSoapStruct *metaResult)
 {
     const char *fnName = "Server::filteredMetadata:";
     int resultSize = 0;
     bool matchAll = false;
 
-    /* The filter will be either a match-links, result-filter, or delete filter,
-       depending on where this method is called.  The "invert" parameter reverses the
-       sense of the filter, so if the filter is a delete filter, be sure
-       to set invert = true.
-    */
     if (filter.isEmpty()) {
         qDebug() << fnName << "Empty filter string matches nothing";
         return 0;
@@ -1642,28 +1901,14 @@ int Server::filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct 
     QTextStream queryStream(&qString);
 
     if (!matchAll) {
-        /* TODO: I should be using the namespaces/prefixes sent by the client in their
-           <search> element and/or in their match-links and result-filter filter text.
-           To get something working, I'm just using the prefix that was used when the
-           metadata was published, but this may be a different prefix than what is used
-           in filter.  I'm also including the standard IFMAP_META_NS namespace with meta
-           prefix that is registered in the Server::Server() method.
-        */
-        QStringList namespaceList = QtSoapNamespaces::instance().namespaceList();
-        QStringListIterator nsit(namespaceList);
-        while (nsit.hasNext()) {
-            QString nsuri = nsit.next();
-            QString prefix = QtSoapNamespaces::instance().prefixFor(nsuri);
-            if (!nsuri.isEmpty() && !prefix.isEmpty() &&
-                nsuri != SOAPv11_ENVELOPE && nsuri != SOAPv11_ENCODING &&
-                nsuri != XML_SCHEMA && nsuri != XML_SCHEMA_INSTANCE &&
-                nsuri != IFMAP_NS_1) {
-                queryStream << "declare namespace "
-                        << prefix
-                        << " = \""
-                        << nsuri
-                        << "\";";
-            }
+        QMapIterator<QString, QString> nsIt(searchNamespaces);
+        while (nsIt.hasNext()) {
+            nsIt.next();
+            queryStream << "declare namespace "
+                    << nsIt.key()
+                    << " = \""
+                    << nsIt.value()
+                    << "\";";
         }
 
         queryStream << "<metadata>";
@@ -1733,7 +1978,7 @@ int Server::filteredMetadata(QList<Meta> metaList, QString filter, QtSoapStruct 
     return resultSize;
 }
 
-int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int maxSize, QString matchLinks, QString resultFilter, QSet<Id> idList, QSet<Link> linkList, IFMAP_ERRORCODES_1 *operationError)
+int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int maxSize, QString matchLinks, QString resultFilter, QMap<QString, QString> searchNamespaces, QSet<Id> idList, QSet<Link> linkList, IFMAP_ERRORCODES *operationError)
 {
     const char *fnName = "Server::addSearchResultsWithResultFilter:";
 
@@ -1752,29 +1997,21 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
         if (_debug.testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
         }
+
+        QtSoapStruct *linkResult = new QtSoapStruct(QtSoapQName(linkResultName));
+        QtSoapType *idStruct1 = soapStructForId(link.first);
+        QtSoapType *idStruct2 = soapStructForId(link.second);
+
         // In this context linkMetaList _may_ be empty if calling this method with delta id list
         if (! linkMetaList.isEmpty()) {
-            QtSoapStruct *linkResult = new QtSoapStruct(QtSoapQName(linkResultName));
-            QtSoapType *idStruct1 = soapStructForId(link.first);
-            QtSoapType *idStruct2 = soapStructForId(link.second);
-
             QtSoapStruct *metaResult = new QtSoapStruct();
-            /* I now interpret the search algorithm to say
-               that link metadata returned from a search is first filtered by match-links.
-               Then result-filter specifies _further_ rules for deleting data from the
-               results.  I initially only applied result-filter to _all_ metadata, and
-               used match-links just for building the search graph.  In other words,
-               match-links is a whitelist of link metadata and this interpretation of
-               match-links keeps clients from discovering link metadata they do
-               expect to exist.  The initial behavior may in some cases be desired.
-            */
             int mSize;
             if (_nonStdBehavior.testFlag(Server::DoNotUseMatchLinksInSearchResults)) {
                 qDebug() << fnName << "NON-STANDARD: Not filtering metadata with match-links";
-                mSize = filteredMetadata(linkMetaList, resultFilter, metaResult);
+                mSize = filteredMetadata(linkMetaList, resultFilter, searchNamespaces, metaResult);
             } else {
                 QString combinedFilter = SearchGraph::intersectFilter(matchLinks, resultFilter);
-                mSize = filteredMetadata(linkMetaList, combinedFilter, metaResult);
+                mSize = filteredMetadata(linkMetaList, combinedFilter, searchNamespaces, metaResult);
             }
 
             if (mSize > 0) {
@@ -1787,23 +2024,30 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
             } else {
                 delete metaResult;
             }
-            linkResult->insert(idStruct2);
-            linkResult->insert(idStruct1);
-            soapResponse->insert(linkResult);
         }
+        linkResult->insert(idStruct2);
+        linkResult->insert(idStruct1);
+        soapResponse->insert(linkResult);
     }
 
     QSetIterator<Id> idIt(idList);
+    if (_debug.testFlag(Server::ShowClientOps)) {
+        qDebug() << fnName << "idList size:" << idList.size();
+    }
     while (idIt.hasNext() && !(*operationError)) {
         Id id = idIt.next();
         QList<Meta> idMetaList = _mapGraph->metaForId(id);
+        if (_debug.testFlag(Server::ShowClientOps)) {
+            qDebug() << fnName << "idMetaList size for id:" << id << "-->" << idMetaList.size();
+        }
+
+        QtSoapStruct *idResult = new QtSoapStruct(QtSoapQName(identifierResultName));
+        QtSoapType *idStruct = soapStructForId(id);
+
         // In this context idMetaList _may_ be empty if calling this method with delta id list
         if (! idMetaList.isEmpty()) {
-            QtSoapStruct *idResult = new QtSoapStruct(QtSoapQName(identifierResultName));
-            QtSoapType *idStruct = soapStructForId(id);
-
             QtSoapStruct *metaResult = new QtSoapStruct();
-            int mSize = filteredMetadata(idMetaList, resultFilter, metaResult);
+            int mSize = filteredMetadata(idMetaList, resultFilter, searchNamespaces, metaResult);
 
             if (mSize > 0) {
                 idResult->insert(metaResult);
@@ -1815,16 +2059,15 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
             } else {
                 delete metaResult;
             }
-
-            idResult->insert(idStruct);
-            soapResponse->insert(idResult);
         }
+        idResult->insert(idStruct);
+        soapResponse->insert(idResult);
     }
 
     return curSize;
 }
 
-void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
+void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth, QMap<QString, QString> searchNamespaces,
                     int currentDepth, // Pass by value!  Must initially be -1.
                     QSet<Id> *idList,
                     QSet<Link > *linkList)
@@ -1838,7 +2081,11 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
         qDebug() << fnName << "Current depth:" << currentDepth;
     }
 
-    // 2. Check max depth reached
+    // 2. Save current identifier in list of traversed identifiers
+    // so we can later gather metadata from these identifiers.
+    idList->insert(startId);
+
+    // 4. Check max depth reached
     if (currentDepth >= maxDepth) {
         if (_debug.testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "max depth reached:" << maxDepth;
@@ -1846,16 +2093,12 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
         return;
     }
 
-    // 3. Save current identifier in list of traversed identifiers
-    // so we can later gather metadata from these identifiers.
-    idList->insert(startId);
-
     // 5. Get list of links that have startId in link and pass matchLinks filter
     QSet<Link> linksWithCurId;
     QList<Id> startIdLinks = _mapGraph->linksTo(startId);
     QListIterator<Id> idIter(startIdLinks);
     while (idIter.hasNext()) {
-        // TODO: Would be nice to exclude the previous startId from this loop
+        // TODO: performance increase by excluding the previous startId from this loop
 
         // matchId is the other end of the link
         Id matchId = idIter.next();
@@ -1864,7 +2107,7 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
         // Get metadata on this link
         QList<Meta> curLinkMeta = _mapGraph->metaForLink(link);
         //If any of this metadata matches matchLinks add link to idMatchList
-        if (filteredMetadata(curLinkMeta, matchLinks) > 0) {
+        if (filteredMetadata(curLinkMeta, matchLinks, searchNamespaces) > 0) {
             if (_debug.testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Adding link:" << link;
             }
@@ -1890,7 +2133,7 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth,
             Link link = linkIter.next();
             Id linkedId = otherIdForLink(link, startId);
             // linkedId becomes startId in recursion
-            buildSearchGraph(linkedId, matchLinks, maxDepth, currentDepth, idList, linkList);
+            buildSearchGraph(linkedId, matchLinks, maxDepth, searchNamespaces, currentDepth, idList, linkList);
         }
     }
 
@@ -1904,16 +2147,14 @@ void Server::updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Li
         idIter.next();
         Link idLink;
         idLink.first = idIter.key();
-        QList<Meta> deletedMetaList = idIter.value();
-        updateSubscriptions(idLink, false, deletedMetaList, Meta::PublishDelete);
+        updateSubscriptions(idLink, false, Meta::PublishDelete);
     }
 
     QHashIterator<Link, QList<Meta> > linkIter(linkMetaDeleted);
     while (linkIter.hasNext()) {
         linkIter.next();
         Link link = linkIter.key();
-        QList<Meta> deletedMetaList = linkIter.value();
-        updateSubscriptions(link,true, deletedMetaList, Meta::PublishDelete);
+        updateSubscriptions(link,true, Meta::PublishDelete);
     }
 }
 
@@ -1921,7 +2162,7 @@ void Server::updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Li
 // the SearchGraphs.  If a subscription results in a changed SearchGraph that
 // matches the subscription, build the appropriate metadata results, so that we
 // can send out pollResults.
-void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges, Meta::PublishOperationType publishType)
+void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationType publishType)
 {
     const char *fnName = "Server::updateSubscriptions:";
 
@@ -1952,7 +2193,7 @@ void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges
         while (subIt.hasNext()) {
             SearchGraph sub = subIt.next();
             if (_debug.testFlag(Server::ShowClientOps)) {
-                qDebug() << fnName << "--checking subscription named:" << sub.name;
+                qDebug() << fnName << "--checking subscription named:" << sub._name;
             }
 
             QSet<Id> idsWithConnectedGraphUpdates, idsWithConnectedGraphDeletes;
@@ -1961,48 +2202,60 @@ void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges
             bool subIsDirty = false;
 
             if (! isLink) {
-                if (sub.idList.contains(link.first)) {
-                    if (filteredMetadata(metaChanges, sub.resultFilter) > 0) {
+                if (sub._idList.contains(link.first)) {
+                    subIsDirty = true;
+                    /*
+                          10Mar2010: Believe this is wrong
+                    if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
                         // Case 1.
                         subIsDirty = true;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty with existing id:" << link.first;
                         }
                     }
+                    */
                 }
             } else {
-                if (sub.linkList.contains(link) && publishType == Meta::PublishDelete) {
-                    if (filteredMetadata(metaChanges, sub.resultFilter) > 0) {
+                if (sub._linkList.contains(link) && publishType == Meta::PublishDelete) {
+                    subIsDirty = true;
+                    /*
+                          10Mar2010: Believe this is wrong
+                    if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
                         // Case 3.
                         subIsDirty = true;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty deleting meta on existing link:" << link;
                         }
                     }
+                    */
                 }
 
-                if (sub.linkList.contains(link) && publishType == Meta::PublishUpdate) {
-                    if (filteredMetadata(metaChanges, sub.resultFilter) > 0) {
+                if (sub._linkList.contains(link) && publishType == Meta::PublishUpdate) {
+                    subIsDirty = true;
+                    /*
+                          10Mar2010: Believe this is wrong
+                    if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
                         // Case 2.
                         subIsDirty = true;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty updating meta on existing link:" << link;
                         }
                     }
+                    */
                 } else {
-                    // Case 4.
+                    // Case 4. (and search graph rebuild for case 3)
                     QSet<Id> newIdList;
                     QSet<Link > newLinkList;
                     int currentDepth = -1;
-                    buildSearchGraph(sub.startId, sub.matchLinks, sub.maxDepth, currentDepth, &newIdList, &newLinkList);
+                    buildSearchGraph(sub._startId, sub._matchLinks, sub._maxDepth, sub._searchNamespaces, currentDepth, &newIdList, &newLinkList);
 
-                    if (sub.idList != newIdList) {
+                    if (sub._idList != newIdList) {
                         subIsDirty = true;
                         modifiedSearchGraph = true;
                         // Metadata on these ids are in updateResults
-                        idsWithConnectedGraphUpdates = newIdList - sub.idList;
+                        idsWithConnectedGraphUpdates = newIdList - sub._idList;
                         // Metadata on these ids are in deleteResults
-                        idsWithConnectedGraphDeletes = sub.idList - newIdList;
+                        idsWithConnectedGraphDeletes = sub._idList - newIdList;
 
                         /*
                         QSetIterator<Id> idIt(idsWithConnectedGraphUpdates + idsWithConnectedGraphDeletes);
@@ -2016,19 +2269,19 @@ void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges
                         }
                         */
 
-                        sub.idList = newIdList;
+                        sub._idList = newIdList;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty with newIdList.size:" << newIdList.size();
                         }
                     }
 
-                    if (sub.linkList != newLinkList) {
+                    if (sub._linkList != newLinkList) {
                         subIsDirty = true;
                         modifiedSearchGraph = true;
                         // Metadata on these links are in updateResults
-                        linksWithConnectedGraphUpdates = newLinkList - sub.linkList;
+                        linksWithConnectedGraphUpdates = newLinkList - sub._linkList;
                         // Metadata on these links are in deleteResults
-                        linksWithConnectedGraphDeletes = sub.linkList - newLinkList;
+                        linksWithConnectedGraphDeletes = sub._linkList - newLinkList;
 
                         /*
                         QSetIterator<Link> linkIt(linksWithConnectedGraphUpdates + linksWithConnectedGraphDeletes);
@@ -2042,7 +2295,7 @@ void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges
                         }
                         */
 
-                        sub.linkList = newLinkList;
+                        sub._linkList = newLinkList;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty with newLinkList.size:" << newLinkList.size();
                         }
@@ -2050,33 +2303,33 @@ void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges
                 }
             }
 
-            if (subIsDirty && !sub.hasErrorResult) {
+            if (subIsDirty && !sub._hasErrorResult) {
                 // Construct results for the subscription
-                QtSoapStruct *searchResult = 0, *errorResult = 0;
-                // Build results from entire search graph for the poll response
-                searchResult = new QtSoapStruct(QtSoapQName("searchResult"));
-                searchResult->setAttribute("name", sub.name);
+                QtSoapStruct *errorResult = 0;
+                if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+                    // Build results from entire search graph for the first poll response
+                    QtSoapStruct *searchResult = new QtSoapStruct(QtSoapQName("searchResult"));
+                    searchResult->setAttribute("name", sub._name);
 
-                IFMAP_ERRORCODES_1 addError = ::ErrorNone;
-                int sSize = addSearchResultsWithResultFilter(searchResult, sub.maxSize, sub.matchLinks, sub.resultFilter, sub.idList, sub.linkList, &addError);
-                sub.curSize += sSize;
-
-                sub.response.insert(searchResult);
+                    sub.clearResponse();
+                    IFMAP_ERRORCODES addError = ::ErrorNone;
+                    int sSize = addSearchResultsWithResultFilter(searchResult, sub._maxSize, sub._matchLinks, sub._resultFilter, sub._searchNamespaces, sub._idList, sub._linkList, &addError);
+                    sub._curSize += sSize;
+                    sub._responseElements.append(searchResult);
+                }
 
                 // Check if we have exceeded our max size for the subscription
-                if (sub.curSize > sub.maxSize) {
-                    qDebug() << fnName << "Search results exceeded max-size with curSize:" << sub.curSize;
-                    sub.hasErrorResult = true;
-
-                    // TODO: Do I need to delete updateResult, deleteResult, searchResult, result?
-                    sub.response.clear();
+                if (sub._curSize > sub._maxSize) {
+                    qDebug() << fnName << "Search results exceeded max-size with curSize:" << sub._curSize;
+                    sub._hasErrorResult = true;
+                    sub.clearResponse();
 
                     QString errString = Server::errorString(::IfmapPollResultsTooBig);
                     errorResult = new QtSoapStruct(QtSoapQName("errorResult"));
                     errorResult->setAttribute("errorCode",errString);
-                    errorResult->setAttribute("name", sub.name);
+                    errorResult->setAttribute("name", sub._name);
 
-                    sub.response.insert(errorResult);
+                    sub._responseElements.append(errorResult);
                 }
 
                 subIt.setValue(sub);
@@ -2088,50 +2341,6 @@ void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges
             allSubsIt.setValue(subList);
         }
     }
-}
-
-QtSoapStruct* Server::subResultForPollResult(Link link, bool isLink, SearchGraph *sub, QList<Meta> meta, Meta::PublishOperationType publishType)
-{
-    QtSoapStruct *result;
-    QtSoapStruct *resultItem = new QtSoapStruct(QtSoapQName("resultItem"));
-
-    QtSoapStruct *metaResult = new QtSoapStruct();
-    /* TODO: I now interpret the search algorithm to say
-       that link metadata returned from a search is first filtered by match-links.
-       Then result-filter specifies _further_ rules for deleting data from the
-       results.  I am only applying result-filter to _all_ metadata, and
-       using match-links just for building the search graph.  In other words,
-       match-links is a whitelist of link metadata and this interpretation of
-       match-links keeps clients from discovering link metadata they do
-       expect to exist.
-    */
-    int mSize = filteredMetadata(meta, sub->resultFilter, metaResult);
-
-    if (mSize > 0) {
-        resultItem->insert(metaResult);
-        sub->curSize += mSize;
-    } else {
-        delete metaResult;
-    }
-
-    QtSoapType *idStruct1 = soapStructForId(link.first);
-    QtSoapType *idStruct2 = (isLink ? soapStructForId(link.second) : 0);
-    if (isLink) resultItem->insert(idStruct2);
-    resultItem->insert(idStruct1);
-
-    switch(publishType) {
-    case Meta::PublishDelete:
-        result = new QtSoapStruct(QtSoapQName("deleteResult"));
-        break;
-    case Meta::PublishUpdate:
-        result = new QtSoapStruct(QtSoapQName("updateResult"));
-        break;
-    }
-
-    result->setAttribute("name", sub->name);
-    result->insert(resultItem);
-
-    return result;
 }
 
 void Server::sendResultsOnActivePolls()
@@ -2150,28 +2359,44 @@ void Server::sendResultsOnActivePolls()
         }
 
         bool publisherHasErrorOnSub = false;
-        bool sentPollToPublisher = false;
+        QtSoapStruct *pollResult = (QtSoapStruct *)soapResponseForOperation("poll", ::ErrorNone);
         QMutableListIterator<SearchGraph> subIt(subList);
         while (subIt.hasNext()) {
             SearchGraph sub = subIt.next();
             if (_debug.testFlag(Server::ShowClientOps)) {
-                qDebug() << fnName << "--Checking subscription named:" << sub.name;
+                qDebug() << fnName << "--Checking subscription named:" << sub._name;
             }
-            if (sub.curSize > 0 && _activePolls.contains(pubId)) {
-                if (_debug.testFlag(Server::ShowClientOps)) {
-                    qDebug() << fnName << "--Sending poll results for publisher with active poll:" << pubId;
-                }
-                QtSoapStruct *response = new QtSoapStruct(sub.response);
-                sendResponse(_activePolls.value(pubId), soapResponseMsg(response));
 
-                sub.response.clear();
-                sub.curSize = 0;
-                if (!sub.sentFirstResult) sub.sentFirstResult = true;
-                if (sub.hasErrorResult) publisherHasErrorOnSub = true; // Mark for removing all subscriptions
+            if (sub._responseElements.count() > 0 && _activePolls.contains(pubId)) {
+                if (_debug.testFlag(Server::ShowClientOps)) {
+                    qDebug() << fnName << "--Gathering poll results for publisher with active poll:" << pubId;
+                }
+
+                while (! sub._responseElements.isEmpty()) {
+                    pollResult->insert(sub._responseElements.takeFirst());
+                }
+
+                if (sub._hasErrorResult) publisherHasErrorOnSub = true; // Mark for removing all subscriptions
 
                 subIt.setValue(sub);
-                sentPollToPublisher = true;
+            } else {
+                if (_debug.testFlag(Server::ShowClientOps)) {
+                    qDebug() << fnName << "--No results for subscription at this time";
+                    qDebug() << fnName << "----sub._response.count():" << sub._responseElements.count();
+                    qDebug() << fnName << "----_activePolls.contains(pubId):" << _activePolls.contains(pubId);
+                }
             }
+        }
+
+        if (pollResult->count() > 0) {
+            if (_debug.testFlag(Server::ShowClientOps))
+                qDebug() << fnName << "Sending pollResults";
+            sendResponse(_activePolls.value(pubId), soapResponseMsg(pollResult));
+            // Update subscription list for this publisher
+            allSubsIt.setValue(subList);
+            _activePolls.remove(pubId);
+        } else {
+            delete pollResult;
         }
 
         if (publisherHasErrorOnSub) {
@@ -2179,10 +2404,6 @@ void Server::sendResultsOnActivePolls()
             qDebug() << fnName << "Removing subscriptions for publisherId:" << pubId;
 
             // We did send an errorResult
-            _activePolls.remove(pubId);
-        } else if (sentPollToPublisher) {
-            // Update subscription list for this publisher
-            allSubsIt.setValue(subList);
             _activePolls.remove(pubId);
         }
     }

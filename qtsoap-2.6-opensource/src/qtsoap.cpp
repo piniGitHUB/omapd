@@ -1844,7 +1844,6 @@ bool QtSoapStruct::parse(QDomNode node)
     dict.clear();
 
     attrs = node.attributes();
-    //qDebug() << "QtSoapStruct::parse: Saving n attrs: " << attrs.length();
 
     for (int i = 0; i < c; ++i) {
 	QDomNode n = children.item(i);
@@ -1855,12 +1854,6 @@ bool QtSoapStruct::parse(QDomNode node)
 	    errorStr += ", the " + QString::number(i) + "th child ";
 	    errorStr += "is not an element.";
 	    return false;
-	}
-
-	//DM: Register prefixes so they can be mapped for QXmlQuery namespace delcarations
-	if (! QtSoapNamespaces::instance().namespaceRegistered(n.namespaceURI())) {
-	    QtSoapNamespaces::instance().registerNamespace(n.prefix(), n.namespaceURI());
-	    //qDebug() << "QtSoapStruct::parse:" << n.localName() << n.namespaceURI() << n.prefix(); 
 	}
 
 	/*
@@ -2568,6 +2561,47 @@ bool QtSoapMessage::setContent(const QByteArray &buffer)
     return res;
 }
 
+bool QtSoapMessage::setContent(const QString &buffer, bool namespacePrefixes)
+{
+    int errorLine, errorColumn;
+    QString errorMsg;
+
+    QDomDocument doc;
+    QXmlInputSource xmlSource;
+    xmlSource.setData(buffer);
+
+    QXmlSimpleReader xmlReader;
+    xmlReader.setFeature(QLatin1String("http://xml.org/sax/features/namespaces"),true);
+    xmlReader.setFeature(QLatin1String("http://trolltech.com/xml/features/report-whitespace-only-CharData"), false);
+
+    if (namespacePrefixes) {
+        xmlReader.setFeature(QLatin1String("http://xml.org/sax/features/namespace-prefixes"), true);
+    } else {
+        xmlReader.setFeature(QLatin1String("http://xml.org/sax/features/namespace-prefixes"), false);
+    }
+
+    if (!doc.setContent(&xmlSource, &xmlReader, &errorMsg, &errorLine, &errorColumn)) {
+        QString s;
+        s.sprintf("%s at line %i, column %i", errorMsg.toLatin1().constData(),
+                  errorLine, errorColumn);
+        setFaultCode(VersionMismatch);
+        setFaultString("XML parse error");
+        addFaultDetail(new QtSoapSimpleType(QtSoapQName("ParseError"), s));
+        return false;
+    }
+
+    if (!isValidSoapMessage(doc))
+        return false;
+
+    QDomNode node = doc.firstChild();
+    if (!node.isElement())
+        node = node.nextSibling();
+    bool res = envelope.parse(node);
+    if (!res)
+        qDebug("QtSoapMessage::setContent(), parsing failed: %s", envelope.errorString().toLatin1().constData());
+    return res;
+}
+
 /*!
     Validates the QDomDocument \a candidate using some simple
     heuristics. Returns true if the document is a valid SOAP message;
@@ -2633,7 +2667,7 @@ bool QtSoapMessage::isValidSoapMessage(const QDomDocument &candidate)
 
     // At this point, check that the version of the envelope is
     // correct.
-    if (tmpe.namespaceURI() != SOAPv11_ENVELOPE) {
+    if (tmpe.namespaceURI() != SOAPv11_ENVELOPE && tmpe.namespaceURI() != "http://www.w3.org/2003/05/soap-envelope") {
 	setFaultCode(VersionMismatch);
 	setFaultString("SOAP structure invalid");
 	addFaultDetail(new QtSoapSimpleType(QtSoapQName("extra"), "Unsupported namespace for envelope element"));
@@ -2998,6 +3032,53 @@ void QtSoapMessage::addMethodArgument(const QString &name, const QString &uri, b
 void QtSoapMessage::addMethodArgument(const QString &name, const QString &uri, int value)
 {
     addMethodArgument(new QtSoapSimpleType(QtSoapQName(name, uri), value));
+}
+
+// DM: Look for a namespace attribute with the given prefix anywhere in the
+// SOAP Message
+QString QtSoapMessage::namespaceForPrefix(QString prefix)
+{
+    QString ns = "";
+    bool foundNs = false;
+    QDomNode nsNode;
+    // Look in method, body, header, envelope
+    if (this->method().isValid()) {
+        nsNode = this->method().attributes().namedItemNS(XMLNS, prefix);
+        if (! nsNode.isNull()) {
+            foundNs = true;
+            ns = nsNode.toAttr().value();
+            //qDebug() << "Found in SOAP method" << prefix << ":" << ns;
+        }
+    }
+
+    if (this->body().isValid() && !foundNs) {
+        nsNode = this->body().attributes().namedItemNS(XMLNS, prefix);
+        if (! nsNode.isNull()) {
+            foundNs = true;
+            ns = nsNode.toAttr().value();
+            //qDebug() << "Found in SOAP body" << prefix << ":" << ns;
+        }
+    }
+
+    if (this->header().isValid() && !foundNs) {
+        nsNode = this->header().attributes().namedItemNS(XMLNS, prefix);
+        if (! nsNode.isNull()) {
+            foundNs = true;
+            ns = nsNode.toAttr().value();
+            //qDebug() << "Found in SOAP header" << prefix << ":" << ns;
+        }
+    }
+
+    if (this->envelope.isValid() && !foundNs) {
+        nsNode = this->envelope.attributes().namedItemNS(XMLNS, prefix);
+        if (! nsNode.isNull()) {
+            foundNs = true;
+            ns = nsNode.toAttr().value();
+            //qDebug() << "Found in SOAP Envelope" << prefix << ":" << ns;
+        }
+    }
+
+    return ns;
 }
 
 /*!
@@ -3440,21 +3521,4 @@ QString QtSoapNamespaces::prefixFor(const QString &uri)
 	}
 
     return "";
-}
-
-/* DM: Test if namespace has been registered yet
- */
-bool QtSoapNamespaces::namespaceRegistered(const QString &uri)
-{
-    if (namespaces.find(uri) != namespaces.end())
-        return true;
-    else
-        return false;
-}
-
-/* DM: Add reverse lookup
- */
-QString QtSoapNamespaces::namespaceForPrefix(const QString &prefix)
-{
-    return namespaces.key(prefix,"xmlns:");
 }

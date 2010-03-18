@@ -77,6 +77,8 @@
 #define XML_SCHEMA_INSTANCE "http://www.w3.org/1999/XMLSchema-instance"
 #define XML_NAMESPACE       "http://www.w3.org/XML/1998/namespace"
 #define TROLL_NAMESPACE     "http://www.qtsoftware.com/soap/errors/2003-06-16/"
+//DM: Added XMLNS
+#define XMLNS               "http://www.w3.org/2000/xmlns/"
 
 template <class T>
 class QtSmartPtr
@@ -435,6 +437,8 @@ public:
     QtSoapMessage &operator =(const QtSoapMessage &copy);
 
     bool setContent(const QByteArray &buffer);
+    //DM: Added to customize DOM loading
+    bool setContent(const QString &buffer, bool namespacePrefixes);
     bool setContent(QDomDocument &d);
 
     void addBodyItem(QtSoapType *);
@@ -450,6 +454,8 @@ public:
     void addMethodArgument(const QString &uri, const QString &name, const QString &value);
     void addMethodArgument(const QString &uri, const QString &name, bool value, int dummy);
     void addMethodArgument(const QString &uri, const QString &name, int value);
+    //DM: get namespace for prefix
+    QString namespaceForPrefix(QString prefix);
 
     // Fault
     enum FaultCode {
@@ -574,13 +580,6 @@ class QT_QTSOAP_EXPORT QtSoapNamespaces
 public:
     void registerNamespace(const QString &prefix, const QString &uri);
     QString prefixFor(const QString &ns);
-
-    // DM: reverse lookup
-    QString namespaceForPrefix(const QString &prefix);
-    // DM: test if uri registered
-    bool namespaceRegistered(const QString &uri);
-    // DM: get namespace map
-    QStringList namespaceList() { return namespaces.uniqueKeys(); }
 
     static QtSoapNamespaces &instance();
 

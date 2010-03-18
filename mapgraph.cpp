@@ -24,16 +24,21 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 SearchGraph::SearchGraph()
 {
-     sentFirstResult = false;
-     response = QtSoapStruct(QtSoapQName("pollResult"));
-     curSize = 0;
-     hasErrorResult = false;
+     _sentFirstResult = false;
+     _curSize = 0;
+     _hasErrorResult = false;
+}
+
+void SearchGraph::clearResponse()
+{
+    while (! _responseElements.isEmpty())
+        delete _responseElements.takeFirst();
 }
 
 bool SearchGraph::operator==(const SearchGraph &other) const
 {
     // Two SearchGraphs are equal iff their names are equal
-    if (this->name == other.name)
+    if (this->_name == other._name)
         return true;
     else
         return false;
@@ -85,6 +90,31 @@ QString SearchGraph::intersectFilter(QString matchLinksFilter, QString resultFil
     qtFilter += ")";
 
     return qtFilter;
+}
+
+QStringList SearchGraph::filterPrefixes(QString filter)
+{
+    // TODO: Improve RegExp to not include colons inside quotes
+    // For example: vend:ike-policy[@gateway=1.2.3.4 and meta:phase1/@identity=name:joe]
+    // should not capture the `name' prefix.  However, it's only a slight performance hit
+    // to capture these false prefixes, because they won't map to a declared namespace
+    // in the document, or if they do, that's ok too.
+    // Here's a possibility for a RegExp that excludes colons inside quotes, but not quite
+    //QRegExp rx("([^\"{0}]\\b\\w+:)");
+
+    // Look for a word boundary followed by 1 or more word characters up to a colon
+    QRegExp rx("(\\b\\w+:)");
+    QStringList prefixes;
+
+    int pos = 0;
+    while ((pos = rx.indexIn(filter, pos)) != -1) {
+        QString prefix = rx.cap(1);
+        prefixes << prefix.left(prefix.length()-1);
+        pos += rx.matchedLength();
+    }
+    //qDebug() << "prefixes:" << prefixes.join("|");
+
+    return prefixes;
 }
 
 MapGraph::MapGraph()
@@ -368,4 +398,15 @@ void MapGraph::dumpMap()
     }
 
     qDebug() << fnName << "---------------------- end dump -------------------" << endl;
+}
+
+void MapGraph::clearMap()
+{
+    const char *fnName = "MapGraph::clearMap:";
+    qDebug() << fnName << "WARNING: clearing entire MAP contents!";
+    _idMeta.clear();
+    _linkMeta.clear();
+    _linksTo.clear();
+    _publisherIds.clear();
+    _publisherLinks.clear();
 }

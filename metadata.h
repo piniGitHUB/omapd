@@ -51,13 +51,10 @@ public:
     QString lifetimeString();
 
     QDomNode metaNode() const { return _metaNode; }
-    QString elementName() const { return _elementName; }
-    QString elementNS() const { return _elementNS; }
+    QString elementName() const { return _metaNode.nodeName(); }
     QString publisherId() const { return _publisherId; }
 
     void setMetaNode(QDomNode metaNode) { _metaNode = metaNode; }
-    void setElementName(QString elementName) { _elementName = elementName; }
-    void setNamespace(QString ns) { _elementNS = ns; }
     void setLifetime(Meta::Lifetime lifetime) { _lifetime = lifetime; }
     void setPublisherId(QString pubId) { _publisherId = pubId; }
 
@@ -68,8 +65,6 @@ private:
     Meta::Cardinality _cardinality;
     Meta::Lifetime _lifetime;
     QString _publisherId;
-    QString _elementName;
-    QString _elementNS;
     QDomNode _metaNode;
 };
 
