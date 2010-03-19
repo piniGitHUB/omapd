@@ -2202,12 +2202,12 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
             bool subIsDirty = false;
 
             if (! isLink) {
+                // Case 1.
                 if (sub._idList.contains(link.first)) {
                     subIsDirty = true;
                     /*
                           10Mar2010: Believe this is wrong
                     if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
-                        // Case 1.
                         subIsDirty = true;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty with existing id:" << link.first;
@@ -2216,12 +2216,12 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                     */
                 }
             } else {
+                // Case 3.
                 if (sub._linkList.contains(link) && publishType == Meta::PublishDelete) {
                     subIsDirty = true;
                     /*
                           10Mar2010: Believe this is wrong
                     if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
-                        // Case 3.
                         subIsDirty = true;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty deleting meta on existing link:" << link;
@@ -2230,12 +2230,12 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                     */
                 }
 
+                // Case 2.
                 if (sub._linkList.contains(link) && publishType == Meta::PublishUpdate) {
                     subIsDirty = true;
                     /*
                           10Mar2010: Believe this is wrong
                     if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
-                        // Case 2.
                         subIsDirty = true;
                         if (_debug.testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty updating meta on existing link:" << link;
@@ -2307,15 +2307,8 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                 // Construct results for the subscription
                 QtSoapStruct *errorResult = 0;
                 if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
-                    // Build results from entire search graph for the first poll response
-                    QtSoapStruct *searchResult = new QtSoapStruct(QtSoapQName("searchResult"));
-                    searchResult->setAttribute("name", sub._name);
-
-                    sub.clearResponse();
-                    IFMAP_ERRORCODES addError = ::ErrorNone;
-                    int sSize = addSearchResultsWithResultFilter(searchResult, sub._maxSize, sub._matchLinks, sub._resultFilter, sub._searchNamespaces, sub._idList, sub._linkList, &addError);
-                    sub._curSize += sSize;
-                    sub._responseElements.append(searchResult);
+                    // Trigger to build and send pollResults
+                    sub._sentFirstResult = false;
                 }
 
                 // Check if we have exceeded our max size for the subscription
@@ -2352,59 +2345,87 @@ void Server::sendResultsOnActivePolls()
     QMutableHashIterator<QString,QList<SearchGraph> > allSubsIt(_subscriptionLists);
     while (allSubsIt.hasNext()) {
         allSubsIt.next();
-        QString pubId = allSubsIt.key();        
-        QList<SearchGraph> subList = allSubsIt.value();
-        if (_debug.testFlag(Server::ShowClientOps)) {
-            qDebug() << fnName << "publisher:" << pubId << "has num subscriptions:" << subList.size();
-        }
-
-        bool publisherHasErrorOnSub = false;
-        QtSoapStruct *pollResult = (QtSoapStruct *)soapResponseForOperation("poll", ::ErrorNone);
-        QMutableListIterator<SearchGraph> subIt(subList);
-        while (subIt.hasNext()) {
-            SearchGraph sub = subIt.next();
+        QString pubId = allSubsIt.key();
+        // Only check subscriptions for publisher if client has an active poll
+        if (_activePolls.contains(pubId)) {
+            QList<SearchGraph> subList = allSubsIt.value();
             if (_debug.testFlag(Server::ShowClientOps)) {
-                qDebug() << fnName << "--Checking subscription named:" << sub._name;
+                qDebug() << fnName << "publisher:" << pubId << "has num subscriptions:" << subList.size();
             }
 
-            if (sub._responseElements.count() > 0 && _activePolls.contains(pubId)) {
+            bool publisherHasErrorOnSub = false;
+            QtSoapStruct *pollResult = (QtSoapStruct *)soapResponseForOperation("poll", ::ErrorNone);
+            QMutableListIterator<SearchGraph> subIt(subList);
+            while (subIt.hasNext()) {
+                SearchGraph sub = subIt.next();
                 if (_debug.testFlag(Server::ShowClientOps)) {
-                    qDebug() << fnName << "--Gathering poll results for publisher with active poll:" << pubId;
+                    qDebug() << fnName << "--Checking subscription named:" << sub._name;
                 }
 
-                while (! sub._responseElements.isEmpty()) {
-                    pollResult->insert(sub._responseElements.takeFirst());
+                if (! sub._sentFirstResult) {
+                    // Build results from entire search graph for the first poll response
+                    QtSoapStruct *searchResult = new QtSoapStruct(QtSoapQName("searchResult"));
+                    searchResult->setAttribute("name", sub._name);
+
+                    IFMAP_ERRORCODES addError = ::ErrorNone;
+                    int sSize = addSearchResultsWithResultFilter(searchResult, sub._maxSize, sub._matchLinks, sub._resultFilter, sub._searchNamespaces, sub._idList, sub._linkList, &addError);
+                    sub._curSize += sSize;
+                    sub._responseElements.append(searchResult);
+
+                    if (sub._curSize > sub._maxSize) {
+                        qDebug() << fnName << "Search results exceeded max-size with curSize:" << sub._curSize;
+                        sub._hasErrorResult = true;
+                        sub.clearResponse();
+
+                        QString errString = Server::errorString(::IfmapPollResultsTooBig);
+                        QtSoapStruct *errorResult = new QtSoapStruct(QtSoapQName("errorResult"));
+                        errorResult->setAttribute("errorCode",errString);
+                        errorResult->setAttribute("name", sub._name);
+
+                        sub._responseElements.append(errorResult);
+                    }
                 }
 
-                if (sub._hasErrorResult) publisherHasErrorOnSub = true; // Mark for removing all subscriptions
+                if (sub._responseElements.count() > 0) {
+                    if (_debug.testFlag(Server::ShowClientOps)) {
+                        qDebug() << fnName << "--Gathering poll results for publisher with active poll:" << pubId;
+                    }
 
-                subIt.setValue(sub);
+                    while (! sub._responseElements.isEmpty()) {
+                        pollResult->insert(sub._responseElements.takeFirst());
+                    }
+
+                    if (!sub._sentFirstResult) sub._sentFirstResult = true;
+                    if (sub._hasErrorResult) publisherHasErrorOnSub = true; // Mark for removing all subscriptions
+
+                    subIt.setValue(sub);
+                } else {
+                    if (_debug.testFlag(Server::ShowClientOps)) {
+                        qDebug() << fnName << "--No results for subscription at this time";
+                        qDebug() << fnName << "----sub._response.count():" << sub._responseElements.count();
+                        qDebug() << fnName << "----_activePolls.contains(pubId):" << _activePolls.contains(pubId);
+                    }
+                }
+            }
+
+            if (pollResult->count() > 0) {
+                if (_debug.testFlag(Server::ShowClientOps))
+                    qDebug() << fnName << "Sending pollResults";
+                sendResponse(_activePolls.value(pubId), soapResponseMsg(pollResult));
+                // Update subscription list for this publisher
+                allSubsIt.setValue(subList);
+                _activePolls.remove(pubId);
             } else {
-                if (_debug.testFlag(Server::ShowClientOps)) {
-                    qDebug() << fnName << "--No results for subscription at this time";
-                    qDebug() << fnName << "----sub._response.count():" << sub._responseElements.count();
-                    qDebug() << fnName << "----_activePolls.contains(pubId):" << _activePolls.contains(pubId);
-                }
+                delete pollResult;
             }
-        }
 
-        if (pollResult->count() > 0) {
-            if (_debug.testFlag(Server::ShowClientOps))
-                qDebug() << fnName << "Sending pollResults";
-            sendResponse(_activePolls.value(pubId), soapResponseMsg(pollResult));
-            // Update subscription list for this publisher
-            allSubsIt.setValue(subList);
-            _activePolls.remove(pubId);
-        } else {
-            delete pollResult;
-        }
+            if (publisherHasErrorOnSub) {
+                allSubsIt.remove();
+                qDebug() << fnName << "Removing subscriptions for publisherId:" << pubId;
 
-        if (publisherHasErrorOnSub) {
-            allSubsIt.remove();
-            qDebug() << fnName << "Removing subscriptions for publisherId:" << pubId;
-
-            // We did send an errorResult
-            _activePolls.remove(pubId);
+                // We did send an errorResult
+                _activePolls.remove(pubId);
+            }
         }
     }
 }
