@@ -3,7 +3,7 @@
 
 = Introduction =
 
-omapd was written in C++ using the Qt Framework from Nokia.  Current omapd development is using Qt v4.5.2, however Qt v4.6.x should be fine.  Note that Qt is a multi-platform product, and it hides the details of the underlying operating system from the programmer.  omapd was initially written on a Linux platform, but, using the Qt SDK, it should build and run on any other platform Qt supports.
+omapd was written in C++ using the Qt Framework from Nokia.  Current omapd development is using Qt v4.6.2, however Qt v4.5.x should be fine.  Note that Qt is a multi-platform product, and it hides the details of the underlying operating system from the programmer.  omapd was initially written on a Linux platform, but, using the Qt SDK, it should build and run on any other platform Qt supports.
 
 
 = Details =
