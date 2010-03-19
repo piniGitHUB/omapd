@@ -1,0 +1,7 @@
+#summary Getting omapd running
+#labels Featured,Phase-Implementation
+
+= Details =
+Out of the box, omapd runs on port 8081 and accepts connections on https://host:8081.  You may need to open tcp port 8081 on your firewall.  SSL is enabled by default, though it can be disabled.  There is no default server certificate provided.
+
+Obtain a server certificate and name it "server.pem" along with a private key named "server.key" and place them in the same directory as the omapd binary.  For convenience, there is a certgen.sh script that generates a self-signed cert that uses your current IP address as the certificate's common name (CN).  You can edit this script to change this and other distinguished name elements.
