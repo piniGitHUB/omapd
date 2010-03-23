@@ -1,0 +1,14 @@
+#summary Describes omapd's RESTful configuration and logging API.
+#labels Featured,Configuration
+
+= Introduction =
+
+The following is the existing URI layout of omapd's configuration and logging HTTP API. It's based on RESTful concepts, although it isn't entirely RESTful.
+
+
+= Details =
+
+== Logging ==
+
+`GET /logs`
+return a list of available logs and their URIs.
