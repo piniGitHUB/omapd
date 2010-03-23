@@ -62,8 +62,10 @@ public slots:
 
 signals:
     void headerReceived(QTcpSocket *socket, QNetworkRequest requestHdrs);
-    void getCmdReceived(QTcpSocket *socket, QString getCmd);
-    void putCmdReceived(QTcpSocket *socket, QString putCmd);
+    void getReqReceived(QTcpSocket *socket, QString getReq);
+    void putReqReceived(QTcpSocket *socket, QString putReq);
+    void postReqReceived(QTcpSocket *socket, QString postReq);
+    void delReqReceived(QTcpSocket *socket, QString delReq);
 
 private:
     void incomingConnection(int socketDescriptor);
@@ -82,8 +84,10 @@ private slots:
     void processHeader(QTcpSocket *socket, QNetworkRequest requestHdrs);
     void discardClient();
     void clientConnState(QAbstractSocket::SocketState sState);
-    void processGetCmd(QTcpSocket *socket, QString getCmd);
-    void processPutCmd(QTcpSocket *socket, QString putCmd);
+    void processGetReq(QTcpSocket *socket, QString getReq);
+    void processPutReq(QTcpSocket *socket, QString putReq);
+    void processPostReq(QTcpSocket *socket, QString postReq);
+    void processDelReq(QTcpSocket *socket, QString delReq);
 
 private:
     CmlServer::DebugOptions _debug;

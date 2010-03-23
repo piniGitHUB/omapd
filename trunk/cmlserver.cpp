@@ -46,10 +46,14 @@ CmlServer::CmlServer(quint16 port, QObject *parent)
 
         connect(this, SIGNAL(headerReceived(QTcpSocket*,QNetworkRequest)),
                 this, SLOT(processHeader(QTcpSocket*,QNetworkRequest)));
-        connect(this, SIGNAL(getCmdReceived(QTcpSocket*,QString)),
-                this, SLOT(processGetCmd(QTcpSocket*,QString)));
-        connect(this, SIGNAL(putCmdReceived(QTcpSocket*,QString)),
-                this, SLOT(processPutCmd(QTcpSocket*,QString)));
+        connect(this, SIGNAL(getReqReceived(QTcpSocket*,QString)),
+                this, SLOT(processGetReq(QTcpSocket*,QString)));
+        connect(this, SIGNAL(putReqReceived(QTcpSocket*,QString)),
+                this, SLOT(processPutReq(QTcpSocket*,QString)));
+        connect(this, SIGNAL(postReqReceived(QTcpSocket*,QString)),
+                this, SLOT(processPostReq(QTcpSocket*,QString)));
+        connect(this, SIGNAL(delReqReceived(QTcpSocket*,QString)),
+                this, SLOT(processDelReq(QTcpSocket*,QString)));
     }
 }
 
@@ -245,7 +249,7 @@ int CmlServer::readHeader(QTcpSocket *socket)
     bool end = false;
     QString tmp;
     QString headerStr = QLatin1String("");
-    QString getCmd, putCmd;
+    QString getReq, putReq, postReq, delReq;
 
     while (!end && socket->canReadLine()) {
         tmp = QString::fromUtf8(socket->readLine());
@@ -262,13 +266,23 @@ int CmlServer::readHeader(QTcpSocket *socket)
                 if (tmp.contains("GET", Qt::CaseInsensitive)) {
                     int lIndex = tmp.indexOf("GET ");
                     int rIndex = tmp.indexOf(" HTTP");
-                    getCmd = tmp.mid(lIndex, rIndex - lIndex);
-                    qDebug() << fnName << "Got GET command:" << getCmd;
+                    getReq = tmp.mid(lIndex, rIndex - lIndex);
+                    qDebug() << fnName << "Recieved GET request:" << getReq;
                 } else if (tmp.contains("PUT", Qt::CaseInsensitive)) {
                     int lIndex = tmp.indexOf("PUT ");
                     int rIndex = tmp.indexOf(" HTTP");
-                    putCmd = tmp.mid(lIndex, rIndex - lIndex);
-                    qDebug() << fnName << "Got GET command:" << putCmd;
+                    putReq = tmp.mid(lIndex, rIndex - lIndex);
+                    qDebug() << fnName << "Recieved PUT request:" << putReq;
+                } else if (tmp.contains("POST", Qt::CaseInsensitive)) {
+                    int lIndex = tmp.indexOf("POST ");
+                    int rIndex = tmp.indexOf(" HTTP");
+                    postReq = tmp.mid(lIndex, rIndex - lIndex);
+                    qDebug() << fnName << "Recieved POST request:" << postReq;
+                } else if (tmp.contains("DELETE", Qt::CaseInsensitive)) {
+                    int lIndex = tmp.indexOf("DELETE ");
+                    int rIndex = tmp.indexOf(" HTTP");
+                    delReq = tmp.mid(lIndex, rIndex - lIndex);
+                    qDebug() << fnName << "Recieved DELETE request:" << delReq;
                 }
             }
             headerStr += tmp;
@@ -277,8 +291,10 @@ int CmlServer::readHeader(QTcpSocket *socket)
 
     if (end) {
         emit headerReceived(socket, requestWithHdr);
-        if (! getCmd.isEmpty()) emit getCmdReceived(socket, getCmd);
-        if (! putCmd.isEmpty()) emit putCmdReceived(socket, putCmd);
+        if (! getReq.isEmpty()) emit getReqReceived(socket, getReq);
+        if (! putReq.isEmpty()) emit putReqReceived(socket, putReq);
+        if (! postReq.isEmpty()) emit postReqReceived(socket, postReq);
+        if (! delReq.isEmpty()) emit delReqReceived(socket, delReq);
     }
 
     if (_debug.testFlag(CmlServer::ShowHTTPHeaders))
@@ -363,15 +379,15 @@ void CmlServer::discardClient()
     socket->deleteLater();
 }
 
-void CmlServer::processGetCmd(QTcpSocket *socket, QString getCmd)
+void CmlServer::processGetReq(QTcpSocket *socket, QString getReq)
 {
-    const char *fnName = "CmlServer::processGetCmd:";
+    const char *fnName = "CmlServer::processGetReq:";
 
-    if (getCmd.compare("GET /config") == 0) {
+    if (getReq.compare("GET /config") == 0) {
 
-    } else if (getCmd.compare("GET /config/server") == 0) {
+    } else if (getReq.compare("GET /config/server") == 0) {
 
-    } else if (getCmd.compare("GET /config/server/port") == 0) {
+    } else if (getReq.compare("GET /config/server/port") == 0) {
         quint16 port = _server->serverPort();
         QString pStr;
         pStr.setNum(port);
@@ -380,8 +396,20 @@ void CmlServer::processGetCmd(QTcpSocket *socket, QString getCmd)
     }
 }
 
-void CmlServer::processPutCmd(QTcpSocket *socket, QString putCmd)
+void CmlServer::processPutReq(QTcpSocket *socket, QString putReq)
 {
-    const char *fnName = "CmlServer::processPutCmd:";
-    qDebug() << fnName << "Got PUT cmd:" << putCmd << "on socket:" << socket;
+    const char *fnName = "CmlServer::processPutReq:";
+    qDebug() << fnName << "Got PUT cmd:" << putReq << "on socket:" << socket;
+}
+
+void CmlServer::processPostReq(QTcpSocket *socket, QString postReq)
+{
+    const char *fnName = "CmlServer::processPostReq:";
+    qDebug() << fnName << "Got POST cmd:" << postReq << "on socket:" << socket;
+}
+
+void CmlServer::processDelReq(QTcpSocket *socket, QString delReq)
+{
+    const char *fnName = "CmlServer::processDelReq:";
+    qDebug() << fnName << "Got DELETE cmd:" << delReq << "on socket:" << socket;
 }
