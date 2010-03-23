@@ -23,6 +23,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "cmlserver.h"
 #include "server.h"
 #include "mapgraph.h"
 
@@ -86,6 +87,13 @@ int main(int argc, char *argv[])
         mapGraph11->addMetaNamespace("http://www.trustedcomputinggroup.org/2006/IFMAP-SCADANET-METADATA/1", "scada");
     }
     qDebug() << "Started server:" << server11;
+
+    // Create a CML Server instance
+    CmlServer *cmlServer = new CmlServer(8080);
+    cmlServer->setDebug(CmlServer::ShowClientOps | CmlServer::ShowHTTPHeaders | CmlServer::ShowRawSocketData);
+    cmlServer->setServerCapability(CmlServer::DisableClientCertVerify);
+    cmlServer->setServer(server11);
+    qDebug() << "Started CML Server:" << cmlServer;
 
     return a.exec();
 }
