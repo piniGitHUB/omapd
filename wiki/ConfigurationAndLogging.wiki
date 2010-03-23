@@ -1,0 +1,22 @@
+#summary Describes omapd's RESTful configuration and logging API
+
+== Introduction ==
+
+The following is the existing URI layout of omapd's configuration and logging HTTP API. It's based on RESTful concepts, although it isn't entirely RESTful.
+
+
+=== Logging ===
+
+{{{GET /logs}}}
+return a list of available logs and their URIs
+{{{GET /logs/protocol}}}
+return a list of all protocol (i.e. xml/soap message) logs and their URIs, or if there is only one, return it
+{{{GET /logs/protocol/requests, /logs/protocol/response, etc}}}
+return sliced logs
+{{{GET /logs/debug, etc}}}
+return other levels of logging information. need help here since i'm not familiar with what other omapd log info is useful
+
+{{{GET /logs/<path>?tail=n}}}
+return the last n log messages
+
+experimental feature: use websockets to present realtime logging through the browser (would only work in chrome and ff 3.7)
