@@ -2025,8 +2025,12 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
                 delete metaResult;
             }
         }
-        linkResult->insert(idStruct2);
-        linkResult->insert(idStruct1);
+        if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            QtSoapStruct *linkElement = new QtSoapStruct(QtSoapQName("link"));
+            linkElement->insert(idStruct2);
+            linkElement->insert(idStruct1);
+            linkResult->insert(linkElement);
+        }
         soapResponse->insert(linkResult);
     }
 
