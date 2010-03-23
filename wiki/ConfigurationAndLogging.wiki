@@ -15,8 +15,8 @@ The following is the existing URI layout of omapd's configuration and logging HT
   return sliced logs
   * `GET /logs/debug`, etc
   return other levels of logging information. need help here since i'm not familiar with what other omapd log info is useful
-  
-  * GET `/logs/<path>?tail=n`
+   
+  * `GET /logs/...?tail=n`
   return the last n log messages
 
   * experimental feature: use websockets to present realtime logging through the browser (would only work in chrome and ff 3.7)
