@@ -12,10 +12,12 @@ SOURCES += main.cpp \
     identifier.cpp \
     metadata.cpp \
     mapgraph.cpp \
-    mapsessions.cpp
+    mapsessions.cpp \
+    cmlserver.cpp
 HEADERS += server.h \
     identifier.h \
     metadata.h \
     mapgraph.h \
-    mapsessions.h
+    mapsessions.h \
+    cmlserver.h
 include(./qtsoap-2.6-opensource/src/qtsoap.pri)
