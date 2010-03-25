@@ -873,7 +873,9 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
     }
 
     // At this point all the publishes have occurred, we can check subscriptions
-    if (!requestError) {
+    if (requestError) {
+        qDebug() << fnName << "Error in publish:" << errorString(requestError);
+    } else {
         emit checkActivePolls();
         if (_debug.testFlag(Server::ShowMAPGraphAfterChange)) {
             _mapGraph->dumpMap();
@@ -1404,6 +1406,7 @@ QString Server::errorString(IFMAP_ERRORCODES error)
         case ::ErrorNone:
             break;
         case ::IfmapClientSoapFault:
+            str = "Client SOAP Fault";
             break;
         case ::IfmapAccessDenied:
             str = "AccessDenied";
@@ -1691,8 +1694,6 @@ Link Server::keyFromNodeList(QDomNodeList ids, int *idCount, IFMAP_ERRORCODES *e
         key.first = id1;
     } else if (*errorCode == ::ErrorNone && *idCount == 2) {
         key = Identifier::makeLinkFromIds(id1, id2);
-    } else {
-        *errorCode = ::IfmapClientSoapFault;
     }
 
     return key;
@@ -1829,6 +1830,11 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
             value = attrs.namedItem("value").toAttr().value();
             if (_debug.testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got ip-address:" << value;
+            }
+            QHostAddress addr;
+            if (! addr.setAddress(value)) {
+                qDebug() << fnName << "Invalid IP Address:" << value;
+                *errorCode = ::IfmapInvalidIdentifier;
             }
         } else {
             // Error - did not specify ip-address value attribute
