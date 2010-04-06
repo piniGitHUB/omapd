@@ -14,7 +14,6 @@ The following is the existing URI layout of omapd's configuration and logging HT
   return the tcp port number currently in use by omapd
   * `PUT /config/server/port`
   change the port number used by omapd. you will need to re-establish your connection
-    * How about to set the port: `GET /config/server/port?port=8082` ??
   * `GET /config/server/certificates`
   return a list of available certificates and their URIs
   * `GET /config/server/certificates/<name>`
