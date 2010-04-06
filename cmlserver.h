@@ -27,38 +27,26 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QNetworkRequest>
 
 #include "server.h"
+#include "omapdconfig.h"
 
 class CmlServer : public QTcpServer
 {
     Q_OBJECT
 public:
     enum Debug {
-                DebugNone = 0x0001,
-                ShowClientOps = 0x0002,
-                ShowHTTPHeaders = 0x0008,
-                ShowHTTPState = 0x0010,
-                ShowRawSocketData = 0x0200
+                DebugNone = 0x0000,
+                ShowClientOps = 0x0001,
+                ShowHTTPHeaders = 0x0002,
+                ShowHTTPState = 0x0004,
+                ShowRawSocketData = 0x0008
                };
     Q_DECLARE_FLAGS(DebugOptions, Debug);
+    static DebugOptions debugOptions(unsigned int dbgValue);
+    static QString debugString(CmlServer::DebugOptions debug);
 
-    enum ServerCapability {
-        DisableHTTPS = 0x01,
-        DisableClientCertVerify = 0x02
-    };
-    Q_DECLARE_FLAGS(ServerCapabilityOptions, ServerCapability);
-
-    CmlServer(quint16 port = 8080, QObject *parent = 0);
+    CmlServer(QObject *parent = 0);
 
     void setServer(Server *server) { _server = server; }
-
-public slots:
-    // config setters
-    void setDebug(CmlServer::DebugOptions debug) { _debug = debug; }
-    void setServerCapability(CmlServer::ServerCapabilityOptions options) { _serverCapability = options; }
-
-    // config getters
-    CmlServer::DebugOptions getDebug() const {return _debug; }
-    CmlServer::ServerCapabilityOptions getServerCapability() const { return _serverCapability; }
 
 signals:
     void headerReceived(QTcpSocket *socket, QNetworkRequest requestHdrs);
@@ -90,12 +78,18 @@ private slots:
     void processDelReq(QTcpSocket *socket, QString delReq);
 
 private:
-    CmlServer::DebugOptions _debug;
-    CmlServer::ServerCapabilityOptions _serverCapability;
-
     Server *_server;
+
+    QList<QSslCertificate> _caCerts;
+    QSslCertificate _serverCert;
+    QSslKey _serverKey;
+    QList<QSslCertificate> _clientCAs;
+
+    OmapdConfig *_omapdConfig;
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(CmlServer::DebugOptions)
-Q_DECLARE_OPERATORS_FOR_FLAGS(CmlServer::ServerCapabilityOptions)
+Q_DECLARE_METATYPE(CmlServer::DebugOptions)
+
+QDebug operator<<(QDebug dbg, CmlServer::DebugOptions & dbgOptions);
 
 #endif // CMLSERVER_H

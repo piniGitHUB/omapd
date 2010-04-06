@@ -24,12 +24,14 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QTcpServer>
 #include <QSslSocket>
+#include <QSslKey>
 #include <QNetworkRequest>
 #include <qtsoap.h>
 
 #include "identifier.h"
 #include "metadata.h"
 #include "mapgraph.h"
+#include "omapdconfig.h"
 
 enum IFMAP_ERRORCODES {
     ErrorNone = 0,
@@ -54,55 +56,38 @@ class Server : public QTcpServer
     Q_OBJECT
 public:
     enum Debug {
-                DebugNone = 0x0001,
-                ShowClientOps = 0x0002,
-                ShowXML = 0x0004,
-                ShowHTTPHeaders = 0x0008,
-                ShowHTTPState = 0x0010,
-                ShowXMLParsing = 0x0020,
-                ShowXMLFilterResults = 0x0040,
-                ShowXMLFilterStatements = 0x0080,
-                ShowMAPGraphAfterChange = 0x0100,
-                ShowRawSocketData = 0x0200
+                DebugNone = 0x000,
+                ShowClientOps = 0x0001,
+                ShowXML = 0x0002,
+                ShowHTTPHeaders = 0x0004,
+                ShowHTTPState = 0x0008,
+                ShowXMLParsing = 0x0010,
+                ShowXMLFilterResults = 0x0020,
+                ShowXMLFilterStatements = 0x0040,
+                ShowMAPGraphAfterChange = 0x0080,
+                ShowRawSocketData = 0x0100
                };
     Q_DECLARE_FLAGS(DebugOptions, Debug);
-
-    enum NonStdBehavior {
-                DisableNonStdBehavior = 0x01,
-                IgnoreSessionId = 0x02,
-                DisableHTTPS = 0x04,
-                DisableClientCertVerify = 0x08, // Meaningless if DisableHTTPS is set
-                DoNotUseMatchLinksInSearchResults = 0x10
-                        };
-    Q_DECLARE_FLAGS(NonStdBehaviorOptions, NonStdBehavior);
+    static DebugOptions debugOptions(unsigned int dbgValue);
+    static QString debugString(Server::DebugOptions debug);
 
     enum MapVersionSupport {
+               SupportNone = 0x00,
                SupportIfmapV10 = 0x01,
                SupportIfmapV11 = 0x02,
                            };
     Q_DECLARE_FLAGS(MapVersionSupportOptions, MapVersionSupport);
+    static MapVersionSupportOptions mapVersionSupportOptions(unsigned int value);
+    static QString mapVersionSupportString(Server::MapVersionSupportOptions debug);
 
-    enum ServerCapability {
-                CreateClientConfigs = 0x01,
-                PatchedQtForNamespaceReporting = 0x02
-    };
-    Q_DECLARE_FLAGS(ServerCapabilityOptions, ServerCapability);
-
-    Server(MapGraph *mapGraph, quint16 port = 8081, QObject *parent = 0);
+    Server(MapGraph *mapGraph, QObject *parent = 0);
 
 public slots:
-    // config setters
-    void setDebug(Server::DebugOptions debug) { _debug = debug; }
-    void setNonStandardBehavior(Server::NonStdBehaviorOptions options) { _nonStdBehavior = options; }
-    void setMapVersionSupport(Server::MapVersionSupportOptions options) { _mapVersionSupport = options; }
-    void setServerCapability(Server::ServerCapabilityOptions options) { _serverCapability = options; }
-
-    // config getters
-    Server::DebugOptions getDebug() const {return _debug; }
-    Server::NonStdBehaviorOptions getNonStandardBehavior() const { return _nonStdBehavior; }
-    Server::MapVersionSupportOptions getMapVersionSupportOptions() const { return _mapVersionSupport; }
-    Server::ServerCapabilityOptions getServerCapability() const { return _serverCapability; }
-
+    void setCaCertificates(QList<QSslCertificate> caCerts) { _caCerts = caCerts; }
+    void setServerCertificate(QSslCertificate serverCert) { _serverCert = serverCert; }
+    void setServerPrivateKey(QSslKey serverKey) { _serverKey = serverKey; }
+    QList<QSslCertificate> getCaCertificates() const { return _caCerts; }
+    QSslCertificate getServerCertificate() const { return _serverCert; }
 signals:
     void headerReceived(QTcpSocket *socket, QNetworkRequest requestHdrs);
     void requestMessageReceived(QTcpSocket *socket, QtSoapMessage reqMsg);
@@ -127,12 +112,11 @@ private:
     QtSoapType* soapResponseForOperation(QString operation, IFMAP_ERRORCODES operationError);
     QtSoapMessage soapResponseMsg(QtSoapType *content, IFMAP_ERRORCODES operationError = ::ErrorNone);
     QtSoapType* soapStructForId(Id id);
-    QtSoapStruct* subResultForPollResult(Link link, bool isLink, SearchGraph *sub, QList<Meta> meta, Meta::PublishOperationType publishType);
 
     QString assignPublisherId(QTcpSocket *socket);
     IFMAP_ERRORCODES validateSessionId(QtSoapMessage msg, QTcpSocket *socket, QString *sessionId);
 
-    IFMAP_ERRORCODES searchParameters(QtSoapMessage msg, QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter, QMap<QString, QString> &searchNamespaces);
+    IFMAP_ERRORCODES searchParameters(QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter, QMap<QString, QString> &searchNamespaces);
 
     int filteredMetadata(QList<Meta> metaList, QString filter, QMap<QString, QString> searchNamespaces, QtSoapStruct *metaResult = 0);
     int filteredMetadata(Meta meta, QString filter, QMap<QString, QString> searchNamespaces, QtSoapStruct *metaResult = 0);
@@ -142,13 +126,10 @@ private:
                 QSet<Id> *idList,
                 QSet<Link> *linkList);
 
-    void updateSubscriptionsWithNotify(Link link, bool isLink, QList<Meta> metaChanges);
     void updateSubscriptions(Link link, bool isLink, Meta::PublishOperationType publishType);
     void updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Link, QList<Meta> > linkMetaDeleted);
 
     void processNewSession(QTcpSocket *socket);
-    void processRenewSession(QTcpSocket *socket, QtSoapMessage reqMsg);
-    void processEndSession(QTcpSocket *socket, QtSoapMessage reqMsg);
     void processAttachSession(QTcpSocket *socket, QtSoapMessage reqMsg);
     void processPublish(QTcpSocket *socket, QtSoapMessage reqMsg);
     void processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg);
@@ -172,6 +153,7 @@ private slots:
     void processRequest(QTcpSocket *socket, QtSoapMessage reqMsg);
 
 private:
+    OmapdConfig* _omapdConfig;
     MapGraph* _mapGraph;
 
     QSet<QTcpSocket*> _headersReceived;
@@ -189,15 +171,17 @@ private:
     QHash<QString, QString> _activeARCSessions;  // pubId --> sessId
     QHash<QString, QString> _activeSSRCSessions; // pubId --> sessId
 
-    Server::DebugOptions _debug;
-    Server::NonStdBehaviorOptions _nonStdBehavior;
-    Server::MapVersionSupportOptions _mapVersionSupport;
-    Server::ServerCapabilityOptions _serverCapability;
+    QList<QSslCertificate> _caCerts;
+    QSslCertificate _serverCert;
+    QSslKey _serverKey;
+    QList<QSslCertificate> _clientCAs;
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(Server::DebugOptions)
-Q_DECLARE_OPERATORS_FOR_FLAGS(Server::NonStdBehaviorOptions)
 Q_DECLARE_OPERATORS_FOR_FLAGS(Server::MapVersionSupportOptions)
-Q_DECLARE_OPERATORS_FOR_FLAGS(Server::ServerCapabilityOptions)
+Q_DECLARE_METATYPE(Server::DebugOptions)
+Q_DECLARE_METATYPE(Server::MapVersionSupportOptions)
 
+QDebug operator<<(QDebug dbg, Server::DebugOptions & dbgOptions);
+QDebug operator<<(QDebug dbg, Server::MapVersionSupportOptions & dbgOptions);
 
 #endif // SERVER_H

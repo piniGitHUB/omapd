@@ -26,52 +26,120 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "cmlserver.h"
 
-CmlServer::CmlServer(quint16 port, QObject *parent)
+CmlServer::DebugOptions CmlServer::debugOptions(unsigned int dbgValue)
+{
+    CmlServer::DebugOptions debug = CmlServer::DebugNone;
+    if (dbgValue & CmlServer::ShowClientOps) debug |= CmlServer::ShowClientOps;
+    if (dbgValue & CmlServer::ShowHTTPHeaders) debug |= CmlServer::ShowHTTPHeaders;
+    if (dbgValue & CmlServer::ShowHTTPState) debug |= CmlServer::ShowHTTPState;
+    if (dbgValue & CmlServer::ShowRawSocketData) debug |= CmlServer::ShowRawSocketData;
+
+    return debug;
+}
+
+QString CmlServer::debugString(CmlServer::DebugOptions debug)
+{
+    QString str("");
+    if (debug.testFlag(CmlServer::DebugNone)) str += "CmlServer::DebugNone | ";
+    if (debug.testFlag(CmlServer::ShowClientOps)) str += "CmlServer::ShowClientOps | ";
+    if (debug.testFlag(CmlServer::ShowHTTPHeaders)) str += "CmlServer::ShowHTTPHeaders | ";
+    if (debug.testFlag(CmlServer::ShowHTTPState)) str += "CmlServer::ShowHTTPState | ";
+    if (debug.testFlag(CmlServer::ShowRawSocketData)) str += "CmlServer::ShowRawSocketData | ";
+
+    if (! str.isEmpty()) {
+        str = str.left(str.size()-3);
+    }
+    return str;
+}
+
+QDebug operator<<(QDebug dbg, CmlServer::DebugOptions & dbgOptions)
+{
+    dbg.nospace() << CmlServer::debugString(dbgOptions);
+    return dbg.space();
+}
+
+CmlServer::CmlServer(QObject *parent)
         : QTcpServer(parent)
 {
     const char *fnName = "CmlServer::Server:";
 
-    _debug = CmlServer::DebugNone;
-    _serverCapability = CmlServer::DisableClientCertVerify;
+    _omapdConfig = OmapdConfig::getInstance();
 
-    bool listening = listen(QHostAddress::LocalHost, port);
-    if (!listening) {
-        qDebug() << fnName << "Server will not listen on port:" << port;
-    } else {
-        this->setMaxPendingConnections(30); // 30 is QTcpServer default
-
-        if (! _serverCapability.testFlag(CmlServer::DisableHTTPS)) {
-            // Set server cert, private key, CRLs, etc.
+    if (_omapdConfig->valueFor("cml_ssl_configuration").toBool()) {
+        // Set server cert, private key, CRLs, etc.
+        QString keyFileName = "server.key";
+        QByteArray keyPassword = "";
+        if (_omapdConfig->isSet("cml_private_key_file")) {
+            keyFileName = _omapdConfig->valueFor("cml_private_key_file").toString();
+            if (_omapdConfig->isSet("cml_private_key_password")) {
+                keyPassword = _omapdConfig->valueFor("cml_private_key_password").toByteArray();
+            }
+        }
+        QFile keyFile(keyFileName);
+        // TODO: Add QSsl::Der format support from _omapdConfig
+        // TODO: Add QSsl::Dsa support from _omapdConfig
+        if (!keyFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qDebug() << fnName << "No private key file:" << keyFile.fileName();
+        } else {
+            _serverKey = QSslKey(&keyFile, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey, keyPassword);
+            qDebug() << fnName << "Loaded private key";
         }
 
-        connect(this, SIGNAL(headerReceived(QTcpSocket*,QNetworkRequest)),
-                this, SLOT(processHeader(QTcpSocket*,QNetworkRequest)));
-        connect(this, SIGNAL(getReqReceived(QTcpSocket*,QString)),
-                this, SLOT(processGetReq(QTcpSocket*,QString)));
-        connect(this, SIGNAL(putReqReceived(QTcpSocket*,QString)),
-                this, SLOT(processPutReq(QTcpSocket*,QString)));
-        connect(this, SIGNAL(postReqReceived(QTcpSocket*,QString)),
-                this, SLOT(processPostReq(QTcpSocket*,QString)));
-        connect(this, SIGNAL(delReqReceived(QTcpSocket*,QString)),
-                this, SLOT(processDelReq(QTcpSocket*,QString)));
+        QString certFileName = "server.cert";
+        // TODO: Add QSsl::Der format support from _omapdConfig
+        if (_omapdConfig->isSet("cml_certificate_file")) {
+            certFileName = _omapdConfig->valueFor("cml_certificate_file").toString();
+        }
+        QFile certFile(certFileName);
+        if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qDebug() << fnName << "No certificate file:" << certFile.fileName();
+        } else {
+            _serverCert = QSslCertificate(&certFile, QSsl::Pem);
+            qDebug() << fnName << "Loaded certificate with CN:" << _serverCert.subjectInfo(QSslCertificate::CommonName);
+        }
+
+        // Load server CAs
+        if (_omapdConfig->isSet("cml_ca_certificates_file")) {
+            QFile caFile(_omapdConfig->valueFor("cml_ca_certificates_file").toString());
+            if (!caFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                qDebug() << fnName << "No CA certificates file" << caFile.fileName();
+            } else {
+                _caCerts = QSslCertificate::fromDevice(&caFile, QSsl::Pem);
+                qDebug() << fnName << "Loaded num CA certs:" << _caCerts.size();
+            }
+        }
+    }
+
+    QHostAddress listenOn;
+    if (listenOn.setAddress(_omapdConfig->valueFor("cml_address").toString())) {
+        unsigned int port = _omapdConfig->valueFor("cml_port").toUInt();
+
+        if (listen(listenOn, port)) {
+            this->setMaxPendingConnections(30); // 30 is QTcpServer default
+
+            connect(this, SIGNAL(headerReceived(QTcpSocket*,QNetworkRequest)),
+                    this, SLOT(processHeader(QTcpSocket*,QNetworkRequest)));
+            connect(this, SIGNAL(getReqReceived(QTcpSocket*,QString)),
+                    this, SLOT(processGetReq(QTcpSocket*,QString)));
+            connect(this, SIGNAL(putReqReceived(QTcpSocket*,QString)),
+                    this, SLOT(processPutReq(QTcpSocket*,QString)));
+            connect(this, SIGNAL(postReqReceived(QTcpSocket*,QString)),
+                    this, SLOT(processPostReq(QTcpSocket*,QString)));
+            connect(this, SIGNAL(delReqReceived(QTcpSocket*,QString)),
+                    this, SLOT(processDelReq(QTcpSocket*,QString)));
+        } else {
+            qDebug() << fnName << "Error with listen on:" << listenOn.toString()
+                    << ":" << port;
+        }
+    } else {
+        qDebug() << fnName << "Error setting server address";
     }
 }
 
 void CmlServer::incomingConnection(int socketDescriptor)
 {
     const char *fnName = "CmlServer::incomingConnection:";
-    if (_serverCapability.testFlag(CmlServer::DisableHTTPS)) {
-        QTcpSocket *socket = new QTcpSocket(this);
-        if (socket->setSocketDescriptor(socketDescriptor)) {
-            connect(socket, SIGNAL(readyRead()), this, SLOT(readClient()));
-            connect(socket, SIGNAL(disconnected()), this, SLOT(discardClient()));
-            connect(socket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
-                    this, SLOT(clientConnState(QAbstractSocket::SocketState)));
-        } else {
-            qDebug() << fnName << "Error setting socket descriptor on QTcpSocket";
-            delete socket;
-        }
-    } else {
+    if (_omapdConfig->valueFor("cml_ssl_configuration").toBool()) {
         QSslSocket *sslSocket = new QSslSocket(this);
         if (sslSocket->setSocketDescriptor(socketDescriptor)) {
 
@@ -81,11 +149,12 @@ void CmlServer::incomingConnection(int socketDescriptor)
             sslSocket->setProtocol(QSsl::AnyProtocol);
 
             // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
-            if (_serverCapability.testFlag(CmlServer::DisableClientCertVerify)) {
+
+            if (_omapdConfig->valueFor("cml_require_client_certificates").toBool()) {
+                sslSocket->setPeerVerifyMode(QSslSocket::VerifyPeer);
+            } else {
                 // QueryPeer just asks for the client cert, but does not verify it
                 sslSocket->setPeerVerifyMode(QSslSocket::QueryPeer);
-            } else {
-                sslSocket->setPeerVerifyMode(QSslSocket::VerifyPeer);
             }
 
             // Connect SSL error signals to local slots
@@ -94,27 +163,29 @@ void CmlServer::incomingConnection(int socketDescriptor)
             connect(sslSocket, SIGNAL(sslErrors(QList<QSslError>)),
                     this, SLOT(clientSSLErrors(QList<QSslError>)));
 
-            // Setup server private keys
-            // TODO: Make these configurable
-            sslSocket->setPrivateKey("server.key");
-            QFile certFile("server.pem");
-            QList<QSslCertificate> serverCerts = QSslCertificate::fromPath("server.pem");
-            QSslCertificate serverCert = serverCerts.at(0);
-            if (serverCert.isValid()) {
-                qDebug() << fnName << "Successfully set server certificate:"
-                        << serverCert.subjectInfo(QSslCertificate::CommonName)
-                        << "for peer:" << sslSocket->peerAddress().toString();
-                sslSocket->setLocalCertificate(serverCert);
-
-                connect(sslSocket, SIGNAL(encrypted()), this, SLOT(socketReady()));
-                sslSocket->startServerEncryption();
-
-            } else {
-                qDebug() << fnName << "Error setting server certificate";
+            sslSocket->setPrivateKey(_serverKey);
+            sslSocket->setLocalCertificate(_serverCert);
+            if (! _caCerts.isEmpty()) {
+                sslSocket->setCaCertificates(_caCerts);
             }
+
+            connect(sslSocket, SIGNAL(encrypted()), this, SLOT(socketReady()));
+
+            sslSocket->startServerEncryption();
         } else {
             qDebug() << fnName << "Error setting SSL socket descriptor on QSslSocket";
             delete sslSocket;
+        }
+    } else {
+        QTcpSocket *socket = new QTcpSocket(this);
+        if (socket->setSocketDescriptor(socketDescriptor)) {
+            connect(socket, SIGNAL(readyRead()), this, SLOT(readClient()));
+            connect(socket, SIGNAL(disconnected()), this, SLOT(discardClient()));
+            connect(socket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
+                    this, SLOT(clientConnState(QAbstractSocket::SocketState)));
+        } else {
+            qDebug() << fnName << "Error setting socket descriptor on QTcpSocket";
+            delete socket;
         }
     }
 }
@@ -148,12 +219,12 @@ void CmlServer::socketReady()
 
     bool clientAuthorized = false;
 
-    if (_serverCapability.testFlag(CmlServer::DisableClientCertVerify)) {
-        qDebug() << fnName << "Client authorized because CmlServer::DisableClientCertVerify is set, for peer:"
+    if (_omapdConfig->valueFor("cml_require_client_certificates").toBool()) {
+        clientAuthorized = authorizeClient(sslSocket);
+    } else {
+        qDebug() << fnName << "Client authorized because cml_require_client_certificates is false, for peer:"
                  << sslSocket->peerAddress().toString();
         clientAuthorized = true;
-    } else {
-        clientAuthorized = authorizeClient(sslSocket);
     }
 
     if (clientAuthorized) {
@@ -162,7 +233,7 @@ void CmlServer::socketReady()
         connect(sslSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
                 this, SLOT(clientConnState(QAbstractSocket::SocketState)));
     } else {
-        if (_debug.testFlag(CmlServer::ShowClientOps))
+        if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowClientOps))
             qDebug() << fnName << "Disconnecting unauthorized client at:" << sslSocket->peerAddress().toString();
         sslSocket->disconnectFromHost();
         sslSocket->deleteLater();
@@ -200,7 +271,7 @@ void CmlServer::clientConnState(QAbstractSocket::SocketState sState)
 
     QTcpSocket* socket = (QTcpSocket*)sender();
 
-    if (_debug.testFlag(CmlServer::ShowHTTPState))
+    if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPState))
         qDebug() << fnName << "socket state for socket:" << socket
                  << "------------->:" << sState;
 
@@ -238,7 +309,7 @@ void CmlServer::readClient()
         nBytesAvailable = socket->bytesAvailable();
     }
 
-    if (_debug.testFlag(CmlServer::ShowRawSocketData))
+    if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowRawSocketData))
         qDebug() << fnName << "Raw Socket Data:" << endl << requestByteArr;
 }
 
@@ -297,7 +368,7 @@ int CmlServer::readHeader(QTcpSocket *socket)
         if (! delReq.isEmpty()) emit delReqReceived(socket, delReq);
     }
 
-    if (_debug.testFlag(CmlServer::ShowHTTPHeaders))
+    if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPHeaders))
         qDebug() << fnName << "headerStr:" << endl << headerStr;
 
     return headerStr.length();
@@ -311,11 +382,11 @@ void CmlServer::processHeader(QTcpSocket *socket, QNetworkRequest requestHdrs)
 
     // Get CML Commands
     if (requestHdrs.hasRawHeader(QByteArray("Expect"))) {
-        if (_debug.testFlag(CmlServer::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPHeaders))
             qDebug() << fnName << "Got Expect header";
         QByteArray expectValue = requestHdrs.rawHeader(QByteArray("Expect"));
         if (! expectValue.isEmpty() && expectValue.contains(QByteArray("100-continue"))) {
-            if (_debug.testFlag(CmlServer::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPHeaders)) {
                 qDebug() << fnName << "Got 100-continue Expect Header";
             }
             sendHttpResponse(socket, 100, "Continue");
@@ -323,12 +394,12 @@ void CmlServer::processHeader(QTcpSocket *socket, QNetworkRequest requestHdrs)
     }
 
     if (requestHdrs.hasRawHeader(QByteArray("Authorization"))) {
-        if (_debug.testFlag(CmlServer::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPHeaders))
             qDebug() << fnName << "Got Authorization header";
         QByteArray basicAuthValue = requestHdrs.rawHeader(QByteArray("Authorization"));
         if (! basicAuthValue.isEmpty() && basicAuthValue.contains(QByteArray("Basic"))) {
             basicAuthValue = basicAuthValue.mid(6);
-            if (_debug.testFlag(CmlServer::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPHeaders)) {
                 qDebug() << fnName << "Got Basic Auth value:" << basicAuthValue;
             }
         }
@@ -339,7 +410,7 @@ void CmlServer::sendHttpResponse(QTcpSocket *socket, int hdrNumber, QString hdrT
 {
     const char *fnName = "CmlServer::sendHttpResponse:";
 
-    if (_debug.testFlag(CmlServer::ShowHTTPHeaders)) {
+    if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPHeaders)) {
         qDebug() << fnName << "Sending Http Response:" << hdrNumber << hdrText;
     }
 
@@ -363,10 +434,10 @@ void CmlServer::sendResponse(QTcpSocket *socket, const QByteArray &respArr)
         socket->write(header.toString().toUtf8() );
         socket->write( respArr );
 
-        if (_debug.testFlag(CmlServer::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowHTTPHeaders))
             qDebug() << fnName << "Sent reply headers to client:" << endl << header.toString();
 
-        if (_debug.testFlag(CmlServer::ShowRawSocketData))
+        if (_omapdConfig->valueFor("cml_debug_level").value<CmlServer::DebugOptions>().testFlag(CmlServer::ShowRawSocketData))
             qDebug() << fnName << "Sent reply to client:" << endl << respArr << endl;
     } else {
         qDebug() << fnName << "Socket is not connected!  Not sending reply to client";
@@ -388,9 +459,8 @@ void CmlServer::processGetReq(QTcpSocket *socket, QString getReq)
     } else if (getReq.compare("GET /config/server") == 0) {
 
     } else if (getReq.compare("GET /config/server/port") == 0) {
-        quint16 port = _server->serverPort();
         QString pStr;
-        pStr.setNum(port);
+        pStr.setNum(_omapdConfig->valueFor("ifmap_port").toUInt());
         qDebug() << fnName << "Got server port:" << pStr;
         sendResponse(socket, QByteArray(pStr.toUtf8()));
     }
@@ -400,6 +470,12 @@ void CmlServer::processPutReq(QTcpSocket *socket, QString putReq)
 {
     const char *fnName = "CmlServer::processPutReq:";
     qDebug() << fnName << "Got PUT cmd:" << putReq << "on socket:" << socket;
+
+    if (putReq.compare("PUT /config/server/port")) {
+        qDebug() << fnName << "Don't know how to get port out of request payload";
+        unsigned int port = 8082;
+        _omapdConfig->addConfigItem("ifmap_port", port);
+    }
 }
 
 void CmlServer::processPostReq(QTcpSocket *socket, QString postReq)
