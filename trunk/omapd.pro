@@ -13,11 +13,13 @@ SOURCES += main.cpp \
     metadata.cpp \
     mapgraph.cpp \
     mapsessions.cpp \
-    cmlserver.cpp
+    cmlserver.cpp \
+    omapdconfig.cpp
 HEADERS += server.h \
     identifier.h \
     metadata.h \
     mapgraph.h \
     mapsessions.h \
-    cmlserver.h
+    cmlserver.h \
+    omapdconfig.h
 include(./qtsoap-2.6-opensource/src/qtsoap.pri)

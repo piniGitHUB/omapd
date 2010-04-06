@@ -26,54 +26,160 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "server.h"
 
-Server::Server(MapGraph *mapGraph, quint16 port, QObject *parent)
+Server::DebugOptions Server::debugOptions(unsigned int dbgValue)
+{
+    Server::DebugOptions debug = Server::DebugNone;
+    if (dbgValue & Server::ShowClientOps) debug |= Server::ShowClientOps;
+    if (dbgValue & Server::ShowXML) debug |= Server::ShowXML;
+    if (dbgValue & Server::ShowHTTPHeaders) debug |= Server::ShowHTTPHeaders;
+    if (dbgValue & Server::ShowHTTPState) debug |= Server::ShowHTTPState;
+    if (dbgValue & Server::ShowXMLParsing) debug |= Server::ShowXMLParsing;
+    if (dbgValue & Server::ShowXMLFilterResults) debug |= Server::ShowXMLFilterResults;
+    if (dbgValue & Server::ShowXMLFilterStatements) debug |= Server::ShowXMLFilterStatements;
+    if (dbgValue & Server::ShowMAPGraphAfterChange) debug |= Server::ShowMAPGraphAfterChange;
+    if (dbgValue & Server::ShowRawSocketData) debug |= Server::ShowRawSocketData;
+
+    return debug;
+}
+
+QString Server::debugString(Server::DebugOptions debug)
+{
+    QString str("");
+    if (debug.testFlag(Server::DebugNone)) str += "Server::DebugNone | ";
+    if (debug.testFlag(Server::ShowClientOps)) str += "Server::ShowClientOps | ";
+    if (debug.testFlag(Server::ShowXML)) str += "Server::ShowXML | ";
+    if (debug.testFlag(Server::ShowHTTPHeaders)) str += "Server::ShowHTTPHeaders | ";
+    if (debug.testFlag(Server::ShowHTTPState)) str += "Server::ShowHTTPState | ";
+    if (debug.testFlag(Server::ShowXMLParsing)) str += "Server::ShowXMLParsing | ";
+    if (debug.testFlag(Server::ShowXMLFilterResults)) str += "Server::ShowXMLFilterResults | ";
+    if (debug.testFlag(Server::ShowXMLFilterStatements)) str += "Server::ShowXMLFilterStatements | ";
+    if (debug.testFlag(Server::ShowMAPGraphAfterChange)) str += "Server::ShowMAPGraphAfterChange | ";
+    if (debug.testFlag(Server::ShowRawSocketData)) str += "Server::ShowRawSocketData | ";
+
+    if (! str.isEmpty()) {
+        str = str.left(str.size()-3);
+    }
+    return str;
+}
+
+QDebug operator<<(QDebug dbg, Server::DebugOptions & dbgOptions)
+{
+    dbg.nospace() << Server::debugString(dbgOptions);
+    return dbg.space();
+}
+
+Server::MapVersionSupportOptions Server::mapVersionSupportOptions(unsigned int value)
+{
+    Server::MapVersionSupportOptions support = Server::SupportNone;
+    if (value & Server::SupportIfmapV10) support |= Server::SupportIfmapV10;
+    if (value & Server::SupportIfmapV11) support |= Server::SupportIfmapV11;
+
+    return support;
+}
+
+QString Server::mapVersionSupportString(Server::MapVersionSupportOptions debug)
+{
+    QString str("");
+    if (debug.testFlag(Server::SupportNone)) str += "Server::SupportNone | ";
+    if (debug.testFlag(Server::SupportIfmapV10)) str += "Server::SupportIfmapV10 | ";
+    if (debug.testFlag(Server::SupportIfmapV11)) str += "Server::SupportIfmapV11 | ";
+
+    if (! str.isEmpty()) {
+        str = str.left(str.size()-3);
+    }
+    return str;
+}
+
+QDebug operator<<(QDebug dbg, Server::MapVersionSupportOptions & dbgOptions)
+{
+    dbg.nospace() << Server::mapVersionSupportString(dbgOptions);
+    return dbg.space();
+}
+
+Server::Server(MapGraph *mapGraph, QObject *parent)
         : QTcpServer(parent), _mapGraph(mapGraph)
 {
     const char *fnName = "Server::Server:";
 
-    _debug = Server::DebugNone;
-    _nonStdBehavior = Server::DisableNonStdBehavior;
+    _omapdConfig = OmapdConfig::getInstance();
 
-    bool listening = listen(QHostAddress::Any, port);
-    if (!listening) {
-        qDebug() << fnName << "Server will not listen on port:" << port;
-    } else {
-        this->setMaxPendingConnections(30); // 30 is QTcpServer default
-
-        if (! _nonStdBehavior.testFlag(Server::DisableHTTPS)) {
-            // Set server cert, private key, CRLs, etc.
+    if (_omapdConfig->valueFor("ifmap_ssl_configuration").toBool()) {
+        // Set server cert, private key, CRLs, etc.
+        QString keyFileName = "server.key";
+        QByteArray keyPassword = "";
+        if (_omapdConfig->isSet("ifmap_private_key_file")) {
+            keyFileName = _omapdConfig->valueFor("ifmap_private_key_file").toString();
+            if (_omapdConfig->isSet("ifmap_private_key_password")) {
+                keyPassword = _omapdConfig->valueFor("ifmap_private_key_password").toByteArray();
+            }
+        }
+        QFile keyFile(keyFileName);
+        // TODO: Add QSsl::Der format support from _omapdConfig
+        // TODO: Add QSsl::Dsa support from _omapdConfig
+        if (!keyFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qDebug() << fnName << "No private key file:" << keyFile.fileName();
+        } else {
+            _serverKey = QSslKey(&keyFile, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey, keyPassword);
+            qDebug() << fnName << "Loaded private key";
         }
 
-        //connect(this, SIGNAL(newConnection()), this, SLOT(newClientConnection()));
-        connect(this, SIGNAL(headerReceived(QTcpSocket*,QNetworkRequest)),
-                this, SLOT(processHeader(QTcpSocket*,QNetworkRequest)));
+        QString certFileName = "server.cert";
+        // TODO: Add QSsl::Der format support from _omapdConfig
+        if (_omapdConfig->isSet("ifmap_certificate_file")) {
+            certFileName = _omapdConfig->valueFor("ifmap_certificate_file").toString();
+        }
+        QFile certFile(certFileName);
+        if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qDebug() << fnName << "No certificate file:" << certFile.fileName();
+        } else {
+            _serverCert = QSslCertificate(&certFile, QSsl::Pem);
+            qDebug() << fnName << "Loaded certificate with CN:" << _serverCert.subjectInfo(QSslCertificate::CommonName);
+        }
+        
+        // Load server CAs
+        if (_omapdConfig->isSet("ifmap_ca_certificates_file")) {
+            QFile caFile(_omapdConfig->valueFor("ifmap_ca_certificates_file").toString());
+            if (!caFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                qDebug() << fnName << "No CA certificates file" << caFile.fileName();
+            } else {
+                _caCerts = QSslCertificate::fromDevice(&caFile, QSsl::Pem);
+                qDebug() << fnName << "Loaded num CA certs:" << _caCerts.size();
+            }
+        }
+    }
 
-        connect(this, SIGNAL(requestMessageReceived(QTcpSocket*,QtSoapMessage)),
-                this, SLOT(processRequest(QTcpSocket*,QtSoapMessage)));
+    QHostAddress listenOn;
+    if (listenOn.setAddress(_omapdConfig->valueFor("ifmap_address").toString())) {
+        unsigned int port = _omapdConfig->valueFor("ifmap_port").toUInt();
 
-        connect(this, SIGNAL(checkActivePolls()),
-                this, SLOT(sendResultsOnActivePolls()));
+        if (listen(listenOn, port)) {
+            this->setMaxPendingConnections(30); // 30 is QTcpServer default
 
-        // Seed RNG for session-ids
-        qsrand(QDateTime::currentDateTime().toTime_t());
+            //connect(this, SIGNAL(newConnection()), this, SLOT(newClientConnection()));
+            connect(this, SIGNAL(headerReceived(QTcpSocket*,QNetworkRequest)),
+                    this, SLOT(processHeader(QTcpSocket*,QNetworkRequest)));
+
+            connect(this, SIGNAL(requestMessageReceived(QTcpSocket*,QtSoapMessage)),
+                    this, SLOT(processRequest(QTcpSocket*,QtSoapMessage)));
+
+            connect(this, SIGNAL(checkActivePolls()),
+                    this, SLOT(sendResultsOnActivePolls()));
+
+            // Seed RNG for session-ids
+            qsrand(QDateTime::currentDateTime().toTime_t());
+        } else {
+            qDebug() << fnName << "Error with listen on:" << listenOn.toString()
+                    << ":" << port;
+        }
+    } else {
+        qDebug() << fnName << "Error setting server address";
     }
 }
 
 void Server::incomingConnection(int socketDescriptor)
 {
     const char *fnName = "Server::incomingConnection:";
-    if (_nonStdBehavior.testFlag(Server::DisableHTTPS)) {
-        QTcpSocket *socket = new QTcpSocket(this);
-        if (socket->setSocketDescriptor(socketDescriptor)) {
-            connect(socket, SIGNAL(readyRead()), this, SLOT(readClient()));
-            connect(socket, SIGNAL(disconnected()), this, SLOT(discardClient()));
-            connect(socket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
-                    this, SLOT(clientConnState(QAbstractSocket::SocketState)));
-        } else {
-            qDebug() << fnName << "Error setting socket descriptor on QTcpSocket";
-            delete socket;
-        }
-    } else {
+    if (_omapdConfig->valueFor("ifmap_ssl_configuration").toBool()) {
         QSslSocket *sslSocket = new QSslSocket(this);
         if (sslSocket->setSocketDescriptor(socketDescriptor)) {
 
@@ -83,11 +189,12 @@ void Server::incomingConnection(int socketDescriptor)
             sslSocket->setProtocol(QSsl::AnyProtocol);
 
             // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
-            if (_nonStdBehavior.testFlag(Server::DisableClientCertVerify)) {
+
+            if (_omapdConfig->valueFor("ifmap_require_client_certificates").toBool()) {
+                sslSocket->setPeerVerifyMode(QSslSocket::VerifyPeer);
+            } else {
                 // QueryPeer just asks for the client cert, but does not verify it
                 sslSocket->setPeerVerifyMode(QSslSocket::QueryPeer);
-            } else {
-                sslSocket->setPeerVerifyMode(QSslSocket::VerifyPeer);
             }
 
             // Connect SSL error signals to local slots
@@ -96,27 +203,29 @@ void Server::incomingConnection(int socketDescriptor)
             connect(sslSocket, SIGNAL(sslErrors(QList<QSslError>)),
                     this, SLOT(clientSSLErrors(QList<QSslError>)));
 
-            // Setup server private keys
-            // TODO: Make these configurable
-            sslSocket->setPrivateKey("server.key");
-            QFile certFile("server.pem");
-            QList<QSslCertificate> serverCerts = QSslCertificate::fromPath("server.pem");
-            QSslCertificate serverCert = serverCerts.at(0);
-            if (serverCert.isValid()) {
-                qDebug() << fnName << "Successfully set server certificate:"
-                        << serverCert.subjectInfo(QSslCertificate::CommonName)
-                        << "for peer:" << sslSocket->peerAddress().toString();
-                sslSocket->setLocalCertificate(serverCert);
-
-                connect(sslSocket, SIGNAL(encrypted()), this, SLOT(socketReady()));
-                sslSocket->startServerEncryption();
-
-            } else {
-                qDebug() << fnName << "Error setting server certificate";
+            sslSocket->setPrivateKey(_serverKey);
+            sslSocket->setLocalCertificate(_serverCert);
+            if (! _caCerts.isEmpty()) {
+                sslSocket->setCaCertificates(_caCerts);
             }
+
+            connect(sslSocket, SIGNAL(encrypted()), this, SLOT(socketReady()));
+
+            sslSocket->startServerEncryption();
         } else {
             qDebug() << fnName << "Error setting SSL socket descriptor on QSslSocket";
             delete sslSocket;
+        }
+    } else {
+        QTcpSocket *socket = new QTcpSocket(this);
+        if (socket->setSocketDescriptor(socketDescriptor)) {
+            connect(socket, SIGNAL(readyRead()), this, SLOT(readClient()));
+            connect(socket, SIGNAL(disconnected()), this, SLOT(discardClient()));
+            connect(socket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
+                    this, SLOT(clientConnState(QAbstractSocket::SocketState)));
+        } else {
+            qDebug() << fnName << "Error setting socket descriptor on QTcpSocket";
+            delete socket;
         }
     }
 }
@@ -150,12 +259,12 @@ void Server::socketReady()
 
     bool clientAuthorized = false;
 
-    if (_nonStdBehavior.testFlag(Server::DisableClientCertVerify)) {
-        qDebug() << fnName << "Client authorized because Server::DisableClientCertVerify is set, for peer:"
+    if (_omapdConfig->valueFor("ifmap_require_client_certificates").toBool()) {
+        clientAuthorized = authorizeClient(sslSocket);
+    } else {
+        qDebug() << fnName << "Client authorized because ifmap_require_client_certificates is false, for peer:"
                  << sslSocket->peerAddress().toString();
         clientAuthorized = true;
-    } else {
-        clientAuthorized = authorizeClient(sslSocket);
     }
 
     if (clientAuthorized) {
@@ -164,7 +273,7 @@ void Server::socketReady()
         connect(sslSocket, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
                 this, SLOT(clientConnState(QAbstractSocket::SocketState)));
     } else {
-        if (_debug.testFlag(Server::ShowClientOps))
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
             qDebug() << fnName << "Disconnecting unauthorized client at:" << sslSocket->peerAddress().toString();
         sslSocket->disconnectFromHost();
         sslSocket->deleteLater();
@@ -202,7 +311,7 @@ void Server::clientConnState(QAbstractSocket::SocketState sState)
 
     QTcpSocket* socket = (QTcpSocket*)sender();
 
-    if (_debug.testFlag(Server::ShowHTTPState))
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPState))
         qDebug() << fnName << "socket state for socket:" << socket
                  << "------------->:" << sState;
 
@@ -243,30 +352,19 @@ void Server::readClient()
         nBytesAvailable = socket->bytesAvailable();
     }
 
-    if (_debug.testFlag(Server::ShowRawSocketData))
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowRawSocketData))
         qDebug() << fnName << "Raw Socket Data:" << endl << requestByteArr;
 
     int lIndex = requestByteArr.indexOf("<");
     int rIndex = requestByteArr.lastIndexOf(">");
     QString reqStr = requestByteArr.mid(lIndex, rIndex - lIndex + 1);
 
-    bool nsPrefixProcessing = _serverCapability.testFlag(Server::PatchedQtForNamespaceReporting) ? true : false;
-    if (nsPrefixProcessing && _debug.testFlag(Server::ShowClientOps)) {
-        qDebug() << fnName << "Assuming you have patched Qt to support namespace-prefix processing!!!!";
-        qDebug() << fnName << "If your SOAP Envelopes are not being read, disable Server::PatchedQtForNamespaceReporting";
-    }
-
     // TODO: Improve reading of SOAP requests spanning multiple calls to this method
     QtSoapMessage reqMsg;
-    bool valid;
-    if (nsPrefixProcessing) {
-        valid = reqMsg.setContent(reqStr, nsPrefixProcessing);
-    } else {
-        valid = reqMsg.setContent(requestByteArr.mid(lIndex, rIndex - lIndex + 1));
-    }
+    bool valid = reqMsg.setContent(requestByteArr.mid(lIndex, rIndex - lIndex + 1));
     if (!valid) {
         qDebug() << fnName << "Did not receive full or valid SOAP Message";
-        if (_debug.testFlag(Server::ShowClientOps))
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
             qDebug() << fnName << reqStr;
     } else {
         /* TODO: If I get a valid SOAP Message, should I remove the socket
@@ -275,7 +373,7 @@ void Server::readClient()
         */
         _headersReceived.remove(socket);
 
-        if (_debug.testFlag(Server::ShowXML))
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowXML))
             qDebug() << fnName << "Request SOAP Envelope:" << endl << reqMsg.toXmlString(2);
 
         emit requestMessageReceived(socket, reqMsg);
@@ -311,7 +409,7 @@ int Server::readHeader(QTcpSocket *socket)
         emit headerReceived(socket, requestWithHdr);
     }
 
-    if (_debug.testFlag(Server::ShowHTTPHeaders))
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPHeaders))
         qDebug() << fnName << "headerStr:" << endl << headerStr;
 
     return headerStr.length();
@@ -323,11 +421,11 @@ void Server::processHeader(QTcpSocket *socket, QNetworkRequest requestHdrs)
 
     // TODO: Improve http protocol support
     if (requestHdrs.hasRawHeader(QByteArray("Expect"))) {
-        if (_debug.testFlag(Server::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPHeaders))
             qDebug() << fnName << "Got Expect header";
         QByteArray expectValue = requestHdrs.rawHeader(QByteArray("Expect"));
         if (! expectValue.isEmpty() && expectValue.contains(QByteArray("100-continue"))) {
-            if (_debug.testFlag(Server::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPHeaders)) {
                 qDebug() << fnName << "Got 100-continue Expect Header";
             }
             sendHttpResponse(socket, 100, "Continue");
@@ -335,15 +433,15 @@ void Server::processHeader(QTcpSocket *socket, QNetworkRequest requestHdrs)
     }
 
     if (requestHdrs.hasRawHeader(QByteArray("Authorization"))) {
-        if (_debug.testFlag(Server::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPHeaders))
             qDebug() << fnName << "Got Authorization header";
         QByteArray basicAuthValue = requestHdrs.rawHeader(QByteArray("Authorization"));
         if (! basicAuthValue.isEmpty() && basicAuthValue.contains(QByteArray("Basic"))) {
             basicAuthValue = basicAuthValue.mid(6);
-            if (_debug.testFlag(Server::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPHeaders)) {
                 qDebug() << fnName << "Got Basic Auth value:" << basicAuthValue;
             }
-            if (_serverCapability.testFlag(Server::CreateClientConfigs)) {
+            if (_omapdConfig->valueFor("ifmap_create_client_configurations").toBool()) {
                 registerClient(socket, QString(basicAuthValue));
             }
         }
@@ -354,7 +452,7 @@ void Server::registerClient(QTcpSocket *socket, QString clientKey)
 {
     const char *fnName = "Server::registerClient:";
 
-    if (_debug.testFlag(Server::ShowClientOps)) {
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
         qDebug() << fnName << "Registering client with key:" << clientKey
                  << "from host:" << socket->peerAddress().toString();
     }
@@ -362,7 +460,7 @@ void Server::registerClient(QTcpSocket *socket, QString clientKey)
 
     if (_mapClientRegistry.contains(clientKey)) {
         // Already have a publisher-id for this client
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Already have client configuration with pub-id:" << _mapClientRegistry.value(clientKey);
         }
     } else {
@@ -372,7 +470,7 @@ void Server::registerClient(QTcpSocket *socket, QString clientKey)
         QByteArray pubidhash = QCryptographicHash::hash(pubid.toAscii(), QCryptographicHash::Md5);
         pubid = QString(pubidhash.toHex());
         _mapClientRegistry.insert(clientKey,pubid);
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Created client configuration with pub-id:" << _mapClientRegistry.value(clientKey);
         }
     }
@@ -382,7 +480,7 @@ void Server::sendHttpResponse(QTcpSocket *socket, int hdrNumber, QString hdrText
 {
     const char *fnName = "Server::sendHttpResponse:";
 
-    if (_debug.testFlag(Server::ShowHTTPHeaders)) {
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPHeaders)) {
         qDebug() << fnName << "Sending Http Response:" << hdrNumber << hdrText;
     }
 
@@ -403,7 +501,7 @@ void Server::sendResponse(QTcpSocket *socket, const QtSoapMessage & respMsg)
     header.setContentType("text/xml");
     //header.setValue("Content-Encoding","UTF-8");
     header.setContentLength( respArr.size() );
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         header.setValue("Server","omapd/ifmap1.1");
     }
 
@@ -411,10 +509,10 @@ void Server::sendResponse(QTcpSocket *socket, const QtSoapMessage & respMsg)
         socket->write(header.toString().toUtf8() );
         socket->write( respArr );
 
-        if (_debug.testFlag(Server::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowHTTPHeaders))
             qDebug() << fnName << "Sent reply headers to client:" << endl << header.toString();
 
-        if (_debug.testFlag(Server::ShowXML))
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowXML))
             qDebug() << fnName << "Sent reply to client:" << endl << respArr << endl;
     } else {
         qDebug() << fnName << "Socket is not connected!  Not sending reply to client";
@@ -446,7 +544,7 @@ QString Server::assignPublisherId(QTcpSocket *socket)
     const char *fnName = "Server::assignPublisherId:";
     QString publisherId;
 
-    if (_serverCapability.testFlag(Server::CreateClientConfigs)) {
+    if (_omapdConfig->valueFor("ifmap_create_client_configurations").toBool()) {
         QString clientKey = _mapClientConnections.key(socket);
         publisherId = _mapClientRegistry.value(clientKey);
         if (publisherId.isEmpty()) {
@@ -466,20 +564,20 @@ IFMAP_ERRORCODES Server::validateSessionId(QtSoapMessage msg, QTcpSocket *socket
 
     IFMAP_ERRORCODES error = ::ErrorNone;
 
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapStruct soapHdr = msg.header();
         QtSoapSimpleType sessIdElement = (QtSoapSimpleType &)soapHdr.at(QtSoapQName("session-id",IFMAP_NS_1));
         *sessionId = sessIdElement.value().toString();
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Got session-id in IF-MAP 1.1 client request:" << *sessionId;
         }
     }
 
     if (! (*sessionId).isEmpty()) {
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Using session-id in client request:" << *sessionId;
         }
-    } else if (_nonStdBehavior.testFlag(Server::IgnoreSessionId)) {
+    } else if (_omapdConfig->valueFor("ifmap_allow_invalid_session_id").toBool()) {
         // NON-STANDARD BEHAVIOR!!!
         // This let's someone curl in a bunch of messages without worrying about
         // maintaining SSRC state.
@@ -494,7 +592,7 @@ IFMAP_ERRORCODES Server::validateSessionId(QtSoapMessage msg, QTcpSocket *socket
     QString publisherId = _activeSSRCSessions.key(*sessionId);
     if (! publisherId.isEmpty()) {
         // We do have an active SSRC session
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Got session-id:" << *sessionId
                      << "and publisherId:" << publisherId;
         }
@@ -511,23 +609,23 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
     const char *fnName = "Server::processRequest:";
     bool namespaceError = false;
 
-    if (_debug.testFlag(Server::ShowClientOps)) qDebug() << endl << fnName << "Socket:" << socket;
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
+        qDebug() << endl << fnName << "Socket:" << socket;
 
     QtSoapQName arg = reqMsg.method().name();
     QString method = arg.name();
     QString ns = arg.uri();
-    if (_debug.testFlag(Server::ShowClientOps)) {
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
         qDebug() << fnName << "Received method call:" << method;
         qDebug() << fnName << "Received method namespace:" << ns;
     }
 
-    QString newSessMN, attachSessMN;
+    QString newSessMN;
 
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         newSessMN = "new-session";
-        attachSessMN = "attach-session";
 
-        if (method.isEmpty() && ns.isEmpty() && _mapVersionSupport.testFlag(Server::SupportIfmapV10)) {
+        if (method.isEmpty() && ns.isEmpty() && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV10)) {
             QtSoapStruct soapHdr = reqMsg.header();
             QtSoapSimpleType newSessionReq = (QtSoapSimpleType &)soapHdr.at(QtSoapQName("new-session",IFMAP_NS_1));
             QtSoapSimpleType attachSessionReq = (QtSoapSimpleType &)soapHdr.at(QtSoapQName("attach-session",IFMAP_NS_1));
@@ -537,12 +635,12 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
             qDebug() << fnName << "new-session header element:" << newSession;
             qDebug() << fnName << "attach-session header element:" << attachSession;
             if (! newSession.isEmpty()) {
-                if (_debug.testFlag(Server::ShowClientOps))
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
                     qDebug() << fnName << "Got IF-MAP 1.0 new-session request";
                 method = "new-session";
                 ns = IFMAP_NS_1;
             } else if (! attachSession.isEmpty()) {
-                if (_debug.testFlag(Server::ShowClientOps))
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
                     qDebug() << fnName << "Got IF-MAP 1.0 attach-session request";
                 method = "attach-session";
                 ns = IFMAP_NS_1;
@@ -561,7 +659,7 @@ void Server::processRequest(QTcpSocket *socket, QtSoapMessage reqMsg)
         sendResponse(socket, respMsg);
     } else if (method.compare(newSessMN) == 0) {
         processNewSession(socket);
-    } else if (method.compare(attachSessMN) == 0) {
+    } else if (method.compare("attach-session") == 0 && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         processAttachSession(socket, reqMsg);
     } else if (method.compare("publish") == 0) {
         processPublish(socket, reqMsg);
@@ -601,7 +699,7 @@ void Server::processNewSession(QTcpSocket *socket)
     _activeSSRCSessions.insert(publisherId, sessId);
 
     QtSoapMessage respMsg;
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id",IFMAP_NS_1),sessId);
         respMsg.addBodyItem(sessIdItem);
         QtSoapType *pubIdItem = new QtSoapSimpleType(QtSoapQName("publisher-id",IFMAP_NS_1),publisherId);
@@ -614,40 +712,13 @@ void Server::processNewSession(QTcpSocket *socket)
     sendResponse(socket, respMsg);
 }
 
-void Server::processRenewSession(QTcpSocket *socket, QtSoapMessage reqMsg)
-{
-    QString sessId;
-    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
-
-    sendResponse(socket, soapResponseMsg(soapResponseForOperation("renewSession", requestError)));
-}
-
-void Server::processEndSession(QTcpSocket *socket, QtSoapMessage reqMsg)
-{
-    const char *fnName = "Server::processEndSession:";
-
-    QString sessId;
-    IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
-
-    if (!requestError) {
-        QString publisherId = _activeSSRCSessions.key(sessId);
-        terminateSession(sessId);
-        if (_debug.testFlag(Server::ShowClientOps)) {
-            qDebug() << fnName << "Terminated session-id:" << sessId
-                     << "for publisher-id:" << publisherId;
-        }
-    }
-
-    sendResponse(socket, soapResponseMsg(soapResponseForOperation("endSession", requestError)));
-}
-
 void Server::processAttachSession(QTcpSocket *socket, QtSoapMessage reqMsg)
 {
     const char *fnName = "Server::processAttachSession:";
     QtSoapMessage respMsg;
 
     QString attachSessMN;
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         attachSessMN = "attach-session";
     }
 
@@ -664,12 +735,12 @@ void Server::processAttachSession(QTcpSocket *socket, QtSoapMessage reqMsg)
             qDebug() << fnName << "Already have existing ARC session, terminating";
             respMsg = soapResponseMsg(soapResponseForOperation(attachSessMN, requestError));
         } else {
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Adding ARC session for publisher:" << publisherId;
             }
             _activeARCSessions.insert(publisherId, sessId);
 
-            if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
                 QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id",IFMAP_NS_1),sessId);
                 respMsg.addBodyItem(sessIdItem);
                 QtSoapType *pubIdItem = new QtSoapSimpleType(QtSoapQName("publisher-id",IFMAP_NS_1),publisherId);
@@ -680,7 +751,7 @@ void Server::processAttachSession(QTcpSocket *socket, QtSoapMessage reqMsg)
         respMsg = soapResponseMsg(soapResponseForOperation(attachSessMN, requestError));
     }
 
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapType *sessIdHdrItem = new QtSoapSimpleType(QtSoapQName("session-id",IFMAP_NS_1),sessId);
         respMsg.addHeaderItem(sessIdHdrItem);
         QtSoapType *pubIdHdrItem = new QtSoapSimpleType(QtSoapQName("publisher-id",IFMAP_NS_1),publisherId);
@@ -698,6 +769,8 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
     IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
     QString publisherId = _activeSSRCSessions.key(sessId);
 
+    bool mapGraphChanged = false;
+
     QtSoapStruct &pubMeth = (QtSoapStruct &)reqMsg.method();
 
     // TODO: validate the entire message
@@ -706,7 +779,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
     for (QtSoapStructIterator it(pubMeth); it.current() && !requestError; ++it) {
         QtSoapStruct *pubItem = (QtSoapStruct *)it.data();
         QString pubOperation = pubItem->name().name();
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Publish operation:" << pubOperation;
         }
         if (pubOperation.compare("update") == 0) {
@@ -716,7 +789,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
             doc.appendChild(el);
 
             Meta::Lifetime lifetime;
-            if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
                 // Default behavior is metadata lasts until deleted
                 lifetime = Meta::LifetimeForever;
             }
@@ -731,7 +804,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
             QList<Meta> publisherMetaList = metaFromNodeList(meta, lifetime, publisherId, &requestError);
 
             QDomNodeList ids;
-            if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
                 ids = doc.elementsByTagName("identifier");
             }
             int idCount = 0;
@@ -740,7 +813,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
                 // Error with identifier(s) is set in keyFromNodeList
                 continue;
             }
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "number of identifiers:" << idCount;
             }
             bool isLink = (idCount == 2) ? true : false;
@@ -748,7 +821,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
             if (pubOperation.compare("update") == 0) {
                 _mapGraph->addMeta(key, isLink, publisherMetaList, publisherId);
 
-                // update subscriptions
+                mapGraphChanged = true;
                 updateSubscriptions(key, isLink, Meta::PublishUpdate);
             }
 
@@ -767,23 +840,19 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
                 QStringListIterator prefIt(filterPrefixes);
                 while (prefIt.hasNext()) {
                     QString prefix = prefIt.next(), ns;
-                    if (_serverCapability.testFlag(Server::PatchedQtForNamespaceReporting)) {
-                        ns = reqMsg.namespaceForPrefix(prefix);
-                    } else {
-                        ns = _mapGraph->metaNamespaces().value(prefix);
-                    }
+                    ns = _mapGraph->metaNamespaces().value(prefix);
 
                     if (ns.isEmpty()) {
                         qDebug() << fnName << "WARNING: No namespace found for search prefix:" << prefix;
                     } else {
-                        if (_debug.testFlag(Server::ShowClientOps))
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
                             qDebug() << fnName << "Saving prefix:" << prefix << "for namespace:" << ns;
                         filterNamespaces.insert(prefix, ns);
                     }
                 }
 
                 filter = SearchGraph::translateFilter(filter);
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "delete filter:" << filter;
                 }
             } else {
@@ -791,7 +860,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
             }
 
             QDomNodeList ids;
-            if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
                 ids = doc.elementsByTagName("identifier");
             }
             int idCount = 0;
@@ -800,7 +869,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
                 // Error with identifier(s) is set in keyFromNodeList
                 continue;
             }
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "number of identifiers:" << idCount;
             }
             bool isLink = (idCount == 2) ? true : false;
@@ -826,12 +895,12 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
                     if (dSize == 0) {
                         // Keep this metadata (delete filter did not match)
                         keepMetaList.append(aMeta);
-                        if (_debug.testFlag(Server::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "Found Meta to keep:" << aMeta.elementName();
                         }
                     } else if (dSize > 0) {
                         deleteMetaList.append(aMeta);
-                        if (_debug.testFlag(Server::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "Meta will be deleted:" << aMeta.elementName();
                         }
                         // Delete matched something, so this may affect subscriptions
@@ -844,7 +913,7 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
                 }
 
                 if (metadataDeleted) {
-                    if (_debug.testFlag(Server::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                         qDebug() << fnName << "Updating map graph because metadata was deleted";
                     }
                     _mapGraph->replaceMeta(key, isLink, keepMetaList);
@@ -857,12 +926,13 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
                 metadataDeleted = true;
                 deleteMetaList = existingMetaList;
             } else {
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "No metadata to delete!";
                 }
             }
 
             if (metadataDeleted && !requestError) {
+                mapGraphChanged = true;
                 updateSubscriptions(key, isLink, Meta::PublishDelete);
             }
         } else {
@@ -877,13 +947,13 @@ void Server::processPublish(QTcpSocket *socket, QtSoapMessage reqMsg)
         qDebug() << fnName << "Error in publish:" << errorString(requestError);
     } else {
         emit checkActivePolls();
-        if (_debug.testFlag(Server::ShowMAPGraphAfterChange)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowMAPGraphAfterChange)) {
             _mapGraph->dumpMap();
         }
     }
 
     QtSoapMessage respMsg = soapResponseMsg(soapResponseForOperation("publish", requestError), requestError);
-    if (!respMsg.isFault() && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (!respMsg.isFault() && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id", IFMAP_NS_1),sessId);
         respMsg.addHeaderItem(sessIdItem);
     }
@@ -898,7 +968,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
     IFMAP_ERRORCODES requestError = validateSessionId(reqMsg, socket, &sessId);
     QString publisherId = _activeSSRCSessions.key(sessId);
 
-    if (_debug.testFlag(Server::ShowClientOps)) {
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
         qDebug() << fnName << "Will manage subscriptions for publisher:" << publisherId;
     }
     QtSoapStruct &subMeth = (QtSoapStruct &)reqMsg.method();
@@ -906,7 +976,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
     for (QtSoapStructIterator it(subMeth); it.current() && !requestError; ++it) {
         QtSoapStruct *subItem = (QtSoapStruct *)it.data();
         QString subOperation = subItem->name().name();
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Subscribe operation:" << subOperation;
         }
         if (subOperation.compare("update") == 0) {
@@ -918,7 +988,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
             QString subName;
             if (subItem->attributes().contains("name")) {
                 subName = subItem->attributes().namedItem("name").toAttr().value();
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "Subscription name:" << subName;
                 }
             } else {
@@ -929,7 +999,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
             }
 
             QDomNodeList ids;
-            if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
                 ids = doc.elementsByTagName("identifier");
             }
             int idCount = 0;
@@ -947,7 +1017,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
             QString matchLinks, resultFilter;
             int maxDepth, maxSize;
             QMap<QString,QString> searchNamespaces;
-            requestError = searchParameters(reqMsg, subItem->attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter, searchNamespaces);
+            requestError = searchParameters(subItem->attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter, searchNamespaces);
 
             if (!requestError) {
                 // Only store one subscription list per client
@@ -956,7 +1026,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
                 int currentDepth = -1;
                 buildSearchGraph(startingId, matchLinks, maxDepth, searchNamespaces, currentDepth, &idList, &linkList);
 
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "Subscription:" << subName;
                     qDebug() << fnName << "    idList size:" << idList.size();
                     qDebug() << fnName << "    linkList size:" << linkList.size();
@@ -1008,17 +1078,20 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
                     subList.removeOne(sub);
                     subList << sub;
                 }
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "subList size:" << subList.size();
                 }
 
                 _subscriptionLists.insert(publisherId, subList);
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "Adding SearchGraph to _subscriptionLists with name:" << subName;
                 }
 
                 if (_activePolls.contains(publisherId)) {
                     // signal to check subscriptions for polls
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
+                        qDebug() << fnName << "Will check active polls";
+                    }
                     emit checkActivePolls();
                 }
             }
@@ -1033,7 +1106,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
                 QList<SearchGraph> subList = _subscriptionLists.take(publisherId);
                 if (! subList.isEmpty()) {
                     subList.removeOne(delSub);
-                    if (_debug.testFlag(Server::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                         qDebug() << fnName << "Removing subscription from subList with name:" << subName;
                     }
                 } else {
@@ -1044,7 +1117,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
                     _subscriptionLists.insert(publisherId, subList);
                 }
 
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "subList size:" << subList.size();
                 }
             } else {
@@ -1061,7 +1134,7 @@ void Server::processSubscribe(QTcpSocket *socket, QtSoapMessage reqMsg)
     }
 
     QtSoapMessage respMsg = soapResponseMsg(soapResponseForOperation("subscribe", requestError), requestError);
-    if (!respMsg.isFault() && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (!respMsg.isFault() && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id", IFMAP_NS_1),sessId);
         respMsg.addHeaderItem(sessIdItem);
     }
@@ -1083,7 +1156,7 @@ void Server::processSearch(QTcpSocket *socket, QtSoapMessage reqMsg)
         doc.appendChild(el);
 
         QDomNodeList ids;
-        if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+        if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
             ids = doc.elementsByTagName("identifier");
         }
         int idCount = 0;
@@ -1098,10 +1171,10 @@ void Server::processSearch(QTcpSocket *socket, QtSoapMessage reqMsg)
         } else {
             Id startingId = key.first;
 
-            QString matchLinks, resultFilter, terminalId;
+            QString matchLinks, resultFilter;
             int maxDepth, maxSize;
             QMap<QString,QString> searchNamespaces;
-            requestError = searchParameters(reqMsg, searchMeth.attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter, searchNamespaces);
+            requestError = searchParameters(searchMeth.attributes(), &maxDepth, &matchLinks, &maxSize, &resultFilter, searchNamespaces);
 
             if (!requestError) {
                 QSet<Id> idList;
@@ -1109,7 +1182,7 @@ void Server::processSearch(QTcpSocket *socket, QtSoapMessage reqMsg)
                 int currentDepth = -1;
                 buildSearchGraph(startingId, matchLinks, maxDepth, searchNamespaces, currentDepth, &idList, &linkList);
 
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "Search Lists";
                     qDebug() << fnName << "    idList size:" << idList.size();
                     qDebug() << fnName << "    linkList size:" << linkList.size();
@@ -1130,7 +1203,7 @@ void Server::processSearch(QTcpSocket *socket, QtSoapMessage reqMsg)
     }
 
     QtSoapMessage respMsg = soapResponseMsg(searchResponse, requestError);
-    if (!respMsg.isFault() && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (!respMsg.isFault() && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id", IFMAP_NS_1),sessId);
         respMsg.addHeaderItem(sessIdItem);
     }
@@ -1147,19 +1220,19 @@ void Server::processPurgePublisher(QTcpSocket *socket, QtSoapMessage reqMsg)
     QString publisherId = _activeSSRCSessions.key(sessId);
 
     QString purgePubId, purgePubIdAttrName;
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         purgePubIdAttrName = "publisher-id";
     }
 
     if (reqMsg.method().attributes().contains(purgePubIdAttrName)) {
         purgePubId = reqMsg.method().attributes().namedItem(purgePubIdAttrName).toAttr().value();
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Got purgePublisher publisher-id:" << purgePubId;
         }
 
         if (purgePubId.compare(publisherId) != 0) {
             //requestError = ::IfmapAccessDenied;
-            qDebug() << fnName << "Computed publisher-id and purgePublisher attribute do NOT match";
+            qDebug() << fnName << "Assigned publisher-id and purgePublisher attribute do NOT match";
         }
 
         if (!requestError) {
@@ -1171,7 +1244,7 @@ void Server::processPurgePublisher(QTcpSocket *socket, QtSoapMessage reqMsg)
             if (haveChange) {
                 updateSubscriptions(idMetaDeleted, linkMetaDeleted);
                 emit checkActivePolls();
-                if (_debug.testFlag(Server::ShowMAPGraphAfterChange)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowMAPGraphAfterChange)) {
                     _mapGraph->dumpMap();
                 }
             }
@@ -1183,7 +1256,7 @@ void Server::processPurgePublisher(QTcpSocket *socket, QtSoapMessage reqMsg)
     }
 
     QtSoapMessage respMsg = soapResponseMsg(soapResponseForOperation("purgePublisher", requestError), requestError);
-    if (!respMsg.isFault() && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (!respMsg.isFault() && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id", IFMAP_NS_1),sessId);
         respMsg.addHeaderItem(sessIdItem);
     }
@@ -1199,13 +1272,13 @@ void Server::processPoll(QTcpSocket *socket, QtSoapMessage reqMsg)
     QString publisherId = _activeSSRCSessions.key(sessId);
 
     if (!requestError) {
-        if (_activeARCSessions.contains(publisherId)) {
+        if (_activeARCSessions.contains(publisherId) && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
             // Track the TCP socket this publisher's poll is on
             _activePolls.insert(publisherId, socket);
 
             if (_subscriptionLists.value(publisherId).isEmpty()) {
                 // No immediate client response
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "No subscriptions for publisherId:" << publisherId;
                 }
             } else {
@@ -1224,7 +1297,7 @@ void Server::processPoll(QTcpSocket *socket, QtSoapMessage reqMsg)
             qDebug() << fnName << "Removing subscriptions for publisherId:" << publisherId;
         }
         QtSoapMessage respMsg = soapResponseMsg(soapResponseForOperation("poll", requestError), requestError);
-        if (!respMsg.isFault() && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+        if (!respMsg.isFault() && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
             QtSoapType *sessIdItem = new QtSoapSimpleType(QtSoapQName("session-id", IFMAP_NS_1),sessId);
             respMsg.addHeaderItem(sessIdItem);
         }
@@ -1247,7 +1320,7 @@ bool Server::terminateSession(QString sessionId)
 
         if (_subscriptionLists.contains(publisherId)) {
             _subscriptionLists.remove(publisherId);
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Removing subscriptions for publisherId:" << publisherId;
             }
         }
@@ -1262,7 +1335,7 @@ bool Server::terminateSession(QString sessionId)
         if (haveChange) {
             updateSubscriptions(idMetaDeleted, linkMetaDeleted);
             emit checkActivePolls();
-            if (_debug.testFlag(Server::ShowMAPGraphAfterChange)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowMAPGraphAfterChange)) {
                 _mapGraph->dumpMap();
             }
         }
@@ -1295,7 +1368,7 @@ bool Server::terminateARCSession(QString sessionId)
     return hadExistingARCSession;
 }
 
-IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter, QMap<QString, QString> &searchNamespaces)
+IFMAP_ERRORCODES Server::searchParameters(QDomNamedNodeMap searchAttrs, int *maxDepth, QString *matchLinks, int *maxSize, QString *resultFilter, QMap<QString, QString> &searchNamespaces)
 {
     const char *fnName = "Server::searchParameters:";
 
@@ -1304,7 +1377,7 @@ IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap se
         bool ok;
         *maxDepth = md.toInt(&ok);
         if (ok) {
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got search parameter max-depth:" << *maxDepth;
             }
             if (*maxDepth < 0) *maxDepth = IFMAP_MAX_DEPTH_MAX;
@@ -1323,16 +1396,12 @@ IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap se
         QStringListIterator prefIt(mlPrefixes);
         while (prefIt.hasNext()) {
             QString prefix = prefIt.next(), ns;
-            if (_serverCapability.testFlag(Server::PatchedQtForNamespaceReporting)) {
-                ns = msg.namespaceForPrefix(prefix);
-            } else {
-                ns = _mapGraph->metaNamespaces().value(prefix);
-            }
+            ns = _mapGraph->metaNamespaces().value(prefix);
 
             if (ns.isEmpty()) {
                 qDebug() << fnName << "WARNING: No namespace found for search prefix:" << prefix;
             } else {
-                if (_debug.testFlag(Server::ShowClientOps))
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
                     qDebug() << fnName << "Saving prefix:" << prefix << "for namespace:" << ns;
                 searchNamespaces.insert(prefix, ns);
             }
@@ -1340,7 +1409,7 @@ IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap se
 
         *matchLinks = SearchGraph::translateFilter(ifmapMatchLinks);
 
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Got search parameter match-links:" << *matchLinks;
         }
     } else {
@@ -1353,7 +1422,7 @@ IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap se
         bool ok;
         *maxSize = ms.toInt(&ok);
         if (ok) {
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got search parameter max-size:" << *maxSize;
             }
         } else
@@ -1370,16 +1439,12 @@ IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap se
         QStringListIterator prefIt(rfPrefixes);
         while (prefIt.hasNext()) {
             QString prefix = prefIt.next(), ns;
-            if (_serverCapability.testFlag(Server::PatchedQtForNamespaceReporting)) {
-                ns = msg.namespaceForPrefix(prefix);
-            } else {
-                ns = _mapGraph->metaNamespaces().value(prefix);
-            }
+            ns = _mapGraph->metaNamespaces().value(prefix);
 
             if (ns.isEmpty()) {
                 qDebug() << fnName << "WARNING: No namespace found for search prefix:" << prefix;
             } else {
-                if (_debug.testFlag(Server::ShowClientOps))
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
                     qDebug() << fnName << "Saving prefix:" << prefix << "for namespace:" << ns;
                 searchNamespaces.insert(prefix, ns);
             }
@@ -1387,7 +1452,7 @@ IFMAP_ERRORCODES Server::searchParameters(QtSoapMessage msg, QDomNamedNodeMap se
 
         *resultFilter = SearchGraph::translateFilter(ifmapResultFilter);
 
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "Got search parameter result-filter:" << *resultFilter;
         }
     } else {
@@ -1461,7 +1526,7 @@ QtSoapMessage Server::soapResponseMsg(QtSoapType *content, IFMAP_ERRORCODES erro
         msg.setFaultString("Client Error");
     } else {
         QtSoapStruct *respStruct;
-        if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+        if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
             respStruct = new QtSoapStruct(QtSoapQName("response", IFMAP_NS_1));
         }
         respStruct->insert(content);
@@ -1597,12 +1662,12 @@ QtSoapType* Server::soapStructForId(Id id)
 
     if ( id.type() != Identifier::DeviceAikName &&
          id.type() != Identifier::DeviceName &&
-         (id.type() != Identifier::AccessRequest || _mapVersionSupport.testFlag(Server::SupportIfmapV11))
+         (id.type() != Identifier::AccessRequest || _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11))
          && !(id.ad().isEmpty()) ) {
         soapId->setAttribute("administrative-domain", id.ad());
     }
 
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         QtSoapStruct *idOuterStruct = new QtSoapStruct(QtSoapQName("identifier"));
         idOuterStruct->insert(soapId);
         return idOuterStruct;
@@ -1617,13 +1682,13 @@ QList<Meta> Server::metaFromNodeList(QDomNodeList metaNodes, Meta::Lifetime life
     QList<Meta> metaList;
 
     QString pubIdAttrName, timestampAttrName, cardinalityAttrName;
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         pubIdAttrName = "publisher-id";
         timestampAttrName = "timestamp";
         cardinalityAttrName = "cardinality";
     }
 
-    if (_debug.testFlag(Server::ShowClientOps)) {
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
         qDebug() << fnName << "number of metadata nodes:" << metaNodes.count();
     }
 
@@ -1674,7 +1739,7 @@ Link Server::keyFromNodeList(QDomNodeList ids, int *idCount, IFMAP_ERRORCODES *e
     Id id1;
     Id id2;
 
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         if (ids.isEmpty() || ids.length() > 2) {
             *errorCode = ::IfmapClientSoapFault;
         } else {
@@ -1694,6 +1759,8 @@ Link Server::keyFromNodeList(QDomNodeList ids, int *idCount, IFMAP_ERRORCODES *e
         key.first = id1;
     } else if (*errorCode == ::ErrorNone && *idCount == 2) {
         key = Identifier::makeLinkFromIds(id1, id2);
+    } else {
+        *errorCode = ::IfmapClientSoapFault;
     }
 
     return key;
@@ -1723,7 +1790,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
         if (attrs.contains("name")) {
             idType = Identifier::AccessRequest;
             value = attrs.namedItem("name").toAttr().value();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got access-request name:" << value;
             }
         } else {
@@ -1733,16 +1800,16 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
         }
     } else if (idName.compare("device") == 0) {
         QString deviceType = idNode.firstChildElement().tagName();
-        if (deviceType.compare("aik-name") == 0 && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+        if (deviceType.compare("aik-name") == 0 && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
             idType = Identifier::DeviceAikName;
             value = idNode.firstChildElement().text();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got device aik-name:" << value;
             }
         } else if (deviceType.compare("name") == 0) {
             idType = Identifier::DeviceName;
             value = idNode.firstChildElement().text();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got device name:" << value;
             }
         } else {
@@ -1764,7 +1831,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
                 idType = Identifier::IdentityEmailAddress;
             } else if (type.compare("kerberos-principal") == 0) {
                 idType = Identifier::IdentityKerberosPrincipal;
-            } else if (type.compare("trusted-platform-module") == 0 && _mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+            } else if (type.compare("trusted-platform-module") == 0 && _omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
                 idType = Identifier::IdentityTrustedPlatformModule;
             } else if (type.compare("username") == 0) {
                 idType = Identifier::IdentityUsername;
@@ -1787,7 +1854,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
 
         if (attrs.contains("name")) {
             value = attrs.namedItem("name").toAttr().value();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got identity name:" << value;
             }
         } else {
@@ -1800,7 +1867,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
             if (attrs.contains("other-type-definition")) {
                 // Append other-type-definition to value
                 other = attrs.namedItem("other-type-definition").toAttr().value();
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "Got identity other-type-def:" << other;
                 }
             } else {
@@ -1828,7 +1895,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
 
         if (attrs.contains("value")) {
             value = attrs.namedItem("value").toAttr().value();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got ip-address:" << value;
             }
             QHostAddress addr;
@@ -1847,7 +1914,7 @@ Id Server::idFromNode(QDomNode idNode, IFMAP_ERRORCODES *errorCode)
 
         if (attrs.contains("value")) {
             value = attrs.namedItem("value").toAttr().value();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Got mac-address:" << value;
             }
         } else {
@@ -1896,6 +1963,12 @@ int Server::filteredMetadata(QList<Meta> metaList, QString filter, QMap<QString,
     int resultSize = 0;
     bool matchAll = false;
 
+    /* The filter will be either a match-links, result-filter, or delete filter,
+       depending on where this method is called.  The "invert" parameter reverses the
+       sense of the filter, so if the filter is a delete filter, be sure
+       to set invert = true.
+    */
+
     if (filter.isEmpty()) {
         qDebug() << fnName << "Empty filter string matches nothing";
         return 0;
@@ -1934,7 +2007,7 @@ int Server::filteredMetadata(QList<Meta> metaList, QString filter, QMap<QString,
 
     QString queryStr = queryStream.readAll();
 
-    if (_debug.testFlag(Server::ShowXMLFilterStatements))
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowXMLFilterStatements))
         qDebug() << fnName << "Query Statement:" << endl << queryStr;
 
     QXmlQuery query;
@@ -1956,7 +2029,7 @@ int Server::filteredMetadata(QList<Meta> metaList, QString filter, QMap<QString,
         if (! result.trimmed().isEmpty()) {
             resultSize = result.size();
 
-            if (_debug.testFlag(Server::ShowXMLFilterResults))
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowXMLFilterResults))
                 qDebug() << fnName << "Query Result:" << endl << result;
 
             if (metaResult) {
@@ -1989,7 +2062,7 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
     const char *fnName = "Server::addSearchResultsWithResultFilter:";
 
     QString linkResultName, identifierResultName;
-    if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+    if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
         linkResultName = "linkResult";
         identifierResultName = "identifierResult";
     }
@@ -2000,7 +2073,7 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
     while (linkIt.hasNext() && !(*operationError)) {
         Link link = linkIt.next();
         QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
         }
 
@@ -2012,7 +2085,7 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
         if (! linkMetaList.isEmpty()) {
             QtSoapStruct *metaResult = new QtSoapStruct();
             int mSize;
-            if (_nonStdBehavior.testFlag(Server::DoNotUseMatchLinksInSearchResults)) {
+            if (false) {
                 qDebug() << fnName << "NON-STANDARD: Not filtering metadata with match-links";
                 mSize = filteredMetadata(linkMetaList, resultFilter, searchNamespaces, metaResult);
             } else {
@@ -2031,7 +2104,7 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
                 delete metaResult;
             }
         }
-        if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+        if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
             QtSoapStruct *linkElement = new QtSoapStruct(QtSoapQName("link"));
             linkElement->insert(idStruct2);
             linkElement->insert(idStruct1);
@@ -2041,13 +2114,13 @@ int Server::addSearchResultsWithResultFilter(QtSoapStruct *soapResponse, int max
     }
 
     QSetIterator<Id> idIt(idList);
-    if (_debug.testFlag(Server::ShowClientOps)) {
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
         qDebug() << fnName << "idList size:" << idList.size();
     }
     while (idIt.hasNext() && !(*operationError)) {
         Id id = idIt.next();
         QList<Meta> idMetaList = _mapGraph->metaForId(id);
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "idMetaList size for id:" << id << "-->" << idMetaList.size();
         }
 
@@ -2086,7 +2159,7 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth, QMap
 
     // 1. Current id, current results, current depth
     currentDepth++;
-    if (_debug.testFlag(Server::ShowClientOps)) {
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
         qDebug() << fnName << "Starting identifier:" << startId;
         qDebug() << fnName << "Current depth:" << currentDepth;
     }
@@ -2097,7 +2170,7 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth, QMap
 
     // 4. Check max depth reached
     if (currentDepth >= maxDepth) {
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "max depth reached:" << maxDepth;
         }
         return;
@@ -2118,7 +2191,7 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth, QMap
         QList<Meta> curLinkMeta = _mapGraph->metaForLink(link);
         //If any of this metadata matches matchLinks add link to idMatchList
         if (filteredMetadata(curLinkMeta, matchLinks, searchNamespaces) > 0) {
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "Adding link:" << link;
             }
             linksWithCurId.insert(link);
@@ -2129,7 +2202,7 @@ void Server::buildSearchGraph(Id startId, QString matchLinks, int maxDepth, QMap
     linksWithCurId.subtract(*linkList);
 
     if (linksWithCurId.isEmpty()) {
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "linksWithCurId is empty!!!";
         }
         return;
@@ -2194,7 +2267,7 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
         allSubsIt.next();
         QString pubId = allSubsIt.key();
         QList<SearchGraph> subList = allSubsIt.value();
-        if (_debug.testFlag(Server::ShowClientOps)) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
             qDebug() << fnName << "publisher:" << pubId << "has num subscriptions:" << subList.size();
         }
 
@@ -2202,7 +2275,7 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
         QMutableListIterator<SearchGraph> subIt(subList);
         while (subIt.hasNext()) {
             SearchGraph sub = subIt.next();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "--checking subscription named:" << sub._name;
             }
 
@@ -2219,7 +2292,7 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                           10Mar2010: Believe this is wrong
                     if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
                         subIsDirty = true;
-                        if (_debug.testFlag(Server::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty with existing id:" << link.first;
                         }
                     }
@@ -2233,7 +2306,7 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                           10Mar2010: Believe this is wrong
                     if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
                         subIsDirty = true;
-                        if (_debug.testFlag(Server::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty deleting meta on existing link:" << link;
                         }
                     }
@@ -2247,7 +2320,7 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                           10Mar2010: Believe this is wrong
                     if (filteredMetadata(metaChanges, sub._resultFilter) > 0) {
                         subIsDirty = true;
-                        if (_debug.testFlag(Server::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty updating meta on existing link:" << link;
                         }
                     }
@@ -2280,7 +2353,7 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                         */
 
                         sub._idList = newIdList;
-                        if (_debug.testFlag(Server::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty with newIdList.size:" << newIdList.size();
                         }
                     }
@@ -2306,7 +2379,7 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                         */
 
                         sub._linkList = newLinkList;
-                        if (_debug.testFlag(Server::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                             qDebug() << fnName << "----subscription is dirty with newLinkList.size:" << newLinkList.size();
                         }
                     }
@@ -2316,11 +2389,10 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
             if (subIsDirty && !sub._hasErrorResult) {
                 // Construct results for the subscription
                 QtSoapStruct *errorResult = 0;
-                if (_mapVersionSupport.testFlag(Server::SupportIfmapV11)) {
+                if (_omapdConfig->valueFor("ifmap_version_support").value<Server::MapVersionSupportOptions>().testFlag(Server::SupportIfmapV11)) {
                     // Trigger to build and send pollResults
                     sub._sentFirstResult = false;
                 }
-
                 // Check if we have exceeded our max size for the subscription
                 if (sub._curSize > sub._maxSize) {
                     qDebug() << fnName << "Search results exceeded max-size with curSize:" << sub._curSize;
@@ -2359,7 +2431,7 @@ void Server::sendResultsOnActivePolls()
         // Only check subscriptions for publisher if client has an active poll
         if (_activePolls.contains(pubId)) {
             QList<SearchGraph> subList = allSubsIt.value();
-            if (_debug.testFlag(Server::ShowClientOps)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                 qDebug() << fnName << "publisher:" << pubId << "has num subscriptions:" << subList.size();
             }
 
@@ -2368,7 +2440,7 @@ void Server::sendResultsOnActivePolls()
             QMutableListIterator<SearchGraph> subIt(subList);
             while (subIt.hasNext()) {
                 SearchGraph sub = subIt.next();
-                if (_debug.testFlag(Server::ShowClientOps)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                     qDebug() << fnName << "--Checking subscription named:" << sub._name;
                 }
 
@@ -2397,7 +2469,7 @@ void Server::sendResultsOnActivePolls()
                 }
 
                 if (sub._responseElements.count() > 0) {
-                    if (_debug.testFlag(Server::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                         qDebug() << fnName << "--Gathering poll results for publisher with active poll:" << pubId;
                     }
 
@@ -2410,7 +2482,7 @@ void Server::sendResultsOnActivePolls()
 
                     subIt.setValue(sub);
                 } else {
-                    if (_debug.testFlag(Server::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps)) {
                         qDebug() << fnName << "--No results for subscription at this time";
                         qDebug() << fnName << "----sub._response.count():" << sub._responseElements.count();
                         qDebug() << fnName << "----_activePolls.contains(pubId):" << _activePolls.contains(pubId);
@@ -2419,7 +2491,7 @@ void Server::sendResultsOnActivePolls()
             }
 
             if (pollResult->count() > 0) {
-                if (_debug.testFlag(Server::ShowClientOps))
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<Server::DebugOptions>().testFlag(Server::ShowClientOps))
                     qDebug() << fnName << "Sending pollResults";
                 sendResponse(_activePolls.value(pubId), soapResponseMsg(pollResult));
                 // Update subscription list for this publisher

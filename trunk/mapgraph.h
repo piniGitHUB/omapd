@@ -28,6 +28,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "identifier.h"
 #include "metadata.h"
+#include "omapdconfig.h"
 
 #define IFMAP_MAX_SIZE 100000;
 #define IFMAP_MAX_DEPTH_MAX 10000;
@@ -95,6 +96,8 @@ private:
 
     // Private registry of metadata namespaces (prefix --> namespaceURI)
     QMap<QString, QString> _metaNamespaces;
+
+    OmapdConfig *_omapdConfig;
 };
 
 #endif // MAPGRAPH_H

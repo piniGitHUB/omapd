@@ -119,6 +119,7 @@ QStringList SearchGraph::filterPrefixes(QString filter)
 
 MapGraph::MapGraph()
 {
+    _omapdConfig = OmapdConfig::getInstance();
 }
 
 void MapGraph::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, QString publisherId)
