@@ -19,23 +19,40 @@ You should have received a copy of the GNU General Public License
 along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <qtsoap.h>
 #include "mapgraph.h"
 
-SearchGraph::SearchGraph()
+SearchResult::SearchResult(SearchResult::ResultType type, SearchResult::ResultScope scope)
+    : _resultType(type), _resultScope(scope)
 {
-     _sentFirstResult = false;
-     _curSize = 0;
-     _hasErrorResult = false;
 }
 
-void SearchGraph::clearResponse()
+SearchResult::~SearchResult()
 {
-    while (! _responseElements.isEmpty())
-        delete _responseElements.takeFirst();
 }
 
-bool SearchGraph::operator==(const SearchGraph &other) const
+Subscription::Subscription(MapRequest::RequestVersion requestVersion)
+    : _requestVersion(requestVersion)
+{
+    _sentFirstResult = false;
+    _curSize = 0;
+    _subscriptionError = MapRequest::ErrorNone;
+}
+
+Subscription::~Subscription()
+{
+    clearSearchResults();
+}
+
+void Subscription::clearSearchResults()
+{
+    while (! _searchResults.isEmpty()) {
+        delete _searchResults.takeFirst();
+    }
+
+    _curSize = 0;
+}
+
+bool Subscription::operator==(const Subscription &other) const
 {
     // Two SearchGraphs are equal iff their names are equal
     if (this->_name == other._name)
@@ -44,7 +61,7 @@ bool SearchGraph::operator==(const SearchGraph &other) const
         return false;
 }
 
-QString SearchGraph::translateFilter(QString ifmapFilter)
+QString Subscription::translateFilter(QString ifmapFilter)
 {
     const char *fnName = "SearchGraph::translateFilter:";
 
@@ -74,7 +91,7 @@ QString SearchGraph::translateFilter(QString ifmapFilter)
     return qtFilter;
 }
 
-QString SearchGraph::intersectFilter(QString matchLinksFilter, QString resultFilter)
+QString Subscription::intersectFilter(QString matchLinksFilter, QString resultFilter)
 {
     /* This method creates an intersect filter for XPath
        as the logical AND combination of the match-links
@@ -92,7 +109,7 @@ QString SearchGraph::intersectFilter(QString matchLinksFilter, QString resultFil
     return qtFilter;
 }
 
-QStringList SearchGraph::filterPrefixes(QString filter)
+QStringList Subscription::filterPrefixes(QString filter)
 {
     // TODO: Improve RegExp to not include colons inside quotes
     // For example: vend:ike-policy[@gateway=1.2.3.4 and meta:phase1/@identity=name:joe]
@@ -126,10 +143,9 @@ void MapGraph::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, QStrin
 {
     const char *fnName = "MapGraph::addMeta:";
 
-    //qDebug() << fnName << "number of metadata objects:" << publisherMeta.size();
+    qDebug() << fnName << "number of metadata objects:" << publisherMeta.size();
 
-    QListIterator<Meta> newMetaIt(publisherMeta);
-    while (newMetaIt.hasNext()) {
+    while (! publisherMeta.isEmpty()) {
         // All Metadata currently on identifier/link
         QList<Meta> existingMetaList;
         if (isLink) {
@@ -138,8 +154,7 @@ void MapGraph::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, QStrin
              existingMetaList = _idMeta.take(link.first);
         }
 
-        Meta newMeta = newMetaIt.next();
-
+        Meta newMeta = publisherMeta.takeFirst();
         // This matches metadata with same element name and element namespace
         int existingMetaIndex = existingMetaList.indexOf(newMeta);
         if (existingMetaIndex != -1) {
@@ -376,7 +391,7 @@ void MapGraph::dumpMap()
         QListIterator<Meta> it(metaList);
         while (it.hasNext()) {
             Meta meta = it.next();
-            idStream << meta.metaNode();
+            idStream << meta.metaXML();
             QString metaXML = idStream.readAll();
             qDebug() << meta.lifetimeString() << "--->" <<  metaXML << endl;
         }
@@ -392,7 +407,7 @@ void MapGraph::dumpMap()
         QListIterator<Meta> it(metaList);
         while (it.hasNext()) {
             Meta meta = it.next();
-            idStream << meta.metaNode();
+            idStream << meta.metaXML();
             QString metaXML = idStream.readAll();
             qDebug() << meta.lifetimeString() << "--->" <<  metaXML << endl;
         }

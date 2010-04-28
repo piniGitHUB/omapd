@@ -21,7 +21,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QtNetwork>
 #include <QtCore>
-#include <QtXml>
 #include <QXmlQuery>
 
 #include "cmlserver.h"

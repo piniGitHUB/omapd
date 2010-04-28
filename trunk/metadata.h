@@ -23,23 +23,23 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #define METADATA_H
 
 #include <QtCore>
-#include <QtXml>
+#include "omapdconfig.h"
 
 class Meta
 {
 public:
     enum Cardinality {
-                SingleValue = 0,
+                SingleValue = 1,
                 MultiValue
             };
 
     enum Lifetime {
-                LifetimeSession = 0,
+                LifetimeSession = 1,
                 LifetimeForever
     };
 
     enum PublishOperationType {
-                PublishUpdate = 0,
+                PublishUpdate = 1,
                 PublishDelete
     };
 
@@ -50,13 +50,16 @@ public:
     Meta::Lifetime lifetime() const { return _lifetime; }
     QString lifetimeString();
 
-    QDomNode metaNode() const { return _metaNode; }
-    QString elementName() const { return _metaNode.nodeName(); }
     QString publisherId() const { return _publisherId; }
+    QString elementName() const { return _elementName; }
+    QString elementNS() const { return _elementNS; }
+    QString metaXML() const { return _metaXML; }
 
-    void setMetaNode(QDomNode metaNode) { _metaNode = metaNode; }
     void setLifetime(Meta::Lifetime lifetime) { _lifetime = lifetime; }
     void setPublisherId(QString pubId) { _publisherId = pubId; }
+    void setElementName(QString elementName) { _elementName = elementName; }
+    void setElementNS(QString elementNS) { _elementNS = elementNS; }
+    void setMetaXML(QString metaXML) {_metaXML = metaXML; }
 
     // Two Meta objects are equal iff their elementName and namespace members are the same
     bool operator==(const Meta &other) const;
@@ -65,7 +68,9 @@ private:
     Meta::Cardinality _cardinality;
     Meta::Lifetime _lifetime;
     QString _publisherId;
-    QDomNode _metaNode;
+    QString _elementName;
+    QString _elementNS;
+    QString _metaXML;
 };
 
 #endif // METADATA_H

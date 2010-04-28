@@ -22,10 +22,46 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef MAPSESSIONS_H
 #define MAPSESSIONS_H
 
-class MapSessions
+#include <QObject>
+#include <QtCore>
+#include <QtNetwork>
+
+#include "omapdconfig.h"
+#include "mapgraph.h"
+#include "server.h"
+
+class MapSessions : public QObject
 {
+    Q_OBJECT
 public:
-    MapSessions();
+    static MapSessions* getInstance();
+
+    void removeClientFromActivePolls(QTcpSocket *clientSocket);
+    void registerClient(QTcpSocket *socket, QString clientKey);
+    QString assignPublisherId(QTcpSocket *socket);
+    void validateSessionId(MapRequest &clientRequest, QTcpSocket *socket);
+
+    QHash<QString, QTcpSocket*> _activePolls;  // pubId --> QTcpSocket
+    QHash<QString, QList<Subscription> > _subscriptionLists;  // pubId --> all subscriptions for pubId
+    QHash<QString, QString> _activeARCSessions;  // pubId --> sessId
+    QHash<QString, QString> _activeSSRCSessions; // pubId --> sessId
+
+public slots:
+    void foo() {;}
+
+private:
+    MapSessions(QObject *parent = 0);
+    ~MapSessions();
+
+    static MapSessions* _instance;
+
+    OmapdConfig *_omapdConfig;
+
+
+    // Registry for MAP Clients
+    QHash<QString, QTcpSocket*> _mapClientConnections;  // clientKey --> QTcpSocket
+    QHash<QString, QString> _mapClientRegistry;  // clientKey --> pubId
+
 };
 
 #endif // MAPSESSIONS_H

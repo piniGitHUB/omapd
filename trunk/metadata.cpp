@@ -44,8 +44,8 @@ QString Meta::lifetimeString()
 // Two Meta objects are equal iff their elementName and namespace members are the same
 bool Meta::operator ==(const Meta &other) const
 {
-    if (this->metaNode().nodeName() == other.metaNode().nodeName() &&
-        this->metaNode().namespaceURI() == other.metaNode().namespaceURI())
+    if (this->_elementName == other._elementName &&
+        this->_elementNS == other._elementNS)
         return true;
     else
         return false;

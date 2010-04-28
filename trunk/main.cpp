@@ -99,19 +99,15 @@ int main(int argc, char *argv[])
 
     //TODO: Threadpool the server objects and synchronize access to the MAP Graph
 
-    MapGraph *mapGraph11 = new MapGraph();
-    mapGraph11->addMetaNamespace(IFMAP_META_NS_1, "meta");
-    mapGraph11->addMetaNamespace("http://www.trustedcomputinggroup.org/2006/IFMAP-HIRSCH/1", "hirsch");
-    mapGraph11->addMetaNamespace("http://www.trustedcomputinggroup.org/2006/IFMAP-TRAPEZE/1", "trpz");
-    mapGraph11->addMetaNamespace("http://www.trustedcomputinggroup.org/2006/IFMAP-SCADANET-METADATA/1", "scada");
+    MapGraph *mapGraph = new MapGraph();
 
     // Start a server with this MAP graph
-    Server *server11 = new Server(mapGraph11);
-    qDebug() << "Started server:" << server11;
+    Server *server = new Server(mapGraph);
+    qDebug() << "Started server:" << server;
 
     // Create a CML Server instance
     CmlServer *cmlServer = new CmlServer();
-    cmlServer->setServer(server11);
+    cmlServer->setServer(server);
     qDebug() << "Started CML Server:" << cmlServer;
 
     return a.exec();

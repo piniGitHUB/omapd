@@ -33,6 +33,76 @@ OmapdConfig* OmapdConfig::getInstance()
     return _instance;
 }
 
+OmapdConfig::IfmapDebugOptions OmapdConfig::debugOptions(unsigned int dbgValue)
+{
+    OmapdConfig::IfmapDebugOptions debug = OmapdConfig::DebugNone;
+    if (dbgValue & OmapdConfig::ShowClientOps) debug |= OmapdConfig::ShowClientOps;
+    if (dbgValue & OmapdConfig::ShowXML) debug |= OmapdConfig::ShowXML;
+    if (dbgValue & OmapdConfig::ShowHTTPHeaders) debug |= OmapdConfig::ShowHTTPHeaders;
+    if (dbgValue & OmapdConfig::ShowHTTPState) debug |= OmapdConfig::ShowHTTPState;
+    if (dbgValue & OmapdConfig::ShowXMLParsing) debug |= OmapdConfig::ShowXMLParsing;
+    if (dbgValue & OmapdConfig::ShowXMLFilterResults) debug |= OmapdConfig::ShowXMLFilterResults;
+    if (dbgValue & OmapdConfig::ShowXMLFilterStatements) debug |= OmapdConfig::ShowXMLFilterStatements;
+    if (dbgValue & OmapdConfig::ShowMAPGraphAfterChange) debug |= OmapdConfig::ShowMAPGraphAfterChange;
+    if (dbgValue & OmapdConfig::ShowRawSocketData) debug |= OmapdConfig::ShowRawSocketData;
+
+    return debug;
+}
+
+QString OmapdConfig::debugString(OmapdConfig::IfmapDebugOptions debug)
+{
+    QString str("");
+    if (debug.testFlag(OmapdConfig::DebugNone)) str += "OmapdConfig::DebugNone | ";
+    if (debug.testFlag(OmapdConfig::ShowClientOps)) str += "OmapdConfig::ShowClientOps | ";
+    if (debug.testFlag(OmapdConfig::ShowXML)) str += "OmapdConfig::ShowXML | ";
+    if (debug.testFlag(OmapdConfig::ShowHTTPHeaders)) str += "OmapdConfig::ShowHTTPHeaders | ";
+    if (debug.testFlag(OmapdConfig::ShowHTTPState)) str += "OmapdConfig::ShowHTTPState | ";
+    if (debug.testFlag(OmapdConfig::ShowXMLParsing)) str += "OmapdConfig::ShowXMLParsing | ";
+    if (debug.testFlag(OmapdConfig::ShowXMLFilterResults)) str += "OmapdConfig::ShowXMLFilterResults | ";
+    if (debug.testFlag(OmapdConfig::ShowXMLFilterStatements)) str += "OmapdConfig::ShowXMLFilterStatements | ";
+    if (debug.testFlag(OmapdConfig::ShowMAPGraphAfterChange)) str += "OmapdConfig::ShowMAPGraphAfterChange | ";
+    if (debug.testFlag(OmapdConfig::ShowRawSocketData)) str += "OmapdConfig::ShowRawSocketData | ";
+
+    if (! str.isEmpty()) {
+        str = str.left(str.size()-3);
+    }
+    return str;
+}
+
+QDebug operator<<(QDebug dbg, OmapdConfig::IfmapDebugOptions & dbgOptions)
+{
+    dbg.nospace() << OmapdConfig::debugString(dbgOptions);
+    return dbg.space();
+}
+
+OmapdConfig::MapVersionSupportOptions OmapdConfig::mapVersionSupportOptions(unsigned int value)
+{
+    OmapdConfig::MapVersionSupportOptions support = OmapdConfig::SupportNone;
+    if (value & OmapdConfig::SupportIfmapV10) support |= OmapdConfig::SupportIfmapV10;
+    if (value & OmapdConfig::SupportIfmapV11) support |= OmapdConfig::SupportIfmapV11;
+
+    return support;
+}
+
+QString OmapdConfig::mapVersionSupportString(OmapdConfig::MapVersionSupportOptions debug)
+{
+    QString str("");
+    if (debug.testFlag(OmapdConfig::SupportNone)) str += "OmapdConfig::SupportNone | ";
+    if (debug.testFlag(OmapdConfig::SupportIfmapV10)) str += "OmapdConfig::SupportIfmapV10 | ";
+    if (debug.testFlag(OmapdConfig::SupportIfmapV11)) str += "OmapdConfig::SupportIfmapV11 | ";
+
+    if (! str.isEmpty()) {
+        str = str.left(str.size()-3);
+    }
+    return str;
+}
+
+QDebug operator<<(QDebug dbg, OmapdConfig::MapVersionSupportOptions & dbgOptions)
+{
+    dbg.nospace() << OmapdConfig::mapVersionSupportString(dbgOptions);
+    return dbg.space();
+}
+
 OmapdConfig::OmapdConfig(QObject *parent)
     : QObject(parent)
 {
@@ -45,9 +115,9 @@ OmapdConfig::OmapdConfig(QObject *parent)
     _omapdConfig.insert("cml_port", 8080);
     _omapdConfig.insert("cml_ssl_configuration", false);
     _omapdConfig.insert("cml_require_client_certificates", false);
-    var.setValue(Server::mapVersionSupportOptions(3));
+    var.setValue(OmapdConfig::mapVersionSupportOptions(3));
     _omapdConfig.insert("ifmap_version_support", var);
-    var.setValue(Server::debugOptions(0));
+    var.setValue(OmapdConfig::debugOptions(0));
     _omapdConfig.insert("ifmap_debug_level", var);
     _omapdConfig.insert("ifmap_address", "0.0.0.0");
     _omapdConfig.insert("ifmap_port", 8081);
@@ -55,6 +125,12 @@ OmapdConfig::OmapdConfig(QObject *parent)
     _omapdConfig.insert("ifmap_create_client_configurations", true);
     _omapdConfig.insert("ifmap_allow_invalid_session_id", false);
     _omapdConfig.insert("ifmap_require_client_certificates", false);
+}
+
+OmapdConfig::~OmapdConfig()
+{
+    const char *fnName = "OmapdConfig::~OmapdConfig():";
+    qDebug() << fnName;
 }
 
 void OmapdConfig::addConfigItem(QString key, QVariant value)
@@ -73,9 +149,9 @@ void OmapdConfig::showConfigValues()
         if (var.type() == QVariant::UserType) {
             QString value;
             if (configIt.key() == "ifmap_debug_level")
-                value = Server::debugString(var.value<Server::DebugOptions>());            
+                value = OmapdConfig::debugString(var.value<OmapdConfig::IfmapDebugOptions>());
             else if (configIt.key() == "ifmap_version_support")
-                value = Server::mapVersionSupportString(var.value<Server::MapVersionSupportOptions>());
+                value = OmapdConfig::mapVersionSupportString(var.value<OmapdConfig::MapVersionSupportOptions>());
             else if (configIt.key() == "cml_debug_level")
                 value = CmlServer::debugString(var.value<CmlServer::DebugOptions>());
 
@@ -176,9 +252,9 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             bool ok;
                             unsigned int supportVal = value.toUInt(&ok, 16);
                             QVariant supportVar;
-                            supportVar.setValue(Server::mapVersionSupportOptions(3));
+                            supportVar.setValue(OmapdConfig::mapVersionSupportOptions(3));
                             if (ok) {
-                                supportVar.setValue(Server::mapVersionSupportOptions(supportVal));
+                                supportVar.setValue(OmapdConfig::mapVersionSupportOptions(supportVal));
                             }
                             addConfigItem("ifmap_" + xmlReader.name().toString(), supportVar);
 
@@ -188,7 +264,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             unsigned int dbgVal = value.toUInt(&ok, 16);
                             QVariant dbgVar(0);
                             if (ok) {
-                                dbgVar.setValue(Server::debugOptions(dbgVal));
+                                dbgVar.setValue(OmapdConfig::debugOptions(dbgVal));
                             }
                             addConfigItem("ifmap_" + xmlReader.name().toString(), dbgVar);
 
