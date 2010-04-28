@@ -135,6 +135,14 @@ Link Identifier::makeLinkFromIds(Id id1, Id id2)
     return link;
 }
 
+Id Identifier::otherIdForLink(Link link, Id targetId)
+{
+    if (link.first == targetId)
+        return link.second;
+    else
+        return link.first;
+}
+
 Identifier::Identifier(Identifier::IdType type)
         : _type(type)
 {

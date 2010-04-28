@@ -28,6 +28,31 @@ class OmapdConfig : public QObject
 {
     Q_OBJECT
 public:
+    enum IfmapDebug {
+                DebugNone = 0x000,
+                ShowClientOps = 0x0001,
+                ShowXML = 0x0002,
+                ShowHTTPHeaders = 0x0004,
+                ShowHTTPState = 0x0008,
+                ShowXMLParsing = 0x0010,
+                ShowXMLFilterResults = 0x0020,
+                ShowXMLFilterStatements = 0x0040,
+                ShowMAPGraphAfterChange = 0x0080,
+                ShowRawSocketData = 0x0100
+               };
+    Q_DECLARE_FLAGS(IfmapDebugOptions, IfmapDebug);
+    static IfmapDebugOptions debugOptions(unsigned int dbgValue);
+    static QString debugString(OmapdConfig::IfmapDebugOptions debug);
+
+    enum MapVersionSupport {
+               SupportNone = 0x00,
+               SupportIfmapV10 = 0x01,
+               SupportIfmapV11 = 0x02,
+                           };
+    Q_DECLARE_FLAGS(MapVersionSupportOptions, MapVersionSupport);
+    static MapVersionSupportOptions mapVersionSupportOptions(unsigned int value);
+    static QString mapVersionSupportString(OmapdConfig::MapVersionSupportOptions debug);
+
     static OmapdConfig* getInstance();
 
     bool isSet(QString key) { return _omapdConfig.contains(key); }
@@ -39,11 +64,21 @@ public:
     void addConfigItem(QString key, QVariant value);
 private:
     OmapdConfig(QObject * parent = 0);
+    ~OmapdConfig();
+
     bool readConfigXML(QIODevice *device);
+
 private:
     static OmapdConfig *_instance;
 
     QMap<QString,QVariant> _omapdConfig;
 };
+Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::IfmapDebugOptions)
+Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::MapVersionSupportOptions)
+Q_DECLARE_METATYPE(OmapdConfig::IfmapDebugOptions)
+Q_DECLARE_METATYPE(OmapdConfig::MapVersionSupportOptions)
+
+QDebug operator<<(QDebug dbg, OmapdConfig::IfmapDebugOptions & dbgOptions);
+QDebug operator<<(QDebug dbg, OmapdConfig::MapVersionSupportOptions & dbgOptions);
 
 #endif // OMAPDCONFIG_H

@@ -23,12 +23,11 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #define MAPGRAPH_H
 
 #include <QtCore>
-#include <QtXml>
-#include <qtsoap.h>
 
 #include "identifier.h"
 #include "metadata.h"
 #include "omapdconfig.h"
+#include "maprequest.h"
 
 #define IFMAP_MAX_SIZE 100000;
 #define IFMAP_MAX_DEPTH_MAX 10000;
@@ -36,30 +35,52 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 static QString IFMAP_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP/1";
 static QString IFMAP_META_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP-METADATA/1";
 
-class SearchGraph
+class SearchType;
+
+class SearchResult {
+public:
+    enum ResultType {
+        SearchResultType = 1,
+    };
+
+    enum ResultScope {
+        IdentifierResult = 1,
+        LinkResult
+    };
+
+    SearchResult(SearchResult::ResultType type, SearchResult::ResultScope scope);
+    ~SearchResult();
+
+    SearchResult::ResultType _resultType;
+    SearchResult::ResultScope _resultScope;
+    Link _link;
+    Id _id;
+    QString _metadata;
+    MapRequest::RequestError _error;
+};
+
+class Subscription
 {
 public:
-    SearchGraph();
-    QString _name;
-    Id _startId;
-    QString _matchLinks;
-    QString _resultFilter;
-    int _maxDepth;
-    int _maxSize;
+    Subscription(MapRequest::RequestVersion requestVersion);
+    ~Subscription();
 
-    QMap<QString, QString> _searchNamespaces;
+    QString _name;
+    SearchType _search;
+
     QSet<Id> _idList;
     QSet<Link> _linkList;
 
-    QList<QtSoapStruct *> _responseElements;
+    QList<SearchResult *> _searchResults;
     int _curSize;
-    bool _hasErrorResult;
     bool _sentFirstResult;
+    MapRequest::RequestError _subscriptionError;
+    MapRequest::RequestVersion _requestVersion;
 
     // Two SearchGraphs are equal iff their names are equal
-    bool operator==(const SearchGraph &other) const;
+    bool operator==(const Subscription &other) const;
 
-    void clearResponse();
+    void clearSearchResults();
 
     static QString translateFilter(QString ifmapFilter);
     static QString intersectFilter(QString matchLinksFilter, QString resultFilter);
@@ -73,9 +94,6 @@ public:
 
     void dumpMap();
     void clearMap();
-
-    void addMetaNamespace(QString namespaceURI, QString prefix) { _metaNamespaces.insert(prefix, namespaceURI); }
-    QMap<QString,QString> metaNamespaces() const { return _metaNamespaces; }
 
     void addMeta(Link key, bool isLink, QList<Meta> publisherMeta, QString publisherId);
     bool deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Meta> > *idMetaDeleted, QHash<Link, QList<Meta> > *linkMetaDeleted, bool sessionMetaOnly = false);
@@ -93,9 +111,6 @@ private:
     QMultiHash<Id, Id> _linksTo;  // id1 --> id2 and id2 --> id1
     QMultiHash<QString, Id> _publisherIds;  // publisherId --> Id (useful for purgePublisher)
     QMultiHash<QString, Link> _publisherLinks;  // publisherId --> Link (useful for purgePublisher)
-
-    // Private registry of metadata namespaces (prefix --> namespaceURI)
-    QMap<QString, QString> _metaNamespaces;
 
     OmapdConfig *_omapdConfig;
 };

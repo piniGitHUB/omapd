@@ -24,6 +24,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QtCore>
 
+#include "omapdconfig.h"
 
 class Identifier;
 typedef Identifier Id;
@@ -58,6 +59,7 @@ public:
     static QString idStringForType(Identifier::IdType idType);
     static QString idBaseStringForType(Identifier::IdType idType);
     static Link makeLinkFromIds(Id id1, Id id2);
+    static Id otherIdForLink(Link link, Id targetId);
 
     // Two Identifier objects are equal iff their type, namespace, value, and other members are the same
     bool operator==(const Identifier &other) const;

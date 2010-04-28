@@ -1,5 +1,4 @@
 QT += network \
-    xml \
     xmlpatterns
 QT -= gui
 TARGET = omapd
@@ -14,12 +13,17 @@ SOURCES += main.cpp \
     mapgraph.cpp \
     mapsessions.cpp \
     cmlserver.cpp \
-    omapdconfig.cpp
+    omapdconfig.cpp \
+    clientparser.cpp \
+    maprequest.cpp \
+    mapresponse.cpp
 HEADERS += server.h \
     identifier.h \
     metadata.h \
     mapgraph.h \
     mapsessions.h \
     cmlserver.h \
-    omapdconfig.h
-include(./qtsoap-2.6-opensource/src/qtsoap.pri)
+    omapdconfig.h \
+    clientparser.h \
+    maprequest.h \
+    mapresponse.h
