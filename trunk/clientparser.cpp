@@ -242,6 +242,8 @@ void ClientParser::readAttachSession()
 
 void ClientParser::readPurgePublisher()
 {
+    const char *fnName = "ClientParser::readPurgePublisher:";
+
     PurgePublisherRequest ppReq;
     ppReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::PurgePublisher;
@@ -258,6 +260,7 @@ void ClientParser::readPurgePublisher()
         ppReq.setPublisherId(attrs.value(pubIdAttrName).toString());
         ppReq.setClientSetPublisherId(true);
     } else {
+        qDebug() << fnName << "Error reading publisher-id in purgePublisher request";
         _xmlReader.raiseError("Error reading publisher-id in purgePublisher request");
         _requestError = MapRequest::IfmapClientSoapFault;
         ppReq.setRequestError(MapRequest::IfmapClientSoapFault);
@@ -829,6 +832,7 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
             Meta aMeta(cardinalityValue, lifetime);
             aMeta.setElementName(metaName);
             aMeta.setElementNS(metaNS);
+            aMeta.setPublisherId(pubReq.publisherId());
             aMeta.setMetaXML(metaString);
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << fnName << "Seting xml for:" << metaName << "metaXML:" << aMeta.metaXML();
