@@ -940,13 +940,15 @@ QString Server::filteredMetadata(QList<Meta>metaList, QString filter, QMap<QStri
         qrc = true;
     }
 
+    // Make sure (resultString.size() == 0) is true for checking if we have results
+    resultString = resultString.trimmed();
+
     if (! qrc) {
         qDebug() << fnName << "Error running query!";
         error = MapRequest::IfmapSystemError;
     } else {
         // If there are no query results, we won't add <metadata> enclosing element
-        // and (resultString.size() == 0) is true for checking if we have results
-        if (! resultString.trimmed().isEmpty()) {
+        if (! resultString.isEmpty()) {
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
                 qDebug() << fnName << "Query Result:" << endl << resultString;
 
@@ -986,7 +988,7 @@ void Server::addIdentifierResult(Subscription &sub, Identifier id, QList<Meta> m
 
 void Server::addLinkResult(Subscription &sub, Link link, QList<Meta> metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
 {
-    const char *fnName = "Server::addLinkResultaddLinkResult:";
+    const char *fnName = "Server::addLinkResult:";
 
     SearchResult *searchResult = new SearchResult(resultType, SearchResult::LinkResult);
     searchResult->_link = link;
