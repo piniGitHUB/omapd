@@ -770,25 +770,25 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
                 pubReq.setRequestError(MapRequest::IfmapInvalidMetadata);
             }
 
+            // Local QXmlStreamWriter to add operational attributes
+            QString metaString;
+            QXmlStreamWriter xmlWriter(&metaString);
+            xmlWriter.writeCurrentToken(_xmlReader);
+
             // Check for attributes to apply
             QXmlStreamAttributes elementAttrs = _xmlReader.attributes();
 
             Meta::Cardinality cardinalityValue;
-            // Make sure we have the cardinality attribute
+            // Make sure we have the cardinality attribute and default it to multiValue
             if (elementAttrs.hasAttribute(cardinalityAttrName)) {
-                cardinalityValue = (elementAttrs.value(cardinalityAttrName) == "multiValue")
-                                   ? Meta::MultiValue : Meta::SingleValue;
+                cardinalityValue = (elementAttrs.value(cardinalityAttrName) == "singleValue")
+                                   ? Meta::SingleValue : Meta::MultiValue;
             } else {
-                qDebug() << fnName << "Error: metadata element has no" << cardinalityAttrName
-                         << "attribute:" << metaName;
-                pubReq.setRequestError(MapRequest::IfmapInvalidMetadata);
-                _requestError = MapRequest::IfmapInvalidMetadata;
+                qDebug() << fnName << "Notice: assigning metadata element multiValue cardinality:" << metaName;
+                cardinalityValue = Meta::MultiValue;
+                xmlWriter.writeAttribute(cardinalityAttrName, "multiValue");
             }
 
-            QString metaString;
-            QXmlStreamWriter xmlWriter(&metaString);
-
-            xmlWriter.writeCurrentToken(_xmlReader);
             // Set timestamp operational attribute
             QString ts = QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ss");
             xmlWriter.writeAttribute(timestampAttrName, ts);
