@@ -799,7 +799,7 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
             // While loop to recursively descend this metaName element, stopping when we get
             // to the closing metaName element (EndElement tokenType) or if we get an error
             while (!(_xmlReader.tokenType() == QXmlStreamReader::EndElement &&
-                     _xmlReader.name() == metaName) && 
+		     _xmlReader.name() == metaName && _xmlReader.namespaceUri() == metaNS) &&
                    !_xmlReader.hasError()) {
 
                 switch (_xmlReader.tokenType()) {
