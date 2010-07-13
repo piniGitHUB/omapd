@@ -215,8 +215,11 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             addConfigItem("cml_" + xmlReader.name().toString(), enable);
 
                             while (xmlReader.readNextStartElement()) {
-
-                                if (xmlReader.name() == "certificate_file") {
+                                if ( xmlReader.name() == "ssl_protocol") {
+                                    /// TODO: Insert string validator for protocol type
+                                    addConfigItem("cml_" + xmlReader.name().toString(), xmlReader.readElementText());
+                                }
+                                else if (xmlReader.name() == "certificate_file") {
                                     addConfigItem("cml_" + xmlReader.name().toString(), xmlReader.readElementText());
 
                                 } else if (xmlReader.name() == "ca_certificates_file") {
@@ -294,8 +297,11 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             addConfigItem("ifmap_" + xmlReader.name().toString(), enable);
 
                             while (xmlReader.readNextStartElement()) {
-
-                                if (xmlReader.name() == "certificate_file") {
+                                if ( xmlReader.name() == "ssl_protocol") {
+                                    /// TODO: Insert string validator for protocol type
+                                    addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
+                                }
+                                else if (xmlReader.name() == "certificate_file") {
                                     addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
 
                                 } else if (xmlReader.name() == "ca_certificates_file") {

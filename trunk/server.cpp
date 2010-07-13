@@ -37,6 +37,25 @@ Server::Server(MapGraph *mapGraph, QObject *parent)
     _mapSessions = MapSessions::getInstance();
 
     if (_omapdConfig->valueFor("ifmap_ssl_configuration").toBool()) {
+        QString ssl_proto = "AnyProtocol";
+        if (_omapdConfig->isSet("ifmap_ssl_protocol")) {
+            ssl_proto = _omapdConfig->valueFor("ifmap_ssl_protocol").toString();
+        }
+        if ( ssl_proto == "AnyProtocol")
+            this->_desiredSSLprotocol = QSsl::AnyProtocol;
+        else if (ssl_proto == "SslV2")
+            this->_desiredSSLprotocol = QSsl::SslV2;
+        else if (ssl_proto == "SslV3")
+            this->_desiredSSLprotocol = QSsl::SslV3;
+        else if (ssl_proto == "TlsV1")
+            this->_desiredSSLprotocol = QSsl::TlsV1;
+        else
+        { // If this else is reached - an invalid protocol was in the xml file
+          qDebug() << "ifmap_ssl_protocol -- type invalid -- trying to continue "
+                   << "using AnyProtocol";
+          this->_desiredSSLprotocol = QSsl::AnyProtocol;
+        }
+
         // Set server cert, private key, CRLs, etc.
         QString keyFileName = "server.key";
         QByteArray keyPassword = "";
@@ -119,7 +138,7 @@ void Server::incomingConnection(int socketDescriptor)
             sslSocket->setCiphers(QSslSocket::supportedCiphers());
             // TODO: Figure out how to just support QSsl::SslV3 & QSsl::TlsV1
             // QSsl::AnyProtocol accepts QSsl::SslV2 which is insecure
-            sslSocket->setProtocol(QSsl::AnyProtocol);
+            sslSocket->setProtocol(this->_desiredSSLprotocol);
 
             // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
 

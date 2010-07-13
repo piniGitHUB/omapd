@@ -84,7 +84,7 @@ private:
     QSslCertificate _serverCert;
     QSslKey _serverKey;
     QList<QSslCertificate> _clientCAs;
-
+    QSsl::SslProtocol _desiredSSLprotocol;
     OmapdConfig *_omapdConfig;
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(CmlServer::DebugOptions)
