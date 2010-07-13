@@ -66,6 +66,25 @@ CmlServer::CmlServer(QObject *parent)
 
     if (_omapdConfig->valueFor("cml_ssl_configuration").toBool()) {
         // Set server cert, private key, CRLs, etc.
+        QString ssl_proto = "AnyProtocol";
+        if (_omapdConfig->isSet("cml_ssl_protocol")) {
+            ssl_proto = _omapdConfig->valueFor("cml_ssl_protocol").toString();
+        }
+        if ( ssl_proto == "AnyProtocol")
+            _desiredSSLprotocol = QSsl::AnyProtocol;
+        else if (ssl_proto == "SslV2")
+            _desiredSSLprotocol = QSsl::SslV2;
+        else if (ssl_proto == "SslV3")
+            _desiredSSLprotocol = QSsl::SslV3;
+        else if (ssl_proto == "TlsV1")
+            _desiredSSLprotocol = QSsl::TlsV1;
+        else
+        { // If this else is reached - an invalid protocol was in the xml file
+          qDebug() << "cml_ssl_protocol -- type invalid -- trying to continue "
+                   << "using AnyProtocol";
+          this->_desiredSSLprotocol = QSsl::AnyProtocol;
+        }
+
         QString keyFileName = "server.key";
         QByteArray keyPassword = "";
         if (_omapdConfig->isSet("cml_private_key_file")) {
@@ -143,9 +162,9 @@ void CmlServer::incomingConnection(int socketDescriptor)
         if (sslSocket->setSocketDescriptor(socketDescriptor)) {
 
             sslSocket->setCiphers(QSslSocket::supportedCiphers());
-            // TODO: Figure out how to just support QSsl::SslV3 & QSsl::TlsV1
-            // QSsl::AnyProtocol accepts QSsl::SslV2 which is insecure
-            sslSocket->setProtocol(QSsl::AnyProtocol);
+            // SSL protocol type is now user set'able from the comfig file
+            // the default value if not present is  QSsl::AnyProtocol
+            sslSocket->setProtocol(_desiredSSLprotocol);
 
             // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
 

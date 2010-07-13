@@ -103,6 +103,7 @@ private:
     QList<QSslCertificate> _caCerts;
     QSslCertificate _serverCert;
     QSslKey _serverKey;
+    QSsl::SslProtocol _desiredSSLprotocol;
     QList<QSslCertificate> _clientCAs;
 };
 #endif // SERVER_H
