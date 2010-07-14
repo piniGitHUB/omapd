@@ -112,7 +112,12 @@ CmlServer::CmlServer(QObject *parent)
         if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             qDebug() << fnName << "No certificate file:" << certFile.fileName();
         } else {
+            // Try PEM format fail over to DER; since they are the only 2
+            // supported by the QSsl Certificate classes
             _serverCert = QSslCertificate(&certFile, QSsl::Pem);
+            if ( _serverCert.isNull() )
+                _serverCert = QSslCertificate(&certFile, QSsl::Der);
+
             qDebug() << fnName << "Loaded certificate with CN:" << _serverCert.subjectInfo(QSslCertificate::CommonName);
         }
 
