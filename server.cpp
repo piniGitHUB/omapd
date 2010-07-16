@@ -41,7 +41,7 @@ Server::Server(MapGraph *mapGraph, QObject *parent)
         if (_omapdConfig->isSet("ifmap_ssl_protocol")) {
             ssl_proto = _omapdConfig->valueFor("ifmap_ssl_protocol").toString();
         }
-        if ( ssl_proto == "AnyProtocol")
+        if ( ( ssl_proto == "AnyProtocol") || ( ssl_proto == "NoSslV2" ) )
             this->_desiredSSLprotocol = QSsl::AnyProtocol;
         else if (ssl_proto == "SslV2")
             this->_desiredSSLprotocol = QSsl::SslV2;
@@ -212,6 +212,19 @@ void Server::socketReady()
 {
     const char *fnName = "Server::socketReady:";
     QSslSocket *sslSocket = (QSslSocket *)sender();
+    /// Do SSLV2 Checks
+    if ( sslSocket->protocol() == QSsl::SslV2 ) {
+        /// if we've got SSLV2 kill it if NoSslV2 was requested
+        if ( _omapdConfig->isSet("ifmap_ssl_protocol") &&
+         _omapdConfig->valueFor("ifmap_ssl_protocol").toString() == "NoSslV2") {
+            /// Not explicity Requested - so shut it down
+            qDebug() << fnName << "Disconnecting client - client is using SslV2 - NoSslV2 was requested in config ";
+            sslSocket->disconnectFromHost();
+            sslSocket->deleteLater();
+            return;
+        }
+    }
+    
     qDebug() << fnName << "Successful SSL handshake with peer:" << sslSocket->peerAddress().toString();
 
     bool clientAuthorized = false;

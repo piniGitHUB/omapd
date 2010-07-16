@@ -70,7 +70,8 @@ CmlServer::CmlServer(QObject *parent)
         if (_omapdConfig->isSet("cml_ssl_protocol")) {
             ssl_proto = _omapdConfig->valueFor("cml_ssl_protocol").toString();
         }
-        if ( ssl_proto == "AnyProtocol")
+        // for NoSslV2 we kill the connection later if it is SslV2
+        if ( ( ssl_proto == "AnyProtocol") || ( ssl_proto == "NoSslV2") )
             _desiredSSLprotocol = QSsl::AnyProtocol;
         else if (ssl_proto == "SslV2")
             _desiredSSLprotocol = QSsl::SslV2;
@@ -167,7 +168,7 @@ void CmlServer::incomingConnection(int socketDescriptor)
         if (sslSocket->setSocketDescriptor(socketDescriptor)) {
 
             sslSocket->setCiphers(QSslSocket::supportedCiphers());
-            // SSL protocol type is now user set'able from the comfig file
+            // SSL protocol type is now user set'able from the config file
             // the default value if not present is  QSsl::AnyProtocol
             sslSocket->setProtocol(_desiredSSLprotocol);
 
@@ -238,6 +239,18 @@ void CmlServer::socketReady()
 {
     const char *fnName = "CmlServer::socketReady:";
     QSslSocket *sslSocket = (QSslSocket *)sender();
+    /// Do SSLV2 Checks
+    if ( sslSocket->protocol() == QSsl::SslV2 ) {
+        /// if we've got SSLV2 kill it if NoSslV2 was requested
+        if ( _omapdConfig->isSet("cml_ssl_protocol") &&
+         _omapdConfig->valueFor("cml_ssl_protocol").toString() == "NoSslV2") {
+            /// Not explicity Requested - so shut it down
+            qDebug() << fnName << "Disconnecting client - client is using SslV2 - NoSslV2 was requested in config ";
+            sslSocket->disconnectFromHost();
+            sslSocket->deleteLater();
+            return;
+        }
+    }
     qDebug() << fnName << "Successful SSL handshake with peer:" << sslSocket->peerAddress().toString();
 
     bool clientAuthorized = false;
