@@ -21,7 +21,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "mapresponse.h"
 #include "maprequest.h"
-#include "mapgraph.h"
 
 // Constructor used for building intermediate results
 MapResponse::MapResponse(MapRequest::RequestVersion reqVersion)

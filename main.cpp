@@ -24,8 +24,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "cmlserver.h"
 #include "server.h"
-#include "mapgraph.h"
 #include "omapdconfig.h"
+#include "mapgraphinterface.h"
 
 QFile logFile;
 QFile logStderr;
@@ -99,7 +99,32 @@ int main(int argc, char *argv[])
 
     //TODO: Threadpool the server objects and synchronize access to the MAP Graph
 
-    MapGraph *mapGraph = new MapGraph();
+    //MapGraph *mapGraph = new MapGraph();
+    MapGraphInterface *mapGraph = 0;
+    QDir pluginsDir(qApp->applicationDirPath());
+#if defined(Q_OS_WIN)
+     if (pluginsDir.dirName().toLower() == "debug" || pluginsDir.dirName().toLower() == "release")
+         pluginsDir.cdUp();
+ #elif defined(Q_OS_MAC)
+     if (pluginsDir.dirName() == "MacOS") {
+         pluginsDir.cdUp();
+         pluginsDir.cdUp();
+         pluginsDir.cdUp();
+     }
+ #endif
+     pluginsDir.cd("plugins");
+     QPluginLoader pluginLoader(pluginsDir.absoluteFilePath("libRAMHashTables.so"));
+     QObject *plugin = pluginLoader.instance();
+     if (plugin) {
+         mapGraph = qobject_cast<MapGraphInterface *>(plugin);
+         if (!mapGraph) {
+             qDebug() << "main: could not load MapGraph Plugin";
+             exit(-1);
+         }
+     } else {
+         qDebug() << "main: could not get plugin instance";
+         exit(-1);
+     }
 
     // Start a server with this MAP graph
     Server *server = new Server(mapGraph);

@@ -28,7 +28,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "mapsessions.h"
 #include "mapresponse.h"
 
-Server::Server(MapGraph *mapGraph, QObject *parent)
+Server::Server(MapGraphInterface *mapGraph, QObject *parent)
         : QTcpServer(parent), _mapGraph(mapGraph)
 {
     const char *fnName = "Server::Server:";
@@ -563,7 +563,7 @@ void Server::processPublish(QTcpSocket *socket, QVariant clientRequest)
 
             bool haveFilter = pubOper._clientSetDeleteFilter;
 
-            if (! existingMetaList.isEmpty() && haveFilter) {
+            if (!existingMetaList.isEmpty() && haveFilter) {
                 QString filter = Subscription::translateFilter(pubOper._deleteFilter);
 
                 QListIterator<Meta> metaListIt(existingMetaList);

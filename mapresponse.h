@@ -1,5 +1,5 @@
 /*
-mapresponse.h: Definition of MapResponse class
+mapresponse.h: Declaration of MapResponse class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 
@@ -23,7 +23,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #define MAPRESPONSE_H
 
 #include "maprequest.h"
-#include "mapgraph.h"
+#include "subscription.h"
 
 #define SOAPv11_ENVELOPE    "http://schemas.xmlsoap.org/soap/envelope/"
 #define SOAPv11_ENCODING    "http://schemas.xmlsoap.org/soap/encoding/"

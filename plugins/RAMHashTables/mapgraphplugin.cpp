@@ -1,5 +1,5 @@
 /*
-mapgraph.cpp: Implementation of MapGraph and SearchGraph classes
+mapgraphplugin.cpp: Implementation of MapGraphPlugin class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 
@@ -19,131 +19,19 @@ You should have received a copy of the GNU General Public License
 along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "mapgraph.h"
+#include "mapgraphplugin.h"
 
-SearchResult::SearchResult(SearchResult::ResultType type, SearchResult::ResultScope scope)
-    : _resultType(type), _resultScope(scope)
+void MapGraphPlugin::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, QString publisherId)
 {
-}
-
-SearchResult::~SearchResult()
-{
-}
-
-Subscription::Subscription(MapRequest::RequestVersion requestVersion)
-    : _requestVersion(requestVersion)
-{
-    _sentFirstResult = false;
-    _curSize = 0;
-    _subscriptionError = MapRequest::ErrorNone;
-}
-
-Subscription::~Subscription()
-{
-    clearSearchResults();
-}
-
-void Subscription::clearSearchResults()
-{
-    while (! _searchResults.isEmpty()) {
-        delete _searchResults.takeFirst();
-    }
-
-    _curSize = 0;
-}
-
-bool Subscription::operator==(const Subscription &other) const
-{
-    // Two SearchGraphs are equal iff their names are equal
-    if (this->_name == other._name)
-        return true;
-    else
-        return false;
-}
-
-QString Subscription::translateFilter(QString ifmapFilter)
-{
-    const char *fnName = "SearchGraph::translateFilter:";
-
-    /* non-predicate expressions joined by "or" need to be translated
-       into a parenthesized expression separated by "|".
-
-       Examples:
-       meta:ip-mac or scada:node
-       --> (meta:ip-mac | scada:node)
-
-       meta:role[@publisher-id = "myPubId" or name="myRole"] or meta:ip-mac
-       --> (meta:role[@publisher-id = "myPubId" or name="myRole"] | meta:ip-mac)
-    */
-
-    // TODO: Do this with QRegExp
-
-    QString qtFilter = ifmapFilter;
-    if (ifmapFilter.contains("or", Qt::CaseInsensitive)) {
-        qDebug() << fnName << "WARNING! filter translation is woefully incomplete!";
-        qDebug() << fnName << "filter before translation:" << ifmapFilter;
-        qtFilter = ifmapFilter.replace("or","|");
-        qtFilter.prepend("(");
-        qtFilter.append(")");
-        qDebug() << fnName << "filter after translation:" << qtFilter;
-    }
-
-    return qtFilter;
-}
-
-QString Subscription::intersectFilter(QString matchLinksFilter, QString resultFilter)
-{
-    /* This method creates an intersect filter for XPath
-       as the logical AND combination of the match-links
-       filter and the result-filter.
-
-       The passed-in filters MUST first individually be translated
-       using SearchGraph::translateFilter().
-    */
-    QString qtFilter = "(";
-    qtFilter += matchLinksFilter;
-    qtFilter += " intersect ";
-    qtFilter += resultFilter;
-    qtFilter += ")";
-
-    return qtFilter;
-}
-
-QStringList Subscription::filterPrefixes(QString filter)
-{
-    // TODO: Improve RegExp to not include colons inside quotes
-    // For example: vend:ike-policy[@gateway=1.2.3.4 and meta:phase1/@identity=name:joe]
-    // should not capture the `name' prefix.  However, it's only a slight performance hit
-    // to capture these false prefixes, because they won't map to a declared namespace
-    // in the document, or if they do, that's ok too.
-    // Here's a possibility for a RegExp that excludes colons inside quotes, but not quite
-    //QRegExp rx("([^\"{0}]\\b\\w+:)");
-
-    // Look for a word boundary followed by 1 or more word characters up to a colon
-    QRegExp rx("(\\b\\w+:)");
-    QStringList prefixes;
-
-    int pos = 0;
-    while ((pos = rx.indexIn(filter, pos)) != -1) {
-        QString prefix = rx.cap(1);
-        prefixes << prefix.left(prefix.length()-1);
-        pos += rx.matchedLength();
-    }
-    //qDebug() << "prefixes:" << prefixes.join("|");
-
-    return prefixes;
-}
-
-MapGraph::MapGraph()
-{
-    _omapdConfig = OmapdConfig::getInstance();
-}
-
-void MapGraph::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, QString publisherId)
-{
-    const char *fnName = "MapGraph::addMeta:";
+    const char *fnName = "MapGraphPlugin::addMeta:";
 
     qDebug() << fnName << "number of metadata objects:" << publisherMeta.size();
+
+    if (isLink) {
+        qDebug() << fnName << "link:" << link;
+    } else  {
+        qDebug() << fnName << "id:" << link.first;
+    }
 
     while (! publisherMeta.isEmpty()) {
         // All Metadata currently on identifier/link
@@ -182,26 +70,38 @@ void MapGraph::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, QStrin
         }
     }
 
-    if (isLink) {        
+    if (isLink) {
         // Update lists of identifier linkages
-        if (! _linksTo.contains(link.first, link.second)) _linksTo.insert(link.first, link.second);
-        if (! _linksTo.contains(link.second, link.first)) _linksTo.insert(link.second, link.first);
+        if (! _linksTo.contains(link.first, link.second)) {
+            _linksTo.insert(link.first, link.second);
+            _linksTo.insert(link.second, link.first);
+        }
 
         // Track links published by this publisherId
-        if (! _publisherLinks.contains(publisherId, link)) _publisherLinks.insert(publisherId, link);
+        if (! _publisherLinks.contains(publisherId, link)) {
+            _publisherLinks.insert(publisherId, link);
+        }
 
         qDebug() << fnName << "_linkMeta has size:" << _linkMeta.size();
     } else {
         // Track identifiers published by this publisherId
-        if (! _publisherIds.contains(publisherId, link.first)) _publisherIds.insert(publisherId, link.first);
+        if (! _publisherIds.contains(publisherId, link.first)) {
+            _publisherIds.insert(publisherId, link.first);
+        }
 
         qDebug() << fnName << "_idMeta has size:" << _idMeta.size();
     }
 }
 
-void MapGraph::replaceMeta(Link link, bool isLink, QList<Meta> newMetaList)
+void MapGraphPlugin::replaceMeta(Link link, bool isLink, QList<Meta> newMetaList)
 {
-    //const char *fnName = "MapGraph::replaceMeta:";
+    //const char *fnName = "MapGraphPlugin::replaceMeta:";
+
+    /*
+    TODO: A clear performance increase can be made by improving on the scorched
+    earth procedures in this method: removing all the metadata, link pointers,
+    publisher-id pointers, and then adding the keepers back on.
+    */
 
     if (isLink) {
         // Remove metadata on link
@@ -238,8 +138,10 @@ void MapGraph::replaceMeta(Link link, bool isLink, QList<Meta> newMetaList)
             _linkMeta.insert(link, newMetaList);
 
             // Update lists of identifier linkages
-            if (! _linksTo.contains(link.first, link.second)) _linksTo.insert(link.first, link.second);
-            if (! _linksTo.contains(link.second, link.first)) _linksTo.insert(link.second, link.first);
+            if (! _linksTo.contains(link.first, link.second)) {
+                _linksTo.insert(link.first, link.second);
+                _linksTo.insert(link.second, link.first);
+            }
 
             QListIterator<Meta> metaIt(newMetaList);
             while (metaIt.hasNext()) {
@@ -261,9 +163,9 @@ void MapGraph::replaceMeta(Link link, bool isLink, QList<Meta> newMetaList)
     }
 }
 
-bool MapGraph::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Meta> > *idMetaDeleted, QHash<Link, QList<Meta> > *linkMetaDeleted, bool sessionMetaOnly)
+bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Meta> > *idMetaDeleted, QHash<Link, QList<Meta> > *linkMetaDeleted, bool sessionMetaOnly)
 {
-    const char *fnName = "MapGraph::deleteMetaWithPublisherId:";
+    const char *fnName = "MapGraphPlugin::deleteMetaWithPublisherId:";
     bool somethingDeleted = false;
 
     // Delete publisher's metadata on identifiers
@@ -373,18 +275,17 @@ bool MapGraph::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Meta> > 
     return somethingDeleted;
 }
 
-void MapGraph::dumpMap()
+void MapGraphPlugin::dumpMap()
 {
-    const char *fnName = "MapGraph::dumpMap:";
+    const char *fnName = "MapGraphPlugin::dumpMap:";
     qDebug() << fnName << "---------------------- start dump -------------------" << endl;
 
     QString idString;
     QTextStream idStream(&idString);
 
     qDebug() << fnName << "_idMeta has metadata on num identifiers:" << _idMeta.size();
-    QHashIterator<Id, QList<Meta> > i(_idMeta);
-    while (i.hasNext()) {
-        i.next();
+    QHash<Id, QList<Meta> >::const_iterator i;
+    for (i = _idMeta.constBegin(); i != _idMeta.constEnd(); ++i) {
         Id id = i.key();
         QList<Meta> metaList = i.value();
         qDebug() << fnName << "Identifier metadata of length " << metaList.size() << endl << id;
@@ -398,9 +299,8 @@ void MapGraph::dumpMap()
     }
 
     qDebug() << fnName << "_linkMeta has metadata on num links:" << _linkMeta.size();
-    QHashIterator<Link, QList<Meta> > lm(_linkMeta);
-    while (lm.hasNext()) {
-        lm.next();
+    QHash<Link, QList<Meta> >::const_iterator lm;
+    for (lm = _linkMeta.constBegin(); lm != _linkMeta.constEnd(); ++lm) {
         Link link = lm.key();
         QList<Meta> metaList = lm.value();
         qDebug() << fnName << "Link metadata of length" << metaList.size() << endl << link;
@@ -416,9 +316,9 @@ void MapGraph::dumpMap()
     qDebug() << fnName << "---------------------- end dump -------------------" << endl;
 }
 
-void MapGraph::clearMap()
+void MapGraphPlugin::clearMap()
 {
-    const char *fnName = "MapGraph::clearMap:";
+    const char *fnName = "MapGraphPlugin::clearMap:";
     qDebug() << fnName << "WARNING: clearing entire MAP contents!";
     _idMeta.clear();
     _linkMeta.clear();
@@ -426,3 +326,17 @@ void MapGraph::clearMap()
     _publisherIds.clear();
     _publisherLinks.clear();
 }
+
+QList<Id> MapGraphPlugin::linksTo(Id targetId) {
+    return _linksTo.values(targetId);
+}
+
+QList<Meta> MapGraphPlugin::metaForLink(Link link) {
+    return _linkMeta.value(link);
+}
+
+QList<Meta> MapGraphPlugin::metaForId(Id id) {
+    return _idMeta.value(id);
+}
+
+Q_EXPORT_PLUGIN2(RAMHashTables, MapGraphPlugin)

@@ -10,20 +10,21 @@ SOURCES += main.cpp \
     server.cpp \
     identifier.cpp \
     metadata.cpp \
-    mapgraph.cpp \
     mapsessions.cpp \
     cmlserver.cpp \
     omapdconfig.cpp \
     clientparser.cpp \
     maprequest.cpp \
-    mapresponse.cpp
+    mapresponse.cpp \
+    subscription.cpp
 HEADERS += server.h \
     identifier.h \
     metadata.h \
-    mapgraph.h \
     mapsessions.h \
     cmlserver.h \
     omapdconfig.h \
     clientparser.h \
     maprequest.h \
-    mapresponse.h
+    mapresponse.h \
+    subscription.h \
+    mapgraphinterface.h

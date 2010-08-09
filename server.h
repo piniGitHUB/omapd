@@ -1,5 +1,5 @@
 /*
-server.h: Definition of Server class
+server.h: Declaration of Server class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 
@@ -29,9 +29,10 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "identifier.h"
 #include "metadata.h"
-#include "mapgraph.h"
 #include "omapdconfig.h"
 #include "maprequest.h"
+#include "subscription.h"
+#include "mapgraphinterface.h"
 
 class MapSessions;
 class MapResponse;
@@ -40,7 +41,7 @@ class Server : public QTcpServer
 {
     Q_OBJECT
 public:
-    Server(MapGraph *mapGraph, QObject *parent = 0);
+    Server(MapGraphInterface *mapGraph, QObject *parent = 0);
 
 public slots:
     void setCaCertificates(QList<QSslCertificate> caCerts) { _caCerts = caCerts; }
@@ -96,7 +97,7 @@ private slots:
 
 private:
     OmapdConfig* _omapdConfig;
-    MapGraph* _mapGraph;
+    MapGraphInterface* _mapGraph;
     MapSessions* _mapSessions;
 
     QSet<QTcpSocket*> _headersReceived;

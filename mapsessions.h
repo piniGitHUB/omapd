@@ -1,5 +1,5 @@
 /*
-mapsessions.h: Definition of MapSessions Class
+mapsessions.h: Declaration of MapSessions Class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 
@@ -27,7 +27,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QtNetwork>
 
 #include "omapdconfig.h"
-#include "mapgraph.h"
 #include "server.h"
 
 class MapSessions : public QObject

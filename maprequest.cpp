@@ -20,7 +20,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "maprequest.h"
-#include "mapgraph.h"
 
 QString MapRequest::requestTypeString(MapRequest::RequestType reqType)
 {

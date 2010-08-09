@@ -22,8 +22,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QtNetwork>
 
 #include "clientparser.h"
-#include "mapgraph.h"
 #include "mapsessions.h"
+#include "subscription.h"
 
 ClientParser::ClientParser(QObject *parent)
     : QObject(parent)
