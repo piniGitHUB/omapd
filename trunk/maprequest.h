@@ -1,5 +1,5 @@
 /*
-maprequest.h: Definition of IF-MAP Request classes
+maprequest.h: Declaration of IF-MAP Request classes
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 
@@ -27,6 +27,12 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "identifier.h"
 #include "metadata.h"
 #include "omapdconfig.h"
+
+static QString IFMAP_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP/1";
+static QString IFMAP_META_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP-METADATA/1";
+
+#define IFMAP_MAX_SIZE 100000;
+#define IFMAP_MAX_DEPTH_MAX 10000;
 
 class MapRequest
 {

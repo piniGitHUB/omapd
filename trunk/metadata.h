@@ -1,5 +1,5 @@
 /*
-metadata.h: Definition of Meta Class
+metadata.h: Declaration of Meta Class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 

@@ -1,5 +1,5 @@
 /*
-omapdconfig.h: Definition of OmapdConfig class
+omapdconfig.h: Declaration of OmapdConfig class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 
