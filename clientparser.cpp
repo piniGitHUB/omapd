@@ -23,7 +23,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "clientparser.h"
 #include "mapsessions.h"
-#include "subscription.h"
 
 ClientParser::ClientParser(QObject *parent)
     : QObject(parent)
@@ -61,6 +60,15 @@ void ClientParser::setSessionId(MapRequest &request)
     if (_requestVersion == MapRequest::IFMAPv11 && _clientSetSessionId) {
         request.setSessionId(_sessionId);
         request.setClientSetSessionId(true);
+#ifdef IFMAP20
+    } else if (_requestVersion == MapRequest::IFMAPv20 &&
+               _xmlReader.attributes().hasAttribute("session-id")) {
+        request.setSessionId(_xmlReader.attributes().value("session-id").toString());
+        request.setClientSetSessionId(true);
+
+        _sessionId = _xmlReader.attributes().value("session-id").toString();
+        _clientSetSessionId = true;
+#endif //IFMAP20
     }
 
     MapSessions::getInstance()->validateSessionId(request, (QTcpSocket *)_xmlReader.device());
@@ -169,6 +177,11 @@ void ClientParser::readMapRequest()
     if (methodNS == IFMAP_NS_1 &&
         _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
         _requestVersion = MapRequest::IFMAPv11;
+#ifdef IFMAP20
+    } else if (methodNS == IFMAP_NS_2 &&
+               _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV20)) {
+        _requestVersion = MapRequest::IFMAPv20;
+#endif //IFMAP20
     } else {
         // ERROR!!!
         qDebug() << fnName << "Error: Incorrect IF-MAP Namespace:" << methodNS;
@@ -182,6 +195,12 @@ void ClientParser::readMapRequest()
         readAttachSession();
     } else if (method == "newSession") {
         readNewSession();
+#ifdef IFMAP20
+    } else if (method == "endSession") {
+        readEndSession();
+    } else if (method == "renewSession") {
+        readRenewSession();
+#endif //IFMAP20
     } else if (method == "publish") {
         registerMetadataNamespaces();
         readPublish();
@@ -209,6 +228,29 @@ void ClientParser::readNewSession()
     nsReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::NewSession;
 
+#ifdef IFMAP20
+    /* IFMAP20: 4.3: max-poll-result-size is an optional attribute that indicates to the
+       MAP Server the amount of buffer space the client would like to have allocated to
+       hold poll results. A MAP Server MUST support buffer sizes of at least 5,000,000
+       bytes, and MAY support larger sizes.
+    */
+    if (_requestVersion == MapRequest::IFMAPv20) {
+        QXmlStreamAttributes nsAttrs = _xmlReader.attributes();
+        if (nsAttrs.hasAttribute("max-poll-result-size")) {
+            bool ok = false;
+            uint mprs = nsAttrs.value("max-poll-result-size").toString().toUInt(&ok);
+            if (ok) {
+                nsReq.setMaxPollResultSize(mprs);
+                nsReq.setClientSetMaxPollResultSize(true);
+            } else {
+                // Client fault
+                nsReq.setRequestError(MapRequest::IfmapClientSoapFault);
+                _xmlReader.raiseError("Error reading new session request");
+                _requestError = MapRequest::IfmapClientSoapFault;
+            }
+        }
+    }
+#endif //IFMAP20
     _mapRequest.setValue(nsReq);
 }
 
@@ -240,6 +282,54 @@ void ClientParser::readAttachSession()
     _mapRequest.setValue(asReq);
 }
 
+#ifdef IFMAP20
+void ClientParser::readRenewSession()
+{
+    RenewSessionRequest rnReq;
+    rnReq.setRequestVersion(_requestVersion);
+    _requestType = MapRequest::RenewSession;
+
+    QXmlStreamAttributes attrs = _xmlReader.attributes();
+    if (attrs.hasAttribute("session-id")) {
+        rnReq.setSessionId(attrs.value("session-id").toString());
+        rnReq.setClientSetSessionId(true);
+
+        _sessionId = attrs.value("session-id").toString();
+        _clientSetSessionId = true;
+    }
+
+    MapSessions::getInstance()->validateSessionId(rnReq, (QTcpSocket *)_xmlReader.device());
+    if (rnReq.requestError()) {
+        _requestError = rnReq.requestError();
+    }
+
+    _mapRequest.setValue(rnReq);
+}
+
+void ClientParser::readEndSession()
+{
+    EndSessionRequest esReq;
+    esReq.setRequestVersion(_requestVersion);
+    _requestType = MapRequest::EndSession;
+
+    QXmlStreamAttributes attrs = _xmlReader.attributes();
+    if (attrs.hasAttribute("session-id")) {
+        esReq.setSessionId(attrs.value("session-id").toString());
+        esReq.setClientSetSessionId(true);
+
+        _sessionId = attrs.value("session-id").toString();
+        _clientSetSessionId = true;
+    }
+
+    MapSessions::getInstance()->validateSessionId(esReq, (QTcpSocket *)_xmlReader.device());
+    if (esReq.requestError()) {
+        _requestError = esReq.requestError();
+    }
+
+    _mapRequest.setValue(esReq);
+}
+#endif //IFMAP20
+
 void ClientParser::readPurgePublisher()
 {
     const char *fnName = "ClientParser::readPurgePublisher:";
@@ -253,6 +343,10 @@ void ClientParser::readPurgePublisher()
     QString pubIdAttrName;
     if (_requestVersion == MapRequest::IFMAPv11) {
         pubIdAttrName = "publisher-id";
+#ifdef IFMAP20
+    } else if (_requestVersion == MapRequest::IFMAPv20) {
+        pubIdAttrName = "ifmap-publisher-id";
+#endif //IFMAP20
     }
 
     QXmlStreamAttributes attrs = _xmlReader.attributes();
@@ -335,6 +429,11 @@ SearchType ClientParser::parseSearch(MapRequest &request)
 
     QXmlStreamAttributes attrs = _xmlReader.attributes();
 
+    /* IFMAP20: 3.7.2.8: If a MAP Client does not specify max-depth,
+       the MAP Server MUST process the search with a max-depth of zero.
+       If a MAP Client specifies a max-depth less than zero, the MAP
+       Server MAY process the search with an unbounded max-depth.
+    */
     int maxDepth = 0;
     if (attrs.hasAttribute("max-depth")) {
         QString md = attrs.value("max-depth").toString();
@@ -346,6 +445,13 @@ SearchType ClientParser::parseSearch(MapRequest &request)
             }
             if (maxDepth < 0 && request.requestVersion() == MapRequest::IFMAPv11) {
                 maxDepth = IFMAP_MAX_DEPTH_MAX;
+#ifdef IFMAP20
+            } else if (maxDepth < 0 && request.requestVersion() == MapRequest::IFMAPv20) {
+                qDebug() << fnName << "Got invalid search parameter max-depth:" << maxDepth;
+                _xmlReader.raiseError("Error with search attribute max-depth");
+                _requestError = MapRequest::IfmapClientSoapFault;
+                request.setRequestError(MapRequest::IfmapClientSoapFault);
+#endif //IFMAP20
             }
         } else {
             maxDepth = 0;
@@ -361,6 +467,14 @@ SearchType ClientParser::parseSearch(MapRequest &request)
     }
     search.setMaxDepth(maxDepth);
 
+    /* IFMAP20: 3.7.2.8: MAP Servers MUST support size constraints up to
+       and including 100KB 1 . If a MAP Client does not specify max-size,
+       the MAP Server MUST process the search with a max-size of 100KB.
+       If a MAP Client specifies a max-size of -1, the MAP Server MAY
+       process the search with an unbounded max-size. If a MAP Client
+       specifies a max-size that exceeds what the MAP Server can support,
+       the MAP Server MUST enforce its own maximum size constraints.
+    */
     int maxSize = IFMAP_MAX_SIZE;
     if (attrs.hasAttribute("max-size")) {
         QString ms = attrs.value("max-size").toString();
@@ -372,6 +486,13 @@ SearchType ClientParser::parseSearch(MapRequest &request)
             }
             if (maxSize < 0 && request.requestVersion() == MapRequest::IFMAPv11) {
                 maxSize = IFMAP_MAX_SIZE;
+#ifdef IFMAP20
+            } else if (maxSize < 0 && request.requestVersion() == MapRequest::IFMAPv20) {
+                qDebug() << fnName << "Got invalid search parameter max-size:" << maxSize;
+                _xmlReader.raiseError("Error with search attribute max-size");
+                _requestError = MapRequest::IfmapClientSoapFault;
+                request.setRequestError(MapRequest::IfmapClientSoapFault);
+#endif //IFMAP20
             }
         } else {
             maxSize = 0;
@@ -410,6 +531,20 @@ SearchType ClientParser::parseSearch(MapRequest &request)
             qDebug() << fnName << "Using default search parameter result-filter:" << search.resultFilter();
         }
     }
+
+#ifdef IFMAP20
+    if (attrs.hasAttribute("terminal-identifier-type") && request.requestVersion() == MapRequest::IFMAPv20) {
+        QString terminalId = attrs.value("terminal-identifier-type").toString();
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << fnName << "Got search parameter terminal-identifier-type:" << terminalId;
+        }
+        search.setTerminalId(terminalId);
+    } else {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << fnName << "Using default search parameter terminal-identifier-type:" << search.terminalId();
+        }
+    }
+#endif //IFMAP20
 
     _xmlReader.readNextStartElement();
     if (_xmlReader.name() == "identifier" && request.requestVersion() == MapRequest::IFMAPv11) {
@@ -467,6 +602,25 @@ void ClientParser::readPublishOperation(PublishRequest &pubReq)
         if (pubReq.requestVersion() == MapRequest::IFMAPv11) {
             pubOperation._lifetime = Meta::LifetimeForever;
             pubOperation._clientSetLifetime = false;
+#ifdef IFMAP20
+        } else if (pubReq.requestVersion() == MapRequest::IFMAPv20) {
+            if (attrs.hasAttribute("lifetime")) {
+                if (attrs.value("lifetime") == "session") {
+                    pubOperation._lifetime = Meta::LifetimeSession;
+                    pubOperation._clientSetLifetime = true;
+                } else if (attrs.value("lifetime") == "forever") {
+                    pubOperation._lifetime = Meta::LifetimeForever;
+                    pubOperation._clientSetLifetime = true;
+                } else {
+                    _xmlReader.raiseError("Error reading publish lifetime");
+                    _requestError = MapRequest::IfmapClientSoapFault;
+                    pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
+                }
+            } else {
+                pubOperation._lifetime = Meta::LifetimeForever;
+                pubOperation._clientSetLifetime = false;
+            }
+#endif //IFMAP20
         }
 
         bool isLink;
@@ -489,6 +643,16 @@ void ClientParser::readPublishOperation(PublishRequest &pubReq)
         bool isLink;
         pubOperation._link = readLink(pubReq, isLink);
         pubOperation._isLink = isLink;
+#ifdef IFMAP20
+    } else if (pubOperationName == "notify" && pubReq.requestVersion() == MapRequest::IFMAPv20) {
+        pubOperation._publishType = PublishOperation::Notify;
+
+        bool isLink;
+        pubOperation._link = readLink(pubReq, isLink);
+        pubOperation._isLink = isLink;
+
+        pubOperation._metadata = readMetadata(pubReq);
+#endif //IFMAP20
     } else {
         _xmlReader.raiseError("Error reading publish operation");
         _requestError = MapRequest::IfmapClientSoapFault;
@@ -558,6 +722,25 @@ Link ClientParser::readLink(MapRequest &request, bool &isLink)
 
         _xmlReader.readNext();
 
+#ifdef IFMAP20
+    } else if (request.requestVersion() == MapRequest::IFMAPv20) {
+        // There's definitely one identifier...
+        if (idCount == 0) {
+            id1 = readIdentifier(request);
+            _xmlReader.readNext();
+            idCount++;
+        }
+
+        _xmlReader.readNextStartElement();
+
+        // ... and there may be another identifier, or it may be metadata
+        if (idCount == 1 && _xmlReader.name() != "metadata") {
+            id2 = readIdentifier(request);
+            _xmlReader.readNext();
+            idCount++;
+            _xmlReader.readNextStartElement();
+        }
+#endif //IFMAP20
     }
 
     if (request.requestError() == MapRequest::ErrorNone && idCount == 1) {
@@ -636,12 +819,20 @@ Id ClientParser::readIdentifier(MapRequest &request)
             } else if (type.compare("kerberos-principal") == 0) {
                 idType = Identifier::IdentityKerberosPrincipal;
             } else if (type.compare("trusted-platform-module") == 0
+#ifdef IFMAP20
+                       && request.requestVersion() == MapRequest::IFMAPv11
+#endif //IFMAP20
                 ) {
                 idType = Identifier::IdentityTrustedPlatformModule;
             } else if (type.compare("username") == 0) {
                 idType = Identifier::IdentityUsername;
             } else if (type.compare("sip-uri") == 0) {
                 idType = Identifier::IdentitySipUri;
+#ifdef IFMAP20
+            } else if (type.compare("hip-hit") == 0 &&
+                request.requestVersion() == MapRequest::IFMAPv20) {
+                idType = Identifier::IdentityHipHit;
+#endif //IFMAP20
             } else if (type.compare("tel-uri") == 0) {
                 idType = Identifier::IdentityTelUri;
             } else if (type.compare("other") == 0) {
@@ -748,6 +939,13 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
     QList<Meta> metaList;
 
     QString cardinalityAttrName = "cardinality", pubIdAttrName = "publisher-id", timestampAttrName = "timestamp";
+#ifdef IFMAP20
+    if (_requestVersion == MapRequest::IFMAPv20) {
+        cardinalityAttrName = "ifmap-cardinality";
+        pubIdAttrName = "ifmap-publisher-id";
+        timestampAttrName = "ifmap-timestamp";
+    }
+#endif //IFMAP20
 
     if (_requestVersion == MapRequest::IFMAPv11) {
         // To get past </identifier> or </link>

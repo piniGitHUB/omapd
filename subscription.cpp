@@ -21,6 +21,25 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "subscription.h"
 
+#ifdef IFMAP20
+SearchResult::ResultType SearchResult::resultTypeForPublishType(Meta::PublishOperationType publishType)
+{
+    SearchResult::ResultType resultType;
+    switch (publishType) {
+    case Meta::PublishUpdate:
+        resultType = SearchResult::UpdateResultType;
+        break;
+    case Meta::PublishDelete:
+        resultType = SearchResult::DeleteResultType;
+        break;
+    case Meta::PublishNotify:
+        resultType = SearchResult::UpdateResultType;
+        break;
+    }
+    return resultType;
+}
+#endif //IFMAP20
+
 SearchResult::SearchResult(SearchResult::ResultType type, SearchResult::ResultScope scope)
     : _resultType(type), _resultScope(scope)
 {
@@ -48,6 +67,11 @@ void Subscription::clearSearchResults()
     while (! _searchResults.isEmpty()) {
         delete _searchResults.takeFirst();
     }
+#ifdef IFMAP20
+    while (! _deltaResults.isEmpty()) {
+        delete _deltaResults.takeFirst();
+    }
+#endif //IFMAP20
 
     _curSize = 0;
 }

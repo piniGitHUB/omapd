@@ -112,7 +112,6 @@ Server::Server(MapGraphInterface *mapGraph, QObject *parent)
         if (listen(listenOn, port)) {
             this->setMaxPendingConnections(30); // 30 is QTcpServer default
 
-            //connect(this, SIGNAL(newConnection()), this, SLOT(newClientConnection()));
             connect(this, SIGNAL(headerReceived(QTcpSocket*,QNetworkRequest)),
                     this, SLOT(processHeader(QTcpSocket*,QNetworkRequest)));
 
@@ -414,6 +413,10 @@ void Server::sendMapResponse(QTcpSocket *socket, MapResponse &mapResponse)
 
     if (mapResponse.requestVersion() == MapRequest::IFMAPv11) {
         header.setValue("Server","omapd/ifmap1.1");
+#ifdef IFMAP20
+    } else if (mapResponse.requestVersion() == MapRequest::IFMAPv20) {
+        header.setValue("Server","omapd/ifmap2.0");
+#endif //IFMAP20
     }
 
     if (socket->state() == QAbstractSocket::ConnectedState) {
@@ -450,6 +453,14 @@ void Server::processClientRequest(QTcpSocket *socket, MapRequest::RequestType re
     case MapRequest::AttachSession:
         processAttachSession(socket, clientRequest);
         break;
+#ifdef IFMAP20
+    case MapRequest::RenewSession:
+        processRenewSession(socket, clientRequest);
+        break;
+    case MapRequest::EndSession:
+        processEndSession(socket, clientRequest);
+        break;
+#endif //IFMAP20
     case MapRequest::PurgePublisher:
         processPurgePublisher(socket, clientRequest);
         break;
@@ -477,8 +488,17 @@ void Server::processNewSession(QTcpSocket *socket, QVariant clientRequest)
     QString sessId;
     // Check if we have an SSRC session already for this publisherId
     if (_mapSessions->_activeSSRCSessions.contains(publisherId)) {
+        /* Per IFMAP20: 4.3: If a MAP Client sends more than one SOAP request
+           containing a newSession element in the SOAP body, the MAP Server
+           MUST respond by ending the previous session and starting a new
+           session. The new session MAY use the same session-id or allocate a new one.
+        */
         sessId = _mapSessions->_activeSSRCSessions.value(publisherId);
+#ifdef IFMAP20
+        terminateSession(sessId, nsReq.requestVersion());
+#else
         terminateSession(sessId);
+#endif //IFMAP20
     } else {
         QString sid;
         sid.setNum(qrand());
@@ -488,9 +508,49 @@ void Server::processNewSession(QTcpSocket *socket, QVariant clientRequest)
     _mapSessions->_activeSSRCSessions.insert(publisherId, sessId);
 
     MapResponse nsResp(nsReq.requestVersion());
+#ifdef IFMAP20
+    nsResp.setNewSessionResponse(sessId, publisherId, nsReq.clientSetMaxPollResultSize(), nsReq.maxPollResultSize());
+#else
     nsResp.setNewSessionResponse(sessId, publisherId);
+#endif //IFMAP20
     sendMapResponse(socket, nsResp);
 }
+
+#ifdef IFMAP20
+void Server::processRenewSession(QTcpSocket *socket, QVariant clientRequest)
+{
+    /* IFMAP20: 4.4: In order to keep an IF-MAP session from timing out,
+       a MAP Client MUST either keep the underlying TCP connection associated
+       with the SSRC open, or send periodic renewSession requests to the MAP Server.
+    */
+    RenewSessionRequest rsReq = clientRequest.value<RenewSessionRequest>();
+    MapResponse rsResp(rsReq.requestVersion());
+    rsResp.setRenewSessionResponse();
+    sendMapResponse(socket, rsResp);
+}
+
+void Server::processEndSession(QTcpSocket *socket, QVariant clientRequest)
+{
+    const char *fnName = "Server::processEndSession:";
+    EndSessionRequest esReq = clientRequest.value<EndSessionRequest>();
+
+    MapRequest::RequestError requestError = esReq.requestError();
+    QString sessId = esReq.sessionId();
+
+    if (!requestError) {
+        QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+        terminateSession(sessId, esReq.requestVersion());
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << fnName << "Terminated session-id:" << sessId
+                     << "for publisher-id:" << publisherId;
+        }
+    }
+
+    MapResponse esResp(esReq.requestVersion());
+    esResp.setEndSessionResponse();
+    sendMapResponse(socket, esResp);
+}
+#endif //IFMAP20
 
 void Server::processAttachSession(QTcpSocket *socket, QVariant clientRequest)
 {
@@ -498,15 +558,33 @@ void Server::processAttachSession(QTcpSocket *socket, QVariant clientRequest)
     AttachSessionRequest asReq = clientRequest.value<AttachSessionRequest>();
     MapResponse asResp(asReq.requestVersion());
 
+    /* IFMAP20: 4.3
+    If a MAP Server receives a message containing a SOAP body containing an attachSession
+    element that specifies a session which already has an ARC with an outstanding poll request, the
+    MAP Server MUST:
+         end the session
+         respond to the poll request on the older ARC with an endSessionResult
+         respond to the attachSession request on the newer ARC with an errorResult response
+           with an errorCode of InvalidSessionID
+    */
+
     MapRequest::RequestError requestError = asReq.requestError();
     QString sessId = asReq.sessionId();
     QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
 
     if (!requestError) {
         // Terminate any existing ARC sessions
+#ifdef IFMAP20
+        if (terminateARCSession(sessId, asReq.requestVersion())) {
+#else
         if (terminateARCSession(sessId)) {
+#endif //IFMAP20
             // If we had an existing ARC session, end the session
+#ifdef IFMAP20
+            terminateSession(sessId, asReq.requestVersion());
+#else
             terminateSession(sessId);
+#endif //IFMAP20
             requestError = MapRequest::IfmapInvalidSessionID;
             qDebug() << fnName << "Already have existing ARC session, terminating";
             asResp.setErrorResponse(requestError, sessId);
@@ -536,19 +614,38 @@ void Server::processPublish(QTcpSocket *socket, QVariant clientRequest)
 
     bool mapGraphChanged = false;
 
+    /* IFMAP20: 3.7.1:
+       A successful metadata publish MUST result in a publishReceived message. Otherwise,
+       the entire publish request MUST fail without effect and the response MUST contain
+       an errorResult element with an errorCode attribute indicating the cause of the
+       failure.
+    */
     QList<PublishOperation> publishOperations = pubReq.publishOperations();
     QListIterator<PublishOperation> pubOperIt(publishOperations);
     while (pubOperIt.hasNext() && !requestError) {
         PublishOperation pubOper = pubOperIt.next();
 
         if (pubOper._publishType == PublishOperation::Update
+#ifdef IFMAP20
+            || pubOper._publishType == PublishOperation::Notify
+#endif //IFMAP20
             ) {
 
             if (pubOper._publishType == PublishOperation::Update) {
                 _mapGraph->addMeta(pubOper._link, pubOper._isLink, pubOper._metadata, publisherId);
                 mapGraphChanged = true;
+		// TODO: Move this outside of while loop for major performance boost!
                 // update subscriptions
+#ifdef IFMAP20
+                updateSubscriptions(pubOper._link, pubOper._isLink, pubOper._metadata, Meta::PublishUpdate);
+#else
                 updateSubscriptions(pubOper._link, pubOper._isLink, Meta::PublishUpdate);
+#endif //IFMAP20
+#ifdef IFMAP20
+            } else if (pubOper._publishType == PublishOperation::Notify) {
+                // Deal with notify
+                updateSubscriptionsWithNotify(pubOper._link, pubOper._isLink, pubOper._metadata);
+#endif //IFMAP20
             }
         } else if (pubOper._publishType == PublishOperation::Delete) {
 
@@ -613,11 +710,19 @@ void Server::processPublish(QTcpSocket *socket, QVariant clientRequest)
 
             if (metadataDeleted && !requestError) {
                 mapGraphChanged = true;
+#ifdef IFMAP20
+                updateSubscriptions(pubOper._link, pubOper._isLink, deleteMetaList, Meta::PublishDelete);
+#else
                 updateSubscriptions(pubOper._link, pubOper._isLink, Meta::PublishDelete);
+#endif //IFMAP20
             }
 
         }
     }
+
+    // Per IFMAP20: 3.7.1.4: The entire publish operation
+    // MUST appear atomic to other clients.  So if multiple sub-operations, they need
+    // to ALL be applied before any other search is allowed, or subscriptions matched.
 
     // At this point all the publishes have occurred, we can check subscriptions
     if (requestError) {
@@ -774,6 +879,11 @@ void Server::processPurgePublisher(QTcpSocket *socket, QVariant clientRequest)
 
     if (!requestError) {
         QString purgePubId = ppReq.publisherId();
+        /* IFMAP20: 3.7.6:
+           A MAP Server MAY forbid a MAP Client to use the purgePublisher
+           request to remove data published by a different MAP Client, in
+           which case the MAP Server MUST respond with an AccessDenied error.
+        */
         if (purgePubId.compare(publisherId) != 0) {
             // TODO: Set configuration option for this
             requestError = MapRequest::IfmapAccessDenied;
@@ -828,6 +938,32 @@ void Server::processPoll(QTcpSocket *socket, QVariant clientRequest)
             } else {
                 emit checkActivePolls();
             }
+#ifdef IFMAP20
+        } else if (pollReq.requestVersion() == MapRequest::IFMAPv20) {
+            // Terminate any existing ARC sessions
+            if (_mapSessions->_activePolls.contains(publisherId)) {
+                // If we had an existing ARC session, end the session
+                terminateSession(sessId, pollReq.requestVersion());
+                requestError = MapRequest::IfmapInvalidSessionID;
+                qDebug() << fnName << "Already have existing ARC session, terminating";
+            } else {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << fnName << "Adding ARC session for publisher:" << publisherId;
+                }
+                _mapSessions->_activeARCSessions.insert(publisherId, sessId);
+                // Track the TCP socket this publisher's poll is on
+                _mapSessions->_activePolls.insert(publisherId, socket);
+
+                if (_mapSessions->_subscriptionLists.value(publisherId).isEmpty()) {
+                    // No immediate client response
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << fnName << "No subscriptions for publisherId:" << publisherId;
+                    }
+                } else {
+                    emit checkActivePolls();
+                }
+            }
+#endif //IFMAP20
         } else {
             // Error
             requestError = MapRequest::IfmapInvalidSessionID;
@@ -835,6 +971,11 @@ void Server::processPoll(QTcpSocket *socket, QVariant clientRequest)
         }
     }
 
+    /* IFMAP20: 3.7.5:
+       If a server responds to a poll with an errorResult, all of the clients
+       subscriptions are automatically invalidated and MUST be removed by the
+       server.
+    */
     if (requestError) {
         if (_mapSessions->_subscriptionLists.contains(publisherId)) {
             _mapSessions->_subscriptionLists.remove(publisherId);
@@ -847,7 +988,11 @@ void Server::processPoll(QTcpSocket *socket, QVariant clientRequest)
     }
 }
 
+#ifdef IFMAP20
+bool Server::terminateSession(QString sessionId, MapRequest::RequestVersion requestVersion)
+#else
 bool Server::terminateSession(QString sessionId)
+#endif //IFMAP20
 {
     const char *fnName = "Server::terminateSession";
     bool hadExistingSession = false;
@@ -860,6 +1005,11 @@ bool Server::terminateSession(QString sessionId)
 
         _mapSessions->_activeSSRCSessions.remove(sessionId);
 
+        /* IFMAP20: 3.7.4:
+           When a MAP Client initially connects to a MAP Server, the MAP Server MUST
+           delete any previous subscriptions corresponding to the MAP Client. In
+           other words, subscription lists are only valid for a single MAP Client session.
+        */
         if (_mapSessions->_subscriptionLists.contains(publisherId)) {
             _mapSessions->_subscriptionLists.remove(publisherId);
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -867,8 +1017,24 @@ bool Server::terminateSession(QString sessionId)
             }
         }
 
+        /* IFMAP20: 4.3:
+           When a session ends for any reason, and there is an outstanding poll
+           request on the ARC, the MAP Server MUST send an endSessionResult to the
+           MAP Client on the ARC.
+        */
+#ifdef IFMAP20
+        terminateARCSession(sessionId, requestVersion);
+#else
         terminateARCSession(sessionId);
+#endif //IFMAP20
 
+        /* IFMAP20: 3.3.5:
+           If an element was published with lifetime=session and the client
+           session ends, either due to inactivity (see Section 4.1.1) or at the
+           clients request, the MAP server MUST delete the metadata.   This
+           deletion MUST be completed before the publishing client is allowed
+           to create another session.
+        */
         // Delete all session-level metadata for this publisher
         QHash<Id, QList<Meta> > idMetaDeleted;
         QHash<Link, QList<Meta> > linkMetaDeleted;
@@ -886,7 +1052,11 @@ bool Server::terminateSession(QString sessionId)
     return hadExistingSession;
 }
 
+#ifdef IFMAP20
+bool Server::terminateARCSession(QString sessionId, MapRequest::RequestVersion requestVersion)
+#else
 bool Server::terminateARCSession(QString sessionId)
+#endif //IFMAP20
 {
     const char *fnName = "Server::terminateARCSession:";
     bool hadExistingARCSession = false;
@@ -902,6 +1072,19 @@ bool Server::terminateARCSession(QString sessionId)
 
         // Terminate polls
         if (_mapSessions->_activePolls.contains(publisherId)) {
+#ifdef IFMAP20
+            QTcpSocket *pollSocket = _mapSessions->_activePolls.value(publisherId);
+            if (requestVersion == MapRequest::IFMAPv20) {
+                if (pollSocket->isValid()) {
+                    qDebug() << fnName << "Sending endSessionResult to publisherId:"
+                             << publisherId << "on client socket" << pollSocket;
+                    MapResponse pollEndSessionResponse(MapRequest::IFMAPv20); // Has to be IF-MAP 2.0!
+                    pollEndSessionResponse.setEndSessionResponse();
+                    sendMapResponse(pollSocket, pollEndSessionResponse);
+                    //pollSocket->disconnectFromHost();
+                }
+            }
+#endif //IFMAP20
             _mapSessions->_activePolls.remove(publisherId);
             qDebug() << fnName << "Terminated active poll for publisherId:" << publisherId;
         }
@@ -928,6 +1111,18 @@ QString Server::filteredMetadata(QList<Meta>metaList, QString filter, QMap<QStri
        sense of the filter, so if the filter is a delete filter, be sure
        to set invert = true.
     */
+    /* Per IFMAP20: 3.7.2.3:match-links specifies the criteria for positive matching
+       for including metadata from any link visited in the search. match-links also
+       specifies the criteria for including linked identifiers in the search.
+    */
+    /* Per IFMAP20: 3.7.2.5: result-filter
+       The filter specifies any further rules for deleting data from the results. If
+       there is no result-filter attribute, all metadata on all identifiers and links
+       that match the search is returned to the client. If an empty filter result-filter
+       attribute is specified, the identifiers and links that match the search are
+       returned to the client with no metadata.
+    */
+
     if (filter.isEmpty()) {
         qDebug() << fnName << "Empty filter string matches nothing";
         return resultString;
@@ -1020,6 +1215,10 @@ void Server::addIdentifierResult(Subscription &sub, Identifier id, QList<Meta> m
 
     if (resultType == SearchResult::SearchResultType) {
         sub._searchResults.append(searchResult);
+#ifdef IFMAP20
+    } else {
+        sub._deltaResults.append(searchResult);
+#endif //IFMAP20
     }
 }
 
@@ -1047,6 +1246,10 @@ void Server::addLinkResult(Subscription &sub, Link link, QList<Meta> metaList, S
 
     if (resultType == SearchResult::SearchResultType) {
         sub._searchResults.append(searchResult);
+#ifdef IFMAP20
+    } else {
+        sub._deltaResults.append(searchResult);
+#endif //IFMAP20
     }
 }
 
@@ -1054,6 +1257,12 @@ void Server::collectSearchGraphMetadata(Subscription &sub, SearchResult::ResultT
 {
     const char *fnName = "Server::collectSearchGraphMetadata:";
 
+    /* Per IFMAP20: 3.7.3: Since all identifiers for a given identifier type
+       are always valid to search, the MAP Server MUST never return an
+       identifier not found error when searching for an identifier. In this
+       case, the MAP Server MUST return the identifier with no metadata or
+       links attached to it.
+    */
     QSetIterator<Id> idIt(sub._idList);
     while (idIt.hasNext() && !operationError) {
         Id id = idIt.next();
@@ -1075,11 +1284,43 @@ void Server::collectSearchGraphMetadata(Subscription &sub, SearchResult::ResultT
     }
 }
 
+#ifdef IFMAP20
+void Server::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, QSet<Id>idList, QSet<Link>linkList, MapRequest::RequestError &operationError)
+{
+    const char *fnName = "Server::collectSearchGraphUpdateMetadata:";
+    QSetIterator<Id> idIt(idList);
+    while (idIt.hasNext() && !operationError) {
+        Id id = idIt.next();
+        QList<Meta> idMetaList = _mapGraph->metaForId(id);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << fnName << "idMetaList size for id:" << id << "-->" << idMetaList.size();
+        }
+        addIdentifierResult(sub, id, idMetaList, resultType, operationError);
+    }
+
+    QSetIterator<Link> linkIt(linkList);
+    while (linkIt.hasNext() && !operationError) {
+        Link link = linkIt.next();
+        QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << fnName << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
+        }
+        addLinkResult(sub, link, linkMetaList, resultType, operationError);
+    }
+
+    if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT) { // TODO: Replace with client setting
+        qDebug() << fnName << "Search results exceeded max poll result size with curSize:" << sub._curSize;
+        sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
+    }
+}
+#endif //IFMAP20
+
 // currentDepth is pass by value!  Must initially be -1.
 void Server::buildSearchGraph(Subscription &sub, Id startId, int currentDepth)
 {
     const char *fnName = "Server::buildSearchGraph";
 
+    /* IFMAP20: 3.7.2.8: Recursive Algorithm is from spec */
     // 1. Current id, current results, current depth
     currentDepth++;
     if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -1090,6 +1331,22 @@ void Server::buildSearchGraph(Subscription &sub, Id startId, int currentDepth)
     // 2. Save current identifier in list of traversed identifiers
     // so we can later gather metadata from these identifiers.
     sub._idList.insert(startId);
+
+#ifdef IFMAP20
+    // 3. If the current identifiers type is contained within
+    // terminal-identifier-type, return current results.
+    if (! sub._search.terminalId().isEmpty() && sub._requestVersion == MapRequest::IFMAPv20) {
+        QString curIdTypeStr = Identifier::idBaseStringForType(startId.type());
+        QStringList terminalIdList = sub._search.terminalId().split(",");
+
+        if (terminalIdList.contains(curIdTypeStr)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << fnName << "Reached terminal identifier:" << curIdTypeStr;
+            }
+            return;
+        }
+    }
+#endif //IFMAP20
 
     // 4. Check max depth reached
     if (currentDepth >= sub._search.maxDepth()) {
@@ -1155,14 +1412,24 @@ void Server::updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Li
         idIter.next();
         Link idLink;
         idLink.first = idIter.key();
+#ifdef IFMAP20
+        QList<Meta> deletedMetaList = idIter.value();
+        updateSubscriptions(idLink, false, deletedMetaList, Meta::PublishDelete);
+#else
         updateSubscriptions(idLink, false, Meta::PublishDelete);
+#endif //IFMAP20
     }
 
     QHashIterator<Link, QList<Meta> > linkIter(linkMetaDeleted);
     while (linkIter.hasNext()) {
         linkIter.next();
         Link link = linkIter.key();
+#ifdef IFMAP20
+        QList<Meta> deletedMetaList = linkIter.value();
+        updateSubscriptions(link,true, deletedMetaList, Meta::PublishDelete);
+#else
         updateSubscriptions(link,true, Meta::PublishDelete);
+#endif //IFMAP20
     }
 }
 
@@ -1170,7 +1437,11 @@ void Server::updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Li
 // the SearchGraphs.  If a subscription results in a changed SearchGraph that
 // matches the subscription, build the appropriate metadata results, so that we
 // can send out pollResults.
+#ifdef IFMAP20
+void Server::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges, Meta::PublishOperationType publishType)
+#else
 void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationType publishType)
+#endif //IFMAP20
 {
     const char *fnName = "Server::updateSubscriptions:";
 
@@ -1271,6 +1542,36 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
                 if (sub._requestVersion == MapRequest::IFMAPv11) {
                     // Trigger to build and send pollResults
                     sub._sentFirstResult = false;
+#ifdef IFMAP20
+                } else if (sub._sentFirstResult && sub._requestVersion == MapRequest::IFMAPv20) {
+                    MapRequest::RequestError error;
+                    // Add results from publish/delete/endSession/purgePublisher (that don't modify SearchGraph)
+                    if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
+                        SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << fnName << "----adding update/delete results from un-changed SearchGraph";
+                        }
+                        if (isLink) {
+                            addLinkResult(sub, link, metaChanges, resultType, error);
+                        } else {
+                            addIdentifierResult(sub, link.first, metaChanges, resultType, error);
+                        }
+                    }
+                    // Add results from extending SearchGraph for this subscription
+                    if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << fnName << "----adding updateResults from changed SearchGraph";
+                        }
+                        addUpdateAndDeleteMetadata(sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
+                    }
+                    // Add results from pruning SearchGraph for this subscription
+                    if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << fnName << "----adding deleteResults from changed SearchGraph";
+                        }
+                        addUpdateAndDeleteMetadata(sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
+                    }
+#endif //IFMAP20
                 }
                 subIt.setValue(sub);
                 publisherHasDirtySub = true;
@@ -1282,6 +1583,87 @@ void Server::updateSubscriptions(Link link, bool isLink, Meta::PublishOperationT
         }
     }
 }
+
+#ifdef IFMAP20
+// Iterate over all subscriptions for all publishers, checking the SearchGraphs
+// to see if subscriptions match the notify metadata.  If a subscription matches,
+// mark the subscription as dirty, so that we can send out pollResults.
+void Server::updateSubscriptionsWithNotify(Link link, bool isLink, QList<Meta> notifyMetaList)
+{
+    const char *fnName = "Server::updateSubscriptionsWithNotify:";
+
+    // An existing subscription becomes dirty in 3 cases:
+    // 1. metadata is publish-notify on an identifier in the SearchGraph
+    // 2. metadata is publish-notify on a link in the SearchGraph
+    // 3. metadata is publish-notify on a link with one identifier in the SearchGraph
+
+    QMutableHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->_subscriptionLists);
+    while (allSubsIt.hasNext()) {
+        allSubsIt.next();
+        QString pubId = allSubsIt.key();
+        QList<Subscription> subList = allSubsIt.value();
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << fnName << "publisher:" << pubId << "has num subscriptions:" << subList.size();
+        }
+
+        bool publisherHasDirtySub = false;
+        QMutableListIterator<Subscription> subIt(subList);
+        while (subIt.hasNext()) {
+            Subscription sub = subIt.next();
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << fnName << "--checking subscription named:" << sub._name;
+            }
+            bool subIsDirty = false;
+
+            if (! isLink) {
+                // Case 1.
+                if (sub._idList.contains(link.first)) {
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << fnName << "----subscription is dirty with id in SearchGraph:" << link.first;
+                    }
+                }
+            } else {
+                if (sub._linkList.contains(link)) {
+                    // Case 2.
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << fnName << "----subscription is dirty with link in SearchGraph:" << link;
+                    }
+                } else if (sub._idList.contains(link.first) || sub._idList.contains(link.second)) {
+                    // Case 3.
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << fnName << "----subscription is dirty with one end of the link in SearchGraph:" << link;
+                    }
+                }
+            }
+
+            if (subIsDirty && !sub._subscriptionError) {
+                // Construct results for the subscription
+                MapRequest::RequestError error;
+                if (isLink) {
+                    addLinkResult(sub, link, notifyMetaList, SearchResult::NotifyResultType, error);
+                } else {
+                    addIdentifierResult(sub, link.first, notifyMetaList, SearchResult::NotifyResultType, error);
+                }
+
+                if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT) { // TODO: Replace with client setting
+                    qDebug() << fnName << "Search results exceeded max poll result size with curSize:" << sub._curSize;
+                    sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
+                }
+
+                subIt.setValue(sub);
+                publisherHasDirtySub = true;
+            }
+        }
+
+        if (publisherHasDirtySub) {
+            allSubsIt.setValue(subList);
+        }
+    }
+}
+#endif //IFMAP20
 
 void Server::sendResultsOnActivePolls()
 {
@@ -1356,12 +1738,43 @@ void Server::sendResultsOnActivePolls()
 
                         sub._sentFirstResult = true;
                         subIt.setValue(sub);
+#ifdef IFMAP20
+                    } else if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT &&
+                               sub._requestVersion == MapRequest::IFMAPv20) { // TODO: Replace with client setting
+                        qDebug() << fnName << "Search results exceeded max poll result size with curSize:" << sub._curSize;
+                        sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
+                        sub.clearSearchResults();
+                        publisherHasError = true;
+
+                        if (!pollResponse) {
+                            pollResponse = new MapResponse(pollResponseVersion);
+                            pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                        }
+                        pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
+                        subIt.setValue(sub);
+#endif //IFMAP20
                     } else {
                         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << fnName << "--No results for subscription at this time";
                             qDebug() << fnName << "----_activePolls.contains(pubId):" << _mapSessions->_activePolls.contains(pubId);
                         }
                     }
+#ifdef IFMAP20
+                } else if (sub._deltaResults.count() > 0) {
+                    // Build results from update/delete/notify results
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << fnName << "--Gathering delta poll results for publisher with active poll:" << pubId;
+                    }
+
+                    if (!pollResponse) {
+                        pollResponse = new MapResponse(pollResponseVersion);
+                        pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                    }
+                    pollResponse->addPollResults(sub._deltaResults, sub._name);
+
+                    sub.clearSearchResults();
+                    subIt.setValue(sub);
+#endif //IFMAP20
                 }
             }
 
@@ -1377,6 +1790,17 @@ void Server::sendResultsOnActivePolls()
             }
 
             if (publisherHasError) {
+#ifdef IFMAP20
+                /* IFMAP20: 3.7.5:
+                If a server responds to a poll with an errorResult, all of the clients
+                subscriptions are automatically invalidated and MUST be removed by the
+                server.
+                */
+                if (pollResponseVersion == MapRequest::IFMAPv20) {
+                    qDebug() << fnName << "Removing subscriptions for publisherId:" << pubId;
+                    allSubsIt.remove();
+                }
+#endif //IFMAP20
 
                 _mapSessions->_activePolls.remove(pubId);
             }

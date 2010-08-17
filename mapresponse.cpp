@@ -156,6 +156,13 @@ void MapResponse::writeIdentifier(Identifier id)
         _xmlWriter.writeAttribute("name", id.value());
         _xmlWriter.writeAttribute("type", "sip-uri");
         break;
+#ifdef IFMAP20
+    case Identifier::IdentityHipHit:
+        _xmlWriter.writeEmptyElement("identity");
+        _xmlWriter.writeAttribute("name", id.value());
+        _xmlWriter.writeAttribute("type", "hip-hit");
+        break;
+#endif //IFMAP20
     case Identifier::IdentityTelUri:
         _xmlWriter.writeEmptyElement("identity");
         _xmlWriter.writeAttribute("name", id.value());
@@ -208,7 +215,11 @@ void MapResponse::setErrorResponse(MapRequest::RequestError requestError, QStrin
     finishEnvelope();
 }
 
+#ifdef IFMAP20
+void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId, bool mprsSet, unsigned int mprs)
+#else
 void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId)
+#endif //IFMAP20
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Header");
@@ -220,10 +231,42 @@ void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId)
         _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
         _xmlWriter.writeTextElement(IFMAP_NS_1, "publisher-id", publisherId);
         _xmlWriter.writeEndElement(); // </SOAP-ENV:Body>
+#ifdef IFMAP20
+    } else if (_requestVersion == MapRequest::IFMAPv20) {
+        startResponse();
+        _xmlWriter.writeStartElement("newSessionResult");
+        _xmlWriter.writeAttribute("session-id", sessionId);
+        _xmlWriter.writeAttribute("ifmap-publisher-id", publisherId);
+        if (mprsSet) {
+            QString mprsStr;
+            mprsStr.setNum(mprs);
+            _xmlWriter.writeAttribute("max-poll-result-size", mprsStr);
+        }
+        _xmlWriter.writeEndElement(); // </newSessionResult>
+        endResponse();
+#endif //IFMAP20
     }
 
     finishEnvelope();
 }
+
+#ifdef IFMAP20
+void MapResponse::setRenewSessionResponse()
+{
+    startResponse();
+    _xmlWriter.writeEmptyElement("renewSessionResult");
+    endResponse();
+    finishEnvelope();
+}
+
+void MapResponse::setEndSessionResponse()
+{
+    startResponse();
+    _xmlWriter.writeEmptyElement("endSessionResult");
+    endResponse();
+    finishEnvelope();
+}
+#endif //IFMAP20
 
 void MapResponse::setAttachSessionResponse(QString sessionId, QString publisherId)
 {
@@ -302,6 +345,16 @@ void MapResponse::addLinkResult(Link link, QString metaXML)
             addMetadataResult(metaXML);
         }
         _xmlWriter.writeEndElement(); // </linkResult>
+#ifdef IFMAP20
+    } else if (_requestVersion == MapRequest::IFMAPv20) {
+        _xmlWriter.writeStartElement("resultItem");
+        writeIdentifier(link.first);
+        writeIdentifier(link.second);
+        if (! metaXML.isEmpty()) {
+            addMetadataResult(metaXML);
+        }
+        _xmlWriter.writeEndElement(); // </resultItem>
+#endif //IFMAP20
     }
 }
 
@@ -314,11 +367,28 @@ void MapResponse::addIdentifierResult(Identifier id, QString metaXML)
             addMetadataResult(metaXML);
         }
         _xmlWriter.writeEndElement(); // </identifierResult>
+#ifdef IFMAP20
+    } else if (_requestVersion == MapRequest::IFMAPv20) {
+        _xmlWriter.writeStartElement("resultItem");
+        writeIdentifier(id);
+        if (! metaXML.isEmpty()) {
+            addMetadataResult(metaXML);
+        }
+        _xmlWriter.writeEndElement(); // </resultItem>
+#endif //IFMAP20
     }
 }
 
 void MapResponse::addMetadataResult(QString metaXML)
 {
+    // TODO: It would be cleaner to just write the <metadata> tags here
+    // instead of adding them in Server::filteredMetadata(), but if I do that
+    // only the first metadata node gets written.
+    // TODO: The metadata namespace definitions should be in the individual
+    // metadata nodes, not in the <metadata> element
+    // TODO: It _may_ be better if the namespace prefixes matched the prefixes
+    // used in the client request
+    //_xmlWriter.writeStartElement("metadata");
     QXmlStreamReader xmlReader(metaXML);
     while (!xmlReader.atEnd()) {
         xmlReader.readNext();
@@ -340,6 +410,7 @@ void MapResponse::addMetadataResult(QString metaXML)
             break;
         }
     }
+    //_xmlWriter.writeEndElement(); // </metadata>
 }
 
 void MapResponse::startPollResponse(QString sessionId)
@@ -406,6 +477,17 @@ void MapResponse::startSearchResult(SearchResult::ResultType resultType, QString
     case SearchResult::SearchResultType:
         tagName = "searchResult";
         break;
+#ifdef IFMAP20
+    case SearchResult::UpdateResultType:
+        tagName = "updateResult";
+        break;
+    case SearchResult::DeleteResultType:
+        tagName = "deleteResult";
+        break;
+    case SearchResult::NotifyResultType:
+        tagName = "notifyResult";
+        break;
+#endif //IFMAP20
    }
 
     _xmlWriter.writeStartElement(tagName);
@@ -418,6 +500,17 @@ void MapResponse::endSearchResult(SearchResult::ResultType resultType) {
     case SearchResult::SearchResultType:
         tagName = "searchResult";
         break;
+#ifdef IFMAP20
+    case SearchResult::UpdateResultType:
+        tagName = "updateResult";
+        break;
+    case SearchResult::DeleteResultType:
+        tagName = "deleteResult";
+        break;
+    case SearchResult::NotifyResultType:
+        tagName = "notifyResult";
+        break;
+#endif //IFMAP20
     }
 
     _xmlWriter.writeEndElement();

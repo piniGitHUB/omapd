@@ -99,7 +99,6 @@ int main(int argc, char *argv[])
 
     //TODO: Threadpool the server objects and synchronize access to the MAP Graph
 
-    //MapGraph *mapGraph = new MapGraph();
     MapGraphInterface *mapGraph = 0;
     QDir pluginsDir(qApp->applicationDirPath());
 #if defined(Q_OS_WIN)
