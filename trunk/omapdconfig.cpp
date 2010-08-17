@@ -80,6 +80,9 @@ OmapdConfig::MapVersionSupportOptions OmapdConfig::mapVersionSupportOptions(unsi
     OmapdConfig::MapVersionSupportOptions support = OmapdConfig::SupportNone;
     if (value & OmapdConfig::SupportIfmapV10) support |= OmapdConfig::SupportIfmapV10;
     if (value & OmapdConfig::SupportIfmapV11) support |= OmapdConfig::SupportIfmapV11;
+#ifdef IFMAP20
+    if (value & OmapdConfig::SupportIfmapV20) support |= OmapdConfig::SupportIfmapV20;
+#endif //IFMAP20
 
     return support;
 }
@@ -90,6 +93,9 @@ QString OmapdConfig::mapVersionSupportString(OmapdConfig::MapVersionSupportOptio
     if (debug.testFlag(OmapdConfig::SupportNone)) str += "OmapdConfig::SupportNone | ";
     if (debug.testFlag(OmapdConfig::SupportIfmapV10)) str += "OmapdConfig::SupportIfmapV10 | ";
     if (debug.testFlag(OmapdConfig::SupportIfmapV11)) str += "OmapdConfig::SupportIfmapV11 | ";
+#ifdef IFMAP20
+    if (debug.testFlag(OmapdConfig::SupportIfmapV20)) str += "OmapdConfig::SupportIfmapV20 | ";
+#endif //IFMAP20
 
     if (! str.isEmpty()) {
         str = str.left(str.size()-3);

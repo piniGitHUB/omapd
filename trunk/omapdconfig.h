@@ -24,6 +24,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QtCore>
 
+#define IFMAP20
+
 class OmapdConfig : public QObject
 {
     Q_OBJECT
@@ -48,6 +50,9 @@ public:
                SupportNone = 0x00,
                SupportIfmapV10 = 0x01,
                SupportIfmapV11 = 0x02,
+#ifdef IFMAP20
+               SupportIfmapV20 = 0x04
+#endif //IFMAP20
                            };
     Q_DECLARE_FLAGS(MapVersionSupportOptions, MapVersionSupport);
     static MapVersionSupportOptions mapVersionSupportOptions(unsigned int value);

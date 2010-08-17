@@ -1,5 +1,5 @@
 /*
-clientparser.h: Definition of ClientParser class
+clientparser.h: Declaration of ClientParser class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 
@@ -67,6 +67,10 @@ private:
 
     void readNewSession();
     void readAttachSession();
+#ifdef IFMAP20
+    void readRenewSession();
+    void readEndSession();
+#endif //IFMAP20
     void readPurgePublisher();
     void readPublish();
     void readSubscribe();

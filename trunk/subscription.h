@@ -32,12 +32,21 @@ class SearchResult {
 public:
     enum ResultType {
         SearchResultType = 1,
+#ifdef IFMAP20
+        UpdateResultType,
+        DeleteResultType,
+        NotifyResultType
+#endif //IFMAP20
     };
 
     enum ResultScope {
         IdentifierResult = 1,
         LinkResult
     };
+
+#ifdef IFMAP20
+    static SearchResult::ResultType resultTypeForPublishType(Meta::PublishOperationType publishType);
+#endif //IFMAP20
 
     SearchResult(SearchResult::ResultType type, SearchResult::ResultScope scope);
     ~SearchResult();
@@ -63,6 +72,9 @@ public:
     QSet<Link> _linkList;
 
     QList<SearchResult *> _searchResults;
+#ifdef IFMAP20
+    QList<SearchResult *> _deltaResults;
+#endif //IFMAP20
     int _curSize;
     bool _sentFirstResult;
     MapRequest::RequestError _subscriptionError;

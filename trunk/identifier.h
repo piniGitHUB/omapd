@@ -46,6 +46,9 @@ public:
         IdentityTrustedPlatformModule,
         IdentityUsername,
         IdentitySipUri,
+#ifdef IFMAP20
+        IdentityHipHit,
+#endif //IFMAP20
         IdentityTelUri,
         IdentityOther,
         IpAddressIPv4,

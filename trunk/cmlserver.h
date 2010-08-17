@@ -1,5 +1,5 @@
 /*
-cmlserver.h: Definition of CmlServer class
+cmlserver.h: Declaration of CmlServer class
 
 Copyright (C) 2010  Sarab D. Mattes <mattes@nixnux.org>
 

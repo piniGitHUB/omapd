@@ -102,6 +102,10 @@ void MapSessions::validateSessionId(MapRequest &clientRequest, QTcpSocket *socke
 {
     const char *fnName = "MapSessions::validateSessionId:";
 
+    /* IFMAP20: 4.4: If the session-id is valid, the server MUST respond with
+       a renewSessionResult element.  Otherwise, the server MUST respond with
+       an errorResult element, specifying an InvalidSessionID errorCode.
+    */
     if (clientRequest.clientSetSessionId()) {
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << fnName << "Using session-id in client request:" << clientRequest.sessionId();
