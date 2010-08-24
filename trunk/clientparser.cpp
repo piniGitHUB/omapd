@@ -804,6 +804,7 @@ Id ClientParser::readIdentifier(MapRequest &request)
             parseError = true;
             request.setRequestError(MapRequest::IfmapInvalidIdentifier);
         }
+	_xmlReader.readNext();
     } else if (idName.compare("identity") == 0) {
         QString type;
         if (attrs.hasAttribute("type")) {
