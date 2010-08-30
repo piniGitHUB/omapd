@@ -59,7 +59,7 @@ Subscription::Subscription(MapRequest::RequestVersion requestVersion)
 
 Subscription::~Subscription()
 {
-    clearSearchResults();
+    // TODO: Do I need to clearSearchResults() to avoid leaking memory?
 }
 
 void Subscription::clearSearchResults()
