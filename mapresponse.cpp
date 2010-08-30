@@ -433,33 +433,60 @@ void MapResponse::addPollErrorResult(QString subName, MapRequest::RequestError e
 
 void MapResponse::addPollResults(QList<SearchResult *> results, QString subName)
 {
-    bool startedSearchResult = false;
     QListIterator<SearchResult *> srIt(results);
+
+    // Only want to write the <searchResult> start tag if there are actually any
+    // <searchResult> elements to write.
+    bool startedSearchResult = false;
+
+    // First get all SearchResult::SearchResultType results for <searchResult>.
+    // Breaking it up because a client receives <searchResult> elements only after the
+    // first poll, but there could be <notifyResult> elements in there too.
     while (srIt.hasNext()) {
         SearchResult *result = srIt.next();
 
-        if (result->_resultType == SearchResult::SearchResultType && !startedSearchResult) {
-            // We only have one <searchResult> per subscription
-            startSearchResult(result->_resultType, subName);
-            startedSearchResult = true;
-        }
-
-        switch (result->_resultScope) {
-        case SearchResult::IdentifierResult:
-            addIdentifierResult(result->_id, result->_metadata);
-            break;
-        case SearchResult::LinkResult:
-            addLinkResult(result->_link, result->_metadata);
-            break;
-        }
-
-        if (!startedSearchResult) {
-            endSearchResult(result->_resultType);
+        if (result->_resultType == SearchResult::SearchResultType) {
+            if (!startedSearchResult) {
+                // We only have one <searchResult> per subscription
+                startSearchResult(result->_resultType, subName);
+                startedSearchResult = true;
+            }
+            switch (result->_resultScope) {
+            case SearchResult::IdentifierResult:
+                addIdentifierResult(result->_id, result->_metadata);
+                break;
+            case SearchResult::LinkResult:
+                addLinkResult(result->_link, result->_metadata);
+                break;
+            }
         }
     }
-
+    // Write the </searchResult> closing tag if we wrote the opening one
     if (startedSearchResult) {
-        endSearchResult(SearchResult::SearchResultType);
+        endSearchResult();
+    }
+
+    // Rewind the iterator
+    srIt.toFront();
+
+    // Next get all the <updateResult>, <deleteResult>, and <notifyResult> results
+    while (srIt.hasNext()) {
+        SearchResult *result = srIt.next();
+
+        if (result->_resultType != SearchResult::SearchResultType) {
+            startSearchResult(result->_resultType, subName);
+
+            switch (result->_resultScope) {
+            case SearchResult::IdentifierResult:
+                addIdentifierResult(result->_id, result->_metadata);
+                break;
+            case SearchResult::LinkResult:
+                addLinkResult(result->_link, result->_metadata);
+                break;
+            }
+
+            endSearchResult();
+        }
     }
 }
 
@@ -494,24 +521,6 @@ void MapResponse::startSearchResult(SearchResult::ResultType resultType, QString
     _xmlWriter.writeAttribute("name", subName);
 }
 
-void MapResponse::endSearchResult(SearchResult::ResultType resultType) {
-    QString tagName = "";
-    switch (resultType) {
-    case SearchResult::SearchResultType:
-        tagName = "searchResult";
-        break;
-#ifdef IFMAP20
-    case SearchResult::UpdateResultType:
-        tagName = "updateResult";
-        break;
-    case SearchResult::DeleteResultType:
-        tagName = "deleteResult";
-        break;
-    case SearchResult::NotifyResultType:
-        tagName = "notifyResult";
-        break;
-#endif //IFMAP20
-    }
-
+void MapResponse::endSearchResult() {
     _xmlWriter.writeEndElement();
 }

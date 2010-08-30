@@ -120,7 +120,7 @@ private:
     MapGraphInterface* _mapGraph;
     MapSessions* _mapSessions;
 
-    QSet<QTcpSocket*> _headersReceived;
+    QHash<QTcpSocket*, int> _headersReceived;
     QList<QSslCertificate> _caCerts;
     QSslCertificate _serverCert;
     QSslKey _serverKey;

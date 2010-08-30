@@ -97,7 +97,7 @@ private:
     void addMetadataResult(QString metaXML);
 
     void startSearchResult(SearchResult::ResultType resultType, QString subName);
-    void endSearchResult(SearchResult::ResultType resultType);
+    void endSearchResult();
 private:
     MapRequest::RequestVersion _requestVersion;
     QXmlStreamWriter _xmlWriter;

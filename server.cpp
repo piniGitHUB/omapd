@@ -280,7 +280,20 @@ void Server::readClient()
     const char *fnName = "Server::readClient:";
     QTcpSocket* socket = (QTcpSocket*)sender();
 
-    readHeader(socket);
+    // Default value of 0 if socket not in table
+    if ( _headersReceived.value(socket, 0) == 0) {
+        readHeader(socket);
+    }
+
+    int nBytesAvailable = socket->bytesAvailable();
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData)) {
+        qDebug() << fnName << "Socket has nBytesAvailable:" << nBytesAvailable;
+    }
+    _headersReceived.insert(socket, _headersReceived.value(socket, 0) - nBytesAvailable);
+
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData)) {
+        qDebug() << fnName << "Socket data:" << endl << socket->peek(nBytesAvailable);
+    }
 
     ClientParser clientParser;
     if (clientParser.read(socket)) {
@@ -291,6 +304,8 @@ void Server::readClient()
             qDebug() << fnName << "Client Error:" << MapRequest::requestErrorString(clientParser.requestError());
         }
         emit clientRequestReceived(socket, clientParser.requestType(), clientParser.request());
+
+
     } else if (clientParser.requestError() != MapRequest::ErrorNone) {
         MapResponse errorResp(clientParser.requestVersion());
         if (clientParser.requestError() == MapRequest::IfmapClientSoapFault) {
@@ -304,6 +319,14 @@ void Server::readClient()
         MapResponse clientFaultResponse(MapRequest::VersionNone);
         clientFaultResponse.setClientFault(clientParser.errorString());
         sendMapResponse(socket, clientFaultResponse);
+    } else {
+        // TODO: a new ClientParser object will be created everytime this slot is called, so XML
+        //       data has no way to get added to a ClientParser object when they experience
+        //       QXmlStreamReader::PrematureEndOfDocumentError errors.  It would be good to keep
+        //       these ClientParser objects around so that more XML data can be added to them.
+
+        // We have a QXmlStreamReader::PrematureEndOfDocumentError and will hopefully
+        // receive more XML data on the socket.
     }
 }
 
@@ -332,6 +355,7 @@ int Server::readHeader(QTcpSocket *socket)
     }
 
     if (end) {
+        // If we get the Content-Length header, then the 0 above will get updated
         emit headerReceived(socket, requestWithHdr);
     }
 
@@ -355,6 +379,25 @@ void Server::processHeader(QTcpSocket *socket, QNetworkRequest requestHdrs)
                 qDebug() << fnName << "Got 100-continue Expect Header";
             }
             sendHttpResponse(socket, 100, "Continue");
+        }
+    }
+
+    if (requestHdrs.hasRawHeader(QByteArray("Content-Length"))) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+            qDebug() << fnName << "Got Content-Length header";
+        bool ok = false;
+        int contentLength = requestHdrs.rawHeader(QByteArray("Content-Length")).toInt(&ok);
+        if (ok) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+                qDebug() << fnName << "Got Content-Length value:" << contentLength;
+            }
+
+            // Keep track of number of bytes expected on this socket
+            _headersReceived.insert(socket, contentLength);
+        } else {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+                qDebug() << fnName << "Error reading Content-Length header value";
+            }
         }
     }
 
@@ -1199,7 +1242,7 @@ void Server::addIdentifierResult(Subscription &sub, Identifier id, QList<Meta> m
     SearchResult *searchResult = new SearchResult(resultType, SearchResult::IdentifierResult);
     searchResult->_id = id;
 
-    if (!metaList.isEmpty()) {
+    if (!metaList.isEmpty() && ! sub._search.resultFilter().isEmpty()) {
         QString metaString = filteredMetadata(metaList, sub._search.resultFilter(), sub._search.filterNamespaceDefinitions(), operationError);
 
         if (! metaString.isEmpty()) {
@@ -1229,7 +1272,7 @@ void Server::addLinkResult(Subscription &sub, Link link, QList<Meta> metaList, S
     SearchResult *searchResult = new SearchResult(resultType, SearchResult::LinkResult);
     searchResult->_link = link;
 
-    if (!metaList.isEmpty()) {
+    if (!metaList.isEmpty() && ! sub._search.resultFilter().isEmpty()) {
         QString combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
         QString metaString = filteredMetadata(metaList, combinedFilter, sub._search.filterNamespaceDefinitions(), operationError);
 

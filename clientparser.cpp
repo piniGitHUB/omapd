@@ -189,16 +189,16 @@ void ClientParser::readMapRequest()
         _xmlReader.raiseError("Did not get a valid IF-MAP Namespace");
     }
 
-    if (method == "new-session") {
+    if (method == "new-session" && methodNS == IFMAP_NS_1) {
         readNewSession();
-    } else if (method == "attach-session") {
+    } else if (method == "attach-session" && methodNS == IFMAP_NS_1) {
         readAttachSession();
-    } else if (method == "newSession") {
+    } else if (method == "newSession" && methodNS == IFMAP_NS_2) {
         readNewSession();
 #ifdef IFMAP20
-    } else if (method == "endSession") {
+    } else if (method == "endSession" && methodNS == IFMAP_NS_2) {
         readEndSession();
-    } else if (method == "renewSession") {
+    } else if (method == "renewSession" && methodNS == IFMAP_NS_2) {
         readRenewSession();
 #endif //IFMAP20
     } else if (method == "publish") {
@@ -365,6 +365,7 @@ void ClientParser::readPurgePublisher()
 
 void ClientParser::readSubscribe()
 {
+    const char *fnName = "ClientParser::readSubscribe:";
     SubscribeRequest subReq;
     subReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::Subscribe;
@@ -372,7 +373,10 @@ void ClientParser::readSubscribe()
 
     while (_xmlReader.readNextStartElement() && !subReq.requestError()) {
         readSubscribeOperation(subReq);
-        _xmlReader.readNext();
+        if (_xmlReader.isCharacters()) {
+            qDebug() << fnName << "Reading past:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
+            _xmlReader.readNext();
+        }
     }
     _mapRequest.setValue(subReq);
 }
@@ -576,6 +580,7 @@ void ClientParser::readPoll()
 
 void ClientParser::readPublish()
 {
+    const char *fnName = "ClientParser::readPublish";
     PublishRequest pubReq;
     pubReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::Publish;
@@ -584,7 +589,10 @@ void ClientParser::readPublish()
 
     while (_xmlReader.readNextStartElement() && !pubReq.requestError()) {
         readPublishOperation(pubReq);
-        _xmlReader.readNext();
+        if (_xmlReader.isCharacters()) {
+            qDebug() << fnName << "Reading past:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
+            _xmlReader.readNext();
+        }
     }
 
     _mapRequest.setValue(pubReq);
@@ -804,7 +812,7 @@ Id ClientParser::readIdentifier(MapRequest &request)
             parseError = true;
             request.setRequestError(MapRequest::IfmapInvalidIdentifier);
         }
-	_xmlReader.readNext();
+        _xmlReader.readNext();
     } else if (idName.compare("identity") == 0) {
         QString type;
         if (attrs.hasAttribute("type")) {
@@ -948,8 +956,11 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
     }
 #endif //IFMAP20
 
-    if (_requestVersion == MapRequest::IFMAPv11) {
-        // To get past </identifier> or </link>
+    // Clear out potential whitespace between <identifier> or <link> and <metadata> elements
+    if (_xmlReader.tokenType() != QXmlStreamReader::StartElement) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << fnName << "Reading past element:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
+        }
         _xmlReader.readNextStartElement();
     }
 
@@ -1042,7 +1053,7 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
         }
         _xmlReader.readNext();
     } else {
-        qDebug() << fnName << "Error reading <metadata>:" << _xmlReader.name();
+        qDebug() << fnName << "Expecting <metadata> but encountered:" << _xmlReader.name();
         pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
         _xmlReader.raiseError("Invalid IF-MAP Structure");
         _requestError = MapRequest::IfmapClientSoapFault;
