@@ -705,7 +705,10 @@ Link ClientParser::readLink(MapRequest &request, bool &isLink)
                     }
                     _xmlReader.readNext();
                 }
-                _xmlReader.readNext();
+                if (_xmlReader.isCharacters()) {
+                    qDebug() << fnName << "Reading past:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
+                    _xmlReader.readNext();
+                }
             }
         } else if (_xmlReader.name() == "identifier") {
             if (_xmlReader.readNextStartElement()) {
@@ -993,6 +996,15 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
             if (elementAttrs.hasAttribute(cardinalityAttrName)) {
                 cardinalityValue = (elementAttrs.value(cardinalityAttrName) == "singleValue")
                                    ? Meta::SingleValue : Meta::MultiValue;
+#ifdef IFMAP20
+            } else if (_requestVersion == MapRequest::IFMAPv20) {
+                /* IFMAP20: 3.3.3: A MAP client MUST define the ifmap-cardinality attribute of
+                   any metadata as singleValue or mulltiValue.
+                */
+                qDebug() << fnName << "Error: metadata element does not specify ifmap-cardinality:" << metaName;
+                _requestError = MapRequest::IfmapInvalidMetadata;
+                pubReq.setRequestError(MapRequest::IfmapInvalidMetadata);
+#endif //IFMAP20
             } else {
                 qDebug() << fnName << "Notice: assigning metadata element multiValue cardinality:" << metaName;
                 cardinalityValue = Meta::MultiValue;
