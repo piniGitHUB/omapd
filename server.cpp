@@ -891,6 +891,7 @@ void Server::processSearch(QTcpSocket *socket, QVariant clientRequest)
 
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << fnName << "Search Lists";
+            // NB: idList size should be 1 or more, because we always include the starting identifier
             qDebug() << fnName << "    idList size:" << tempSub._idList.size();
             qDebug() << fnName << "    linkList size:" << tempSub._linkList.size();
         }
@@ -1313,6 +1314,7 @@ void Server::collectSearchGraphMetadata(Subscription &sub, SearchResult::ResultT
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << fnName << "idMetaList size for id:" << id << "-->" << idMetaList.size();
         }
+        // TODO: Should the identifier be added if there is no metadata at all?
         addIdentifierResult(sub, id, idMetaList, resultType, operationError);
     }
 
