@@ -103,10 +103,10 @@ QString Subscription::translateFilter(QString ifmapFilter)
     // TODO: Do this with QRegExp
 
     QString qtFilter = ifmapFilter;
-    if (ifmapFilter.contains("or", Qt::CaseInsensitive)) {
+    if (ifmapFilter.contains(" or ", Qt::CaseInsensitive)) {
         qDebug() << fnName << "WARNING! filter translation is woefully incomplete!";
         qDebug() << fnName << "filter before translation:" << ifmapFilter;
-        qtFilter = ifmapFilter.replace("or","|");
+        qtFilter = ifmapFilter.replace(" or "," | ");
         qtFilter.prepend("(");
         qtFilter.append(")");
         qDebug() << fnName << "filter after translation:" << qtFilter;
