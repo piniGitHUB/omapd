@@ -745,7 +745,7 @@ Link ClientParser::readLink(MapRequest &request, bool &isLink)
         _xmlReader.readNextStartElement();
 
         // ... and there may be another identifier, or it may be metadata
-        if (idCount == 1 && _xmlReader.name() != "metadata") {
+        if (idCount == 1 && _xmlReader.name() != "metadata" && _xmlReader.tokenType() == QXmlStreamReader::StartElement) {
             id2 = readIdentifier(request);
             _xmlReader.readNext();
             idCount++;
