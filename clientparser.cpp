@@ -739,10 +739,17 @@ Link ClientParser::readLink(MapRequest &request, bool &isLink)
         if (idCount == 0) {
             id1 = readIdentifier(request);
             _xmlReader.readNext();
+            qDebug() << fnName << "Current elementName:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
             idCount++;
         }
 
-        _xmlReader.readNextStartElement();
+        // Clear out potential whitespace between identifier elements
+        while (_xmlReader.tokenType() != QXmlStreamReader::StartElement) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << fnName << "Reading past element:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
+            }
+            _xmlReader.readNext();
+        }
 
         // ... and there may be another identifier, or it may be metadata
         if (idCount == 1 && _xmlReader.name() != "metadata" && _xmlReader.tokenType() == QXmlStreamReader::StartElement) {
@@ -815,7 +822,6 @@ Id ClientParser::readIdentifier(MapRequest &request)
             parseError = true;
             request.setRequestError(MapRequest::IfmapInvalidIdentifier);
         }
-        _xmlReader.readNext();
     } else if (idName.compare("identity") == 0) {
         QString type;
         if (attrs.hasAttribute("type")) {
@@ -1065,7 +1071,7 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
         }
         _xmlReader.readNext();
     } else {
-        qDebug() << fnName << "Expecting <metadata> but encountered:" << _xmlReader.name();
+        qDebug() << fnName << "Expecting <metadata> but encountered:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
         pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
         _xmlReader.raiseError("Invalid IF-MAP Structure");
         _requestError = MapRequest::IfmapClientSoapFault;
