@@ -289,19 +289,7 @@ void ClientParser::readRenewSession()
     rnReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::RenewSession;
 
-    QXmlStreamAttributes attrs = _xmlReader.attributes();
-    if (attrs.hasAttribute("session-id")) {
-        rnReq.setSessionId(attrs.value("session-id").toString());
-        rnReq.setClientSetSessionId(true);
-
-        _sessionId = attrs.value("session-id").toString();
-        _clientSetSessionId = true;
-    }
-
-    MapSessions::getInstance()->validateSessionId(rnReq, (QTcpSocket *)_xmlReader.device());
-    if (rnReq.requestError()) {
-        _requestError = rnReq.requestError();
-    }
+    setSessionId(rnReq);
 
     _mapRequest.setValue(rnReq);
 }
@@ -312,19 +300,7 @@ void ClientParser::readEndSession()
     esReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::EndSession;
 
-    QXmlStreamAttributes attrs = _xmlReader.attributes();
-    if (attrs.hasAttribute("session-id")) {
-        esReq.setSessionId(attrs.value("session-id").toString());
-        esReq.setClientSetSessionId(true);
-
-        _sessionId = attrs.value("session-id").toString();
-        _clientSetSessionId = true;
-    }
-
-    MapSessions::getInstance()->validateSessionId(esReq, (QTcpSocket *)_xmlReader.device());
-    if (esReq.requestError()) {
-        _requestError = esReq.requestError();
-    }
+    setSessionId(esReq);
 
     _mapRequest.setValue(esReq);
 }
