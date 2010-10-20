@@ -715,12 +715,12 @@ Link ClientParser::readLink(MapRequest &request, bool &isLink)
         if (idCount == 0) {
             id1 = readIdentifier(request);
             _xmlReader.readNext();
-            qDebug() << fnName << "Current elementName:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
             idCount++;
         }
 
         // Clear out potential whitespace between identifier elements
-        while (_xmlReader.tokenType() != QXmlStreamReader::StartElement) {
+        while (!_xmlReader.atEnd() && !_xmlReader.hasError() &&
+               _xmlReader.tokenType() != QXmlStreamReader::StartElement) {
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << fnName << "Reading past element:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
             }
