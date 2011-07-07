@@ -339,8 +339,10 @@ void MapResponse::addLinkResult(Link link, QString metaXML)
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement("linkResult");
+        _xmlWriter.writeStartElement("link");
         writeIdentifier(link.first);
         writeIdentifier(link.second);
+        _xmlWriter.writeEndElement(); // </link>
         if (! metaXML.isEmpty()) {
             addMetadataResult(metaXML);
         }
