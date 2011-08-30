@@ -1274,7 +1274,10 @@ void Server::addLinkResult(Subscription &sub, Link link, QList<Meta> metaList, S
     searchResult->_link = link;
 
     if (!metaList.isEmpty() && ! sub._search.resultFilter().isEmpty()) {
-        QString combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
+        QString combinedFilter = sub._search.matchLinks();
+        if (sub._search.resultFilter().compare("*") != 0) {
+            combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
+        }
         QString metaString = filteredMetadata(metaList, combinedFilter, sub._search.filterNamespaceDefinitions(), operationError);
 
         if (! metaString.isEmpty()) {
@@ -1332,7 +1335,7 @@ void Server::collectSearchGraphMetadata(Subscription &sub, SearchResult::ResultT
 #ifdef IFMAP20
 void Server::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, QSet<Id>idList, QSet<Link>linkList, MapRequest::RequestError &operationError)
 {
-    const char *fnName = "Server::collectSearchGraphUpdateMetadata:";
+    const char *fnName = "Server::addUpdateAndDeleteMetadata:";
     QSetIterator<Id> idIt(idList);
     while (idIt.hasNext() && !operationError) {
         Id id = idIt.next();
