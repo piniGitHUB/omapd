@@ -31,15 +31,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "identifier.h"
 #include "omapdconfig.h"
 
-#define SOAPv11_ENVELOPE    "http://schemas.xmlsoap.org/soap/envelope/"
-#define SOAPv11_ENCODING    "http://schemas.xmlsoap.org/soap/encoding/"
-#define SOAPv11_ACTORNEXT   "http://schemas.xmlsoap.org/soap/actor/next"
-#define SOAPv12_ENVELOPE    "http://www.w3.org/2003/05/soap-envelope"
-
-#define XML_SCHEMA          "http://www.w3.org/1999/XMLSchema"
-#define XML_SCHEMA_INSTANCE "http://www.w3.org/1999/XMLSchema-instance"
-#define XML_NAMESPACE       "http://www.w3.org/XML/1998/namespace"
-
 class ClientParser : public QObject
 {
     Q_OBJECT

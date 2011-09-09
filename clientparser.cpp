@@ -80,7 +80,7 @@ void ClientParser::setSessionId(MapRequest &request)
 
 bool ClientParser::read(QTcpSocket *clientSocket)
 {
-    const char *fnName = "ClientHandler::read:";
+    const char *fnName = "ClientParser::read:";
     _xmlReader.setDevice(clientSocket);
 
     if (_xmlReader.readNextStartElement()) {
