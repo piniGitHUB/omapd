@@ -27,7 +27,9 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #define SOAPv11_ENVELOPE    "http://schemas.xmlsoap.org/soap/envelope/"
 #define SOAPv11_ENCODING    "http://schemas.xmlsoap.org/soap/encoding/"
-#define SOAPv11_ACTORNEXT   "http://schemas.xmlsoap.org/soap/actor/next"
+
+#define SOAPv12_ENVELOPE    "http://www.w3.org/2003/05/soap-envelope"
+#define SOAPv12_ENCODING    "http://www.w3.org/2003/05/soap-encoding"
 
 #define XML_SCHEMA          "http://www.w3.org/1999/XMLSchema"
 #define XML_SCHEMA_INSTANCE "http://www.w3.org/1999/XMLSchema-instance"
@@ -99,6 +101,8 @@ private:
     void startSearchResult(SearchResult::ResultType resultType, QString subName);
     void endSearchResult();
 private:
+    const char *_soap_envelope;
+    const char *_soap_encoding;
     MapRequest::RequestVersion _requestVersion;
     QXmlStreamWriter _xmlWriter;
     QBuffer _responseBuffer;

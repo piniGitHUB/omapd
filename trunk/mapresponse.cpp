@@ -26,6 +26,13 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 MapResponse::MapResponse(MapRequest::RequestVersion reqVersion)
     : _requestVersion(reqVersion)
 {
+    if (_requestVersion == MapRequest::IFMAPv20) {
+      _soap_envelope = SOAPv12_ENVELOPE;
+      _soap_encoding = SOAPv12_ENCODING;
+    } else {
+      _soap_envelope = SOAPv11_ENVELOPE;
+      _soap_encoding = SOAPv11_ENCODING;
+    }
     _responseNamespace = MapRequest::requestVersionNamespace(reqVersion);
 
     _responseBuffer.open(QIODevice::WriteOnly);
@@ -35,9 +42,9 @@ MapResponse::MapResponse(MapRequest::RequestVersion reqVersion)
 
     // Write <SOAP-ENV:Envelope> opening tag and necessary namespaces
     _xmlWriter.writeStartDocument();
-    _xmlWriter.writeNamespace(SOAPv11_ENVELOPE, "SOAP-ENV");
-    _xmlWriter.writeStartElement(SOAPv11_ENVELOPE,"Envelope");
-    _xmlWriter.writeNamespace(SOAPv11_ENCODING, "SOAP-ENC");
+    _xmlWriter.writeNamespace(_soap_envelope, "SOAP-ENV");
+    _xmlWriter.writeStartElement(_soap_envelope,"Envelope");
+    _xmlWriter.writeNamespace(_soap_encoding, "SOAP-ENC");
     _xmlWriter.writeNamespace(XML_SCHEMA_INSTANCE, "xsi");
     _xmlWriter.writeNamespace(XML_SCHEMA,"xsd");
     if (reqVersion != MapRequest::VersionNone) {
@@ -60,7 +67,7 @@ void MapResponse::finishEnvelope()
 
 void MapResponse::startResponse()
 {
-    _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Body");
+    _xmlWriter.writeStartElement(_soap_envelope, "Body");
     _xmlWriter.writeStartElement(_responseNamespace, "response");
 }
 
@@ -73,7 +80,7 @@ void MapResponse::endResponse()
 void MapResponse::checkAddSessionId(QString sessionId)
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
-        _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Header");
+        _xmlWriter.writeStartElement(_soap_envelope, "Header");
         _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
         _xmlWriter.writeEndElement(); // </SOAP-ENV:Header>
     }
@@ -189,8 +196,8 @@ void MapResponse::writeIdentifier(Identifier id)
 
 void MapResponse::setClientFault(QString faultString)
 {
-    _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Body");
-    _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Fault");
+    _xmlWriter.writeStartElement(_soap_envelope, "Body");
+    _xmlWriter.writeStartElement(_soap_envelope, "Fault");
     _xmlWriter.writeTextElement("Faultstring", faultString);
     _xmlWriter.writeTextElement("Faultcode", "SOAP-ENV:Client");
     _xmlWriter.writeEndElement(); // </SOAP-ENV:Fault>
@@ -222,12 +229,12 @@ void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId)
 #endif //IFMAP20
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
-        _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Header");
+        _xmlWriter.writeStartElement(_soap_envelope, "Header");
         _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
         _xmlWriter.writeTextElement(IFMAP_NS_1, "publisher-id", publisherId);
         _xmlWriter.writeEndElement(); // </SOAP-ENV:Header>
 
-        _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Body");
+        _xmlWriter.writeStartElement(_soap_envelope, "Body");
         _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
         _xmlWriter.writeTextElement(IFMAP_NS_1, "publisher-id", publisherId);
         _xmlWriter.writeEndElement(); // </SOAP-ENV:Body>
@@ -270,12 +277,12 @@ void MapResponse::setEndSessionResponse()
 
 void MapResponse::setAttachSessionResponse(QString sessionId, QString publisherId)
 {
-    _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Header");
+    _xmlWriter.writeStartElement(_soap_envelope, "Header");
     _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
     _xmlWriter.writeTextElement(IFMAP_NS_1, "publisher-id", publisherId);
     _xmlWriter.writeEndElement(); // </SOAP-ENV:Header>
 
-    _xmlWriter.writeStartElement(SOAPv11_ENVELOPE, "Body");
+    _xmlWriter.writeStartElement(_soap_envelope, "Body");
     _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
     _xmlWriter.writeTextElement(IFMAP_NS_1, "publisher-id", publisherId);
     _xmlWriter.writeEndElement(); // </SOAP-ENV:Body>
