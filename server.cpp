@@ -451,13 +451,14 @@ void Server::sendMapResponse(QTcpSocket *socket, MapResponse &mapResponse)
 
     QByteArray response = mapResponse.responseData();
     QHttpResponseHeader header(200,"OK");
-    header.setContentType("text/xml");
     header.setContentLength(response.size());
 
     if (mapResponse.requestVersion() == MapRequest::IFMAPv11) {
+	header.setContentType("text/xml");
         header.setValue("Server","omapd/ifmap1.1");
 #ifdef IFMAP20
     } else if (mapResponse.requestVersion() == MapRequest::IFMAPv20) {
+	header.setContentType("application/soap+xml");
         header.setValue("Server","omapd/ifmap2.0");
 #endif //IFMAP20
     }
