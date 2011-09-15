@@ -601,7 +601,8 @@ void ClientParser::readPublishOperation(PublishRequest &pubReq)
                     pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
                 }
             } else {
-                pubOperation._lifetime = Meta::LifetimeForever;
+                // IFMAP20: 3.7.1: LifetimeSession is default
+                pubOperation._lifetime = Meta::LifetimeSession;
                 pubOperation._clientSetLifetime = false;
             }
 #endif //IFMAP20
@@ -911,6 +912,12 @@ Id ClientParser::readIdentifier(MapRequest &request)
             if (!test.setAddress(value)) {
                 if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << fnName << "Got invalid ip-address:" << value;
+                }
+                parseError = true;
+                request.setRequestError(MapRequest::IfmapInvalidIdentifier);
+            } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << fnName << "Got different ip-address address back to string:" << test.toString();
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
