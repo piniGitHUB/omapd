@@ -280,7 +280,8 @@ SearchType::SearchType()
 #ifdef IFMAP20
     _clientSetTerminalId = false;
 #endif //IFMAP20
-    _matchLinks = "";
+    // Intepretation of the spec is that no match-links attribute matches all links
+    _matchLinks = "*";
     _resultFilter = "*";
 #ifdef IFMAP20
     _terminalId = "";
