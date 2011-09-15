@@ -763,8 +763,6 @@ Id ClientParser::readIdentifier(MapRequest &request)
     QString value;
     QString other; // This is only for type Identifier::IdentityOther
 
-    // TODO: Do some rudimentary type checking on the value, e.g.
-    // (QHostAddress::setAddress ( const QString & address )) == true
     if (idName.compare("access-request") == 0) {
         idType = Identifier::AccessRequest;
         if (attrs.hasAttribute("name")) {
@@ -866,6 +864,26 @@ Id ClientParser::readIdentifier(MapRequest &request)
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             }
         }
+
+        // Validation
+        // Attempt to validate HIT
+        QHostAddress test;
+        if (idType == Identifier::IdentityHipHit && !parseError ) {
+            if (!test.setAddress(value)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << fnName << "Got invalid hip-hit address conversion:" << value;
+                }
+                parseError = true;
+                request.setRequestError(MapRequest::IfmapInvalidIdentifier);
+            } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << fnName << "Got different hip-hit address back to string:" << test.toString();
+                }
+                parseError = true;
+                request.setRequestError(MapRequest::IfmapInvalidIdentifier);
+            }
+        }
+
     } else if (idName.compare("ip-address") == 0) {
         QString type;
         if (attrs.hasAttribute("type")) {
@@ -887,6 +905,15 @@ Id ClientParser::readIdentifier(MapRequest &request)
             value = attrs.value("value").toString();
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << fnName << "Got ip-address:" << value;
+            }
+            // Attempt to validate IP Address
+            QHostAddress test;
+            if (!test.setAddress(value)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << fnName << "Got invalid ip-address:" << value;
+                }
+                parseError = true;
+                request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             }
         } else {
             // Error - did not specify ip-address value attribute
