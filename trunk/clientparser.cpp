@@ -1013,10 +1013,30 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
             // Local QXmlStreamWriter to add operational attributes
             QString metaString;
             QXmlStreamWriter xmlWriter(&metaString);
-            xmlWriter.writeCurrentToken(_xmlReader);
 
             // Check for attributes to apply
             QXmlStreamAttributes elementAttrs = _xmlReader.attributes();
+
+#ifdef IFMAP20
+            if (_requestVersion == MapRequest::IFMAPv20) {
+                // Remove any ifmap-* invalid attributes; only allowed client-supplied attribute is ifmap-cardinality
+                for (int i=0; i<elementAttrs.size(); i++) {
+                    QString attrStr = elementAttrs.at(i).name().toString();
+                    if (attrStr.startsWith("ifmap-")) {
+                        if (attrStr.compare(cardinalityAttrName) != 0) {
+                            // Have invalid ifmap- attribute
+                            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                                qDebug() << fnName << "Got invalid ifmap- reserved attribute:" << attrStr;
+                            }
+                            elementAttrs.remove(i);
+                        }
+                    }
+                }
+            }
+#endif
+
+            xmlWriter.writeStartElement(metaNS, metaName);
+            xmlWriter.writeAttributes(elementAttrs);
 
             Meta::Cardinality cardinalityValue;
             // Make sure we have the cardinality attribute and default it to multiValue
