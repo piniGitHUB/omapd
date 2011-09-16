@@ -936,6 +936,17 @@ Id ClientParser::readIdentifier(MapRequest &request)
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << fnName << "Got mac-address:" << value;
             }
+            // Attempt to validate MAC
+            QRegExp re;
+            re.setPattern("([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]");
+            re.setCaseSensitivity(Qt::CaseSensitive);
+            if (!re.exactMatch(value)) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << fnName << "Got invalid mac-address:" << value;
+                }
+                parseError = true;
+                request.setRequestError(MapRequest::IfmapInvalidIdentifier);
+            }
         } else {
             // Error - did not specify mac-address value attribute
             parseError = true;
