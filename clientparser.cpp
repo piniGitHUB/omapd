@@ -1039,7 +1039,7 @@ QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime li
             }
 
             // Set timestamp operational attribute
-            QString ts = QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ss");
+            QString ts = QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ssZ");
             xmlWriter.writeAttribute(timestampAttrName, ts);
             // Set publisher-id operational attribute
             xmlWriter.writeAttribute(pubIdAttrName, pubReq.publisherId());
