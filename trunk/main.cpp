@@ -22,7 +22,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QtCore/QCoreApplication>
 #include <stdio.h>
 
-#include "cmlserver.h"
 #include "server.h"
 #include "omapdconfig.h"
 #include "mapgraphinterface.h"
@@ -118,21 +117,20 @@ int main(int argc, char *argv[])
          mapGraph = qobject_cast<MapGraphInterface *>(plugin);
          if (!mapGraph) {
              qDebug() << "main: could not load MapGraph Plugin";
-             exit(-1);
+             exit(1);
          }
      } else {
          qDebug() << "main: could not get plugin instance";
-         exit(-1);
+         exit(1);
      }
 
     // Start a server with this MAP graph
     Server *server = new Server(mapGraph);
+    if (!server->startListening()) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not start server";
+        exit(2);
+    }
     qDebug() << "Started server:" << server;
-
-    // Create a CML Server instance
-    CmlServer *cmlServer = new CmlServer();
-    cmlServer->setServer(server);
-    qDebug() << "Started CML Server:" << cmlServer;
 
     return a.exec();
 }

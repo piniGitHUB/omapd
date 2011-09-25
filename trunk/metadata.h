@@ -40,9 +40,7 @@ public:
 
     enum PublishOperationType {
                 PublishUpdate = 1,
-#ifdef IFMAP20
                 PublishNotify,
-#endif //IFMAP20
                 PublishDelete
     };
 

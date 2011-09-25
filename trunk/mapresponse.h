@@ -44,10 +44,8 @@ public:
         ErrorResult,
         NewSession,
         AttachSession,
-#ifdef IFMAP20
         EndSession,
         RenewSession,
-#endif //IFMAP20
         Publish,
         Subscribe,
         Search,
@@ -64,15 +62,9 @@ public:
     void setClientFault(QString faultString);
 
     void setErrorResponse(MapRequest::RequestError requestError, QString sessionId, QString errorString = "", QString name = "");
-#ifdef IFMAP20
     void setNewSessionResponse(QString sessiondId, QString publisherId, bool mprsSet = false, unsigned int mprs = 0);
-#else
-    void setNewSessionResponse(QString sessiondId, QString publisherId);
-#endif //IFMAP20
-#ifdef IFMAP20
     void setRenewSessionResponse();
     void setEndSessionResponse();
-#endif //IFMAP20
     void setAttachSessionResponse(QString sessionId, QString publisherId);
     void setPublishResponse(QString sessionId);
     void setSubscribeResponse(QString sessionId);

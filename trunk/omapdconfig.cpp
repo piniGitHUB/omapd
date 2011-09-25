@@ -21,7 +21,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "omapdconfig.h"
 #include "server.h"
-#include "cmlserver.h"
 
 OmapdConfig* OmapdConfig::_instance = 0;
 
@@ -80,9 +79,7 @@ OmapdConfig::MapVersionSupportOptions OmapdConfig::mapVersionSupportOptions(unsi
     OmapdConfig::MapVersionSupportOptions support = OmapdConfig::SupportNone;
     if (value & OmapdConfig::SupportIfmapV10) support |= OmapdConfig::SupportIfmapV10;
     if (value & OmapdConfig::SupportIfmapV11) support |= OmapdConfig::SupportIfmapV11;
-#ifdef IFMAP20
     if (value & OmapdConfig::SupportIfmapV20) support |= OmapdConfig::SupportIfmapV20;
-#endif //IFMAP20
 
     return support;
 }
@@ -93,9 +90,7 @@ QString OmapdConfig::mapVersionSupportString(OmapdConfig::MapVersionSupportOptio
     if (debug.testFlag(OmapdConfig::SupportNone)) str += "OmapdConfig::SupportNone | ";
     if (debug.testFlag(OmapdConfig::SupportIfmapV10)) str += "OmapdConfig::SupportIfmapV10 | ";
     if (debug.testFlag(OmapdConfig::SupportIfmapV11)) str += "OmapdConfig::SupportIfmapV11 | ";
-#ifdef IFMAP20
     if (debug.testFlag(OmapdConfig::SupportIfmapV20)) str += "OmapdConfig::SupportIfmapV20 | ";
-#endif //IFMAP20
 
     if (! str.isEmpty()) {
         str = str.left(str.size()-3);
@@ -109,18 +104,57 @@ QDebug operator<<(QDebug dbg, OmapdConfig::MapVersionSupportOptions & dbgOptions
     return dbg.space();
 }
 
+OmapdConfig::AuthzOptions OmapdConfig::authzOptions(unsigned int authzValue)
+{
+    OmapdConfig::AuthzOptions value = OmapdConfig::DenyAll;
+
+    if (authzValue & OmapdConfig::AllowAll) {
+        value |= OmapdConfig::AllowAll;
+        return value;
+    }
+
+    if (authzValue & OmapdConfig::AllowPublish) value |= OmapdConfig::AllowPublish;
+    if (authzValue & OmapdConfig::AllowSearch) value |= OmapdConfig::AllowSearch;
+    if (authzValue & OmapdConfig::AllowSubscribe) value |= OmapdConfig::AllowSubscribe;
+    if (authzValue & OmapdConfig::AllowPoll) value |= OmapdConfig::AllowPoll;
+    if (authzValue & OmapdConfig::AllowPurgeSelf) value |= OmapdConfig::AllowPurgeSelf;
+    if (authzValue & OmapdConfig::AllowPurgeOthers) value |= OmapdConfig::AllowPurgeOthers;
+
+    return value;
+}
+
+QString OmapdConfig::authzOptionsString(OmapdConfig::AuthzOptions option)
+{
+    QString str("");
+    if (option.testFlag(OmapdConfig::DenyAll)) str += "OmapdConfig::DenyAll | ";
+    if (option.testFlag(OmapdConfig::AllowPublish)) str += "OmapdConfig::AllowPublish | ";
+    if (option.testFlag(OmapdConfig::AllowSearch)) str += "OmapdConfig::AllowSearch | ";
+    if (option.testFlag(OmapdConfig::AllowSubscribe)) str += "OmapdConfig::AllowSubscribe | ";
+    if (option.testFlag(OmapdConfig::AllowPoll)) str += "OmapdConfig::AllowPoll | ";
+    if (option.testFlag(OmapdConfig::AllowPurgeSelf)) str += "OmapdConfig::AllowPurgeSelf | ";
+    if (option.testFlag(OmapdConfig::AllowPurgeOthers)) str += "OmapdConfig::AllowPurgeOthers | ";
+
+    // Note str replace here if we get AllowAll
+    if (option.testFlag(OmapdConfig::AllowAll)) str = "OmapdConfig::AllowAll | ";
+
+    if (! str.isEmpty()) {
+        str = str.left(str.size()-3);
+    }
+    return str;
+}
+
+QDebug operator<<(QDebug dbg, OmapdConfig::AuthzOptions & dbgOptions)
+{
+    dbg.nospace() << OmapdConfig::authzOptionsString(dbgOptions);
+    return dbg.space();
+}
+
 OmapdConfig::OmapdConfig(QObject *parent)
     : QObject(parent)
 {
     QVariant var;
     // Defaults
     _omapdConfig.insert("log_stderr", true);
-    var.setValue(CmlServer::debugOptions(0));
-    _omapdConfig.insert("cml_debug_level", var);
-    _omapdConfig.insert("cml_address", "127.0.0.1");
-    _omapdConfig.insert("cml_port", 8080);
-    _omapdConfig.insert("cml_ssl_configuration", false);
-    _omapdConfig.insert("cml_require_client_certificates", false);
     var.setValue(OmapdConfig::mapVersionSupportOptions(3));
     _omapdConfig.insert("ifmap_version_support", var);
     var.setValue(OmapdConfig::debugOptions(0));
@@ -130,7 +164,6 @@ OmapdConfig::OmapdConfig(QObject *parent)
     _omapdConfig.insert("ifmap_ssl_configuration", false);
     _omapdConfig.insert("ifmap_create_client_configurations", true);
     _omapdConfig.insert("ifmap_allow_invalid_session_id", false);
-    _omapdConfig.insert("ifmap_require_client_certificates", false);
 }
 
 OmapdConfig::~OmapdConfig()
@@ -158,8 +191,6 @@ void OmapdConfig::showConfigValues()
                 value = OmapdConfig::debugString(var.value<OmapdConfig::IfmapDebugOptions>());
             else if (configIt.key() == "ifmap_version_support")
                 value = OmapdConfig::mapVersionSupportString(var.value<OmapdConfig::MapVersionSupportOptions>());
-            else if (configIt.key() == "cml_debug_level")
-                value = CmlServer::debugString(var.value<CmlServer::DebugOptions>());
 
             qDebug() << fnName << configIt.key() << "-->" << value;
         } else {
@@ -175,7 +206,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
 
     if (xmlReader.readNextStartElement()) {
         if (xmlReader.name() == "omapd_configuration" &&
-            xmlReader.attributes().value("version") == "1.0") {
+            xmlReader.attributes().value("version") == "2.0") {
 
             xmlReader.readNext();
 
@@ -194,66 +225,17 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                         enable = false;
                     addConfigItem(xmlReader.name().toString(), enable);
 
-                } else if (xmlReader.name() == "cml_configuration") {
+                } else if (xmlReader.name() == "debug_level") {
+                    QString value = xmlReader.readElementText();
+                    bool ok;
+                    unsigned int dbgVal = value.toUInt(&ok, 16);
+                    QVariant dbgVar(0);
+                    if (ok) {
+                        dbgVar.setValue(OmapdConfig::debugOptions(dbgVal));
+                    }
+                    addConfigItem("ifmap_" + xmlReader.name().toString(), dbgVar);
 
-                    while (xmlReader.readNextStartElement()) {
-                        if (xmlReader.name() == "debug_level") {
-                            QString value = xmlReader.readElementText();
-                            bool ok;
-                            unsigned int dbgVal = value.toUInt(&ok, 16);
-                            QVariant dbgVar(0);
-                            if (ok) {
-                                dbgVar.setValue(CmlServer::debugOptions(dbgVal));
-                            }
-                            addConfigItem("cml_" + xmlReader.name().toString(), dbgVar);
-
-                        } else if (xmlReader.name() == "address") {
-                            addConfigItem("cml_" + xmlReader.name().toString(), xmlReader.readElementText());
-
-                        } else if (xmlReader.name() == "port") {
-                            QString value = xmlReader.readElementText();
-                            addConfigItem("cml_" + xmlReader.name().toString(), QVariant(value.toUInt()));
-
-                        } else if (xmlReader.name() == "ssl_configuration") {
-                            bool enable = false;
-                            if (xmlReader.attributes().value("enable") == "yes")
-                                enable = true;
-                            addConfigItem("cml_" + xmlReader.name().toString(), enable);
-
-                            while (xmlReader.readNextStartElement()) {
-                                if ( xmlReader.name() == "ssl_protocol") {
-                                    /// TODO: Insert string validator for protocol type
-                                    addConfigItem("cml_" + xmlReader.name().toString(), xmlReader.readElementText());
-                                }
-                                else if (xmlReader.name() == "certificate_file") {
-                                    addConfigItem("cml_" + xmlReader.name().toString(), xmlReader.readElementText());
-
-                                } else if (xmlReader.name() == "ca_certificates_file") {
-                                    addConfigItem("cml_" + xmlReader.name().toString(), xmlReader.readElementText());
-
-                                } else if (xmlReader.name() == "private_key_file") {
-                                    addConfigItem("cml_" + xmlReader.name().toString(), xmlReader.readElementText());
-                                    if (xmlReader.attributes().hasAttribute("password")) {
-                                        addConfigItem("cml_private_key_password", xmlReader.attributes().value("password").toString());
-                                    }
-
-                                } else if (xmlReader.name() == "require_client_certificates") {
-                                    bool enable = true;
-                                    if (xmlReader.attributes().value("enable") == "no")
-                                        enable = false;
-                                    addConfigItem("cml_" + xmlReader.name().toString(), enable);
-
-                                } else {
-                                    xmlReader.skipCurrentElement();
-                                }
-                                xmlReader.readNext();
-                            }  // ssl_configuration
-                        } else {
-                            xmlReader.skipCurrentElement();
-                        }
-                        xmlReader.readNext();
-                    }  // cml_configuration
-                } else if (xmlReader.name() == "ifmap_configuration") {
+                } else if (xmlReader.name() == "service_configuration") {
 
                     while (xmlReader.readNextStartElement()) {
                         if (xmlReader.name() == "version_support") {
@@ -267,16 +249,6 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             }
                             addConfigItem("ifmap_" + xmlReader.name().toString(), supportVar);
 
-                        } else if (xmlReader.name() == "debug_level") {
-                            QString value = xmlReader.readElementText();
-                            bool ok;
-                            unsigned int dbgVal = value.toUInt(&ok, 16);
-                            QVariant dbgVar(0);
-                            if (ok) {
-                                dbgVar.setValue(OmapdConfig::debugOptions(dbgVal));
-                            }
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), dbgVar);
-
                         } else if (xmlReader.name() == "address") {
                             addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
 
@@ -289,6 +261,12 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             if (xmlReader.attributes().value("enable") == "yes")
                                 enable = true;
                             addConfigItem("ifmap_" + xmlReader.name().toString(), enable);
+
+                        } else if (xmlReader.name() == "allow_unauthenticated_clients") {
+                            bool allow = false;
+                            if (xmlReader.attributes().value("allow") == "yes")
+                                allow = true;
+                            addConfigItem("ifmap_" + xmlReader.name().toString(), allow);
 
                         } else if (xmlReader.name() == "allow_invalid_session_id") {
                             bool allow = false;
@@ -335,19 +313,27 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                         }
                         xmlReader.readNext();
                     }  // ifmap_configuration
+                } else if (xmlReader.name() == "client_configuration") {
+                    while (xmlReader.readNextStartElement()) {
+                        if (xmlReader.name() == "authentication") {
+
+                        } else if (xmlReader.name() == "authorization") {
+
+                        }
+                    }
                 } else {
                     xmlReader.skipCurrentElement();
                 }
                 xmlReader.readNext();
             }  // omapd_configuration
         } else {
-            xmlReader.raiseError(QObject::tr("The file is not an omapd Config file version 1.0"));
+            xmlReader.raiseError(QObject::tr("The file is not an omapd Config file version 2.0"));
         }
 
     }
 
     if (xmlReader.error()) {
-        qDebug() << fnName << "XML Error:";
+        qDebug() << fnName << "XML Error on line" << xmlReader.lineNumber();
         qDebug() << fnName << "-->" << xmlReader.errorString();
     }
 

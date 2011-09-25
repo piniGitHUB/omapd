@@ -19,17 +19,25 @@ You should have received a copy of the GNU General Public License
 along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <QtNetwork>
+#include <QDebug>
+#include <QNetworkRequest>
+#include <QHostAddress>
 
 #include "clientparser.h"
 #include "mapsessions.h"
 
-ClientParser::ClientParser(QObject *parent)
-    : QObject(parent)
+ClientParser::ClientParser(QIODevice *parent) :
+        QObject(parent)
 {
     _omapdConfig = OmapdConfig::getInstance();
 
-    _xmlReader.setNamespaceProcessing(true);
+    _xmlSocketReader.setNamespaceProcessing(true);
+    _xmlSocketReader.setDevice(parent);
+
+    _writer = new QXmlStreamWriter(&_clientRequestXml);
+    _writer->setAutoFormatting(true);
+
+    _xml.setNamespaceProcessing(true);
 
     _requestError = MapRequest::ErrorNone;
     _requestVersion = MapRequest::VersionNone;
@@ -44,15 +52,92 @@ ClientParser::ClientParser(QObject *parent)
     _namespaces.insert("trpz", "http://www.trustedcomputinggroup.org/2006/IFMAP-TRAPEZE/1");
     _namespaces.insert("scada", "http://www.trustedcomputinggroup.org/2006/IFMAP-SCADANET-METADATA/1");
     _namespaces.insert("meta", IFMAP_META_NS_1);
-
 }
 
 ClientParser::~ClientParser()
 {
-    const char *fnName = "ClientParser::~ClientParser:";
-    qDebug() << fnName;
-    _namespaces.clear();
+    delete _writer;
     _mapRequest.clear();
+}
+
+int ClientParser::readHeader()
+{
+    QNetworkRequest requestWithHdr;
+    bool end = false;
+    QString tmp;
+    QString headerStr = QLatin1String("");
+
+    QIODevice *socket = (QIODevice*)this->parent();
+    while (!end && socket->canReadLine()) {
+        tmp = QString::fromUtf8(socket->readLine());
+        if (tmp == QLatin1String("\r\n") || tmp == QLatin1String("\n") || tmp.isEmpty()) {
+            end = true;
+        } else {
+            int hdrSepIndex = tmp.indexOf(":");
+            if (hdrSepIndex != -1) {
+                QString hdrName = tmp.left(hdrSepIndex);
+                QString hdrValue = tmp.mid(hdrSepIndex+1).trimmed();
+                requestWithHdr.setRawHeader(hdrName.toUtf8(), hdrValue.toUtf8());
+                //qDebug() << __PRETTY_FUNCTION__ << ":" << "Got header:" << hdrName << "--->" << hdrValue;
+            }
+            headerStr += tmp;
+        }
+    }
+
+    if (end) {
+        // If we get the Content-Length header, then the 0 above will get updated
+        emit headerReceived(requestWithHdr);
+    }
+
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "headerStr:" << endl << headerStr;
+
+    return headerStr.length();
+}
+
+void ClientParser::readData()
+{
+    bool didGetCompleteRequest = false;
+    readHeader();
+
+    while (!_xmlSocketReader.atEnd()) {
+        _xmlSocketReader.readNext();
+        if (!_xmlSocketReader.isWhitespace()) {
+            _writer->writeCurrentToken(_xmlSocketReader);
+        }
+
+        if (_xmlSocketReader.tokenType() == QXmlStreamReader::EndDocument) {
+            // We wait to parse the client XML until we've received a complete SOAP Document
+            didGetCompleteRequest = true;
+        }
+    }
+
+    if (didGetCompleteRequest && !_xmlSocketReader.error()) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << endl
+                    << "------ start client request XML ---------" << endl
+                    << _clientRequestXml << endl
+                    << "------ end client request XML ---------" << endl;
+        }
+        _xml.addData(_clientRequestXml);
+
+        parseDocument();
+        emit parsingComplete();
+    } else if (_xmlSocketReader.error() != QXmlStreamReader::PrematureEndOfDocumentError){
+        _requestError = MapRequest::IfmapClientSoapFault;
+        _xml.raiseError(_xmlSocketReader.errorString());
+        emit parsingComplete();
+    }
+
+}
+
+void ClientParser::registerMetadataNamespaces()
+{
+    QXmlStreamNamespaceDeclarations nsVector = _xml.namespaceDeclarations();
+    for (int i=0; i<nsVector.size(); i++) {
+        _namespaces.insert(nsVector.at(i).prefix().toString(), nsVector.at(i).namespaceUri().toString());
+    }
+
 }
 
 void ClientParser::setSessionId(MapRequest &request)
@@ -60,182 +145,103 @@ void ClientParser::setSessionId(MapRequest &request)
     if (_requestVersion == MapRequest::IFMAPv11 && _clientSetSessionId) {
         request.setSessionId(_sessionId);
         request.setClientSetSessionId(true);
-#ifdef IFMAP20
     } else if (_requestVersion == MapRequest::IFMAPv20 &&
-               _xmlReader.attributes().hasAttribute("session-id")) {
-        request.setSessionId(_xmlReader.attributes().value("session-id").toString());
+               _xml.attributes().hasAttribute("session-id")) {
+        request.setSessionId(_xml.attributes().value("session-id").toString());
         request.setClientSetSessionId(true);
 
-        _sessionId = _xmlReader.attributes().value("session-id").toString();
+        _sessionId = _xml.attributes().value("session-id").toString();
         _clientSetSessionId = true;
-#endif //IFMAP20
     }
 
-    MapSessions::getInstance()->validateSessionId(request, (QTcpSocket *)_xmlReader.device());
+    // FIXME: This should move out of here
+    ClientHandler *client = (ClientHandler*)this->parent();
+    MapSessions::getInstance()->validateSessionId(request, client->peerAddress().toString());
     if (request.requestError()) {
         _requestError = request.requestError();
-        _xmlReader.raiseError("Invalid Session Id");
+        _xml.raiseError("Invalid Session Id");
     }
 }
 
-bool ClientParser::read(QTcpSocket *clientSocket)
+void ClientParser::parseDocument()
 {
-    const char *fnName = "ClientParser::read:";
-    _xmlReader.setDevice(clientSocket);
-
-    if (_xmlReader.readNextStartElement()) {
-        if (_xmlReader.name().compare("Envelope", Qt::CaseInsensitive) == 0) {
+    if (_xml.readNextStartElement()) {
+        if (_xml.name().compare("Envelope", Qt::CaseSensitive) == 0) {
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got SOAP Envelope"
-                        << "in namespace:" << _xmlReader.namespaceUri();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Envelope"
+                        << "in namespace:" << _xml.namespaceUri();
             }
             registerMetadataNamespaces();
-            readSoapEnvelope();
-
-            _xmlReader.readNext();
-
+            parseEnvelope();
         } else {
-            qDebug() << fnName << "Error: Did not get a SOAP Envelope";
-            _xmlReader.raiseError("Did not get a SOAP Envelope");
-            _requestError = MapRequest::IfmapClientSoapFault;
-        }
-    }
-
-    return !_xmlReader.error();
-}
-
-void ClientParser::readSoapEnvelope()
-{
-    const char *fnName = "ClientHandler::readSoapEnvelope:";
-    while (_xmlReader.readNextStartElement() && !_xmlReader.hasError()) {
-        if (_xmlReader.name().compare("Header", Qt::CaseInsensitive) == 0) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got SOAP Header"
-                        << "in namespace:" << _xmlReader.namespaceUri();
-            }
-            registerMetadataNamespaces();
-            readSoapHeader();
-        } else if (_xmlReader.name().compare("Body", Qt::CaseInsensitive) == 0) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got SOAP Body"
-                        << "in namespace:" << _xmlReader.namespaceUri();
-            }
-            registerMetadataNamespaces();
-            readSoapBody();
-        } else {
-            qDebug() << fnName << "Error reading SOAP Header or Body:" << _xmlReader.name() << _xmlReader.tokenString();
-            _xmlReader.raiseError("Error reading SOAP Header or Body");
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: Did not get a SOAP Envelope";
+            _xml.raiseError("Did not get a SOAP Envelope");
             _requestError = MapRequest::IfmapClientSoapFault;
         }
     }
 }
 
-void ClientParser::readSoapHeader()
+void ClientParser::parseEnvelope()
 {
-    while (_xmlReader.readNextStartElement() && !_xmlReader.hasError()) {
-        if (_xmlReader.name() == "new-session" && _xmlReader.namespaceUri() == IFMAP_NS_1 &&
-            _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
-            // Support for IF-MAP 1.0 client new-session, but this is still IF-MAP 1.1 operations
-            _requestVersion = MapRequest::IFMAPv11;
-            readNewSession();
-        } else if (_xmlReader.name() == "attach-session" && _xmlReader.namespaceUri() == IFMAP_NS_1 &&
-                   _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
-            // Support for IF-MAP 1.0 client attach-session, but this is still IF-MAP 1.1 operations
-            _requestVersion = MapRequest::IFMAPv11;
-            readAttachSession();
-        } else if (_xmlReader.name() == "session-id" && _xmlReader.namespaceUri() == IFMAP_NS_1 &&
-                   _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
-            qDebug() << "reading session-id";
-            _sessionId = _xmlReader.readElementText();
-            _clientSetSessionId = true;
+    while (_xml.readNextStartElement()) {
+
+        if (_xml.name().compare("Header", Qt::CaseSensitive) == 0) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Header"
+                        << "in namespace:" << _xml.namespaceUri();
+            }
+            registerMetadataNamespaces();
+            parseHeader();
+        } else if (_xml.name().compare("Body", Qt::CaseSensitive) == 0) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Body"
+                        << "in namespace:" << _xml.namespaceUri();
+            }
+            registerMetadataNamespaces();
+            parseBody();
         } else {
-            _xmlReader.skipCurrentElement();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading SOAP Header or Body:" << _xml.name() << _xml.tokenString();
+            _xml.raiseError("Error reading SOAP Header or Body");
+            _requestError = MapRequest::IfmapClientSoapFault;
         }
     }
 }
 
-void ClientParser::readSoapBody()
+void ClientParser::parseHeader()
 {
-    while (_xmlReader.readNextStartElement() && !_xmlReader.hasError() &&
-           _mapRequest.isNull()) {  // Make sure we only read the first request
-        readMapRequest();
-    }
-    _xmlReader.readNext();
-}
-
-void ClientParser::readMapRequest()
-{
-    const char *fnName = "ClientHandler::readMapRequest:";
-
-    QString method = _xmlReader.name().toString();
-    QString methodNS = _xmlReader.namespaceUri().toString();
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-        qDebug() << fnName << "Got IF-MAP client request:" << method
-                << "in namespace:" << methodNS;
-    }
-
-    if (methodNS == IFMAP_NS_1 &&
-        _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
+    if (_xml.name() == "new-session" && _xml.namespaceUri() == IFMAP_NS_1 &&
+        _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
+        // Support for IF-MAP 1.0 client new-session, but this is still IF-MAP 1.1 operations
         _requestVersion = MapRequest::IFMAPv11;
-#ifdef IFMAP20
-    } else if (methodNS == IFMAP_NS_2 &&
-               _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV20)) {
-        _requestVersion = MapRequest::IFMAPv20;
-#endif //IFMAP20
+        parseNewSession();
+    } else if (_xml.name() == "attach-session" && _xml.namespaceUri() == IFMAP_NS_1 &&
+               _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
+        // Support for IF-MAP 1.0 client attach-session, but this is still IF-MAP 1.1 operations
+        _requestVersion = MapRequest::IFMAPv11;
+        parseAttachSession();
+    } else if (_xml.name() == "session-id" && _xml.namespaceUri() == IFMAP_NS_1 &&
+               _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "reading session-id";
+        _sessionId = _xml.readElementText();
+        _clientSetSessionId = true;
     } else {
-        // ERROR!!!
-        qDebug() << fnName << "Error: Incorrect IF-MAP Namespace:" << methodNS;
-        _requestError = MapRequest::IfmapClientSoapFault;
-        _xmlReader.raiseError("Did not get a valid IF-MAP Namespace");
-    }
-
-    if (method == "new-session" && methodNS == IFMAP_NS_1) {
-        readNewSession();
-    } else if (method == "attach-session" && methodNS == IFMAP_NS_1) {
-        readAttachSession();
-    } else if (method == "newSession" && methodNS == IFMAP_NS_2) {
-        readNewSession();
-#ifdef IFMAP20
-    } else if (method == "endSession" && methodNS == IFMAP_NS_2) {
-        readEndSession();
-    } else if (method == "renewSession" && methodNS == IFMAP_NS_2) {
-        readRenewSession();
-#endif //IFMAP20
-    } else if (method == "publish") {
-        registerMetadataNamespaces();
-        readPublish();
-    } else if (method == "subscribe") {
-        registerMetadataNamespaces();
-        readSubscribe();
-    } else if (method == "search") {
-        registerMetadataNamespaces();
-        readSearch();
-    } else if (method == "purgePublisher") {
-        readPurgePublisher();
-    } else if (method == "poll") {
-        readPoll();
-    } else {
-        // ERROR!!!
-        qDebug() << fnName << "Error reading element:" << _xmlReader.name();
-        _requestError = MapRequest::IfmapClientSoapFault;
-        _xmlReader.raiseError("Did not get a valid IF-MAP Request");
+        _xml.skipCurrentElement();
     }
 }
 
-void ClientParser::readNewSession()
+void ClientParser::parseNewSession()
 {
     NewSessionRequest nsReq;
     nsReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::NewSession;
 
-#ifdef IFMAP20
     /* IFMAP20: 4.3: max-poll-result-size is an optional attribute that indicates to the
        MAP Server the amount of buffer space the client would like to have allocated to
        hold poll results. A MAP Server MUST support buffer sizes of at least 5,000,000
        bytes, and MAY support larger sizes.
     */
     if (_requestVersion == MapRequest::IFMAPv20) {
-        QXmlStreamAttributes nsAttrs = _xmlReader.attributes();
+        QXmlStreamAttributes nsAttrs = _xml.attributes();
         if (nsAttrs.hasAttribute("max-poll-result-size")) {
             bool ok = false;
             uint mprs = nsAttrs.value("max-poll-result-size").toString().toUInt(&ok);
@@ -245,25 +251,24 @@ void ClientParser::readNewSession()
             } else {
                 // Client fault
                 nsReq.setRequestError(MapRequest::IfmapClientSoapFault);
-                _xmlReader.raiseError("Error reading new session request");
+                _xml.raiseError("Error reading new session request");
                 _requestError = MapRequest::IfmapClientSoapFault;
             }
         }
     }
-#endif //IFMAP20
     _mapRequest.setValue(nsReq);
+
 }
 
-void ClientParser::readAttachSession()
+void ClientParser::parseAttachSession()
 {
-    const char *fnName = "ClientHandler::readAttachSession:";
     AttachSessionRequest asReq;
     asReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::AttachSession;
 
-    QString sessionId = _xmlReader.readElementText();
+    QString sessionId = _xml.readElementText();
     if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-        qDebug() << fnName << "Got session-id in request:" << sessionId;
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Got session-id in request:" << sessionId;
     }
 
     if (! sessionId.isEmpty()) {
@@ -274,7 +279,9 @@ void ClientParser::readAttachSession()
         _clientSetSessionId = true;
     }
 
-    MapSessions::getInstance()->validateSessionId(asReq, (QTcpSocket *)_xmlReader.device());
+    // FIXME: This should move out of here
+    ClientHandler *client = (ClientHandler*)this->parent();
+    MapSessions::getInstance()->validateSessionId(asReq, client->peerAddress().toString());
     if (asReq.requestError()) {
         _requestError = asReq.requestError();
     }
@@ -282,8 +289,62 @@ void ClientParser::readAttachSession()
     _mapRequest.setValue(asReq);
 }
 
-#ifdef IFMAP20
-void ClientParser::readRenewSession()
+void ClientParser::parseBody()
+{
+    while (_xml.readNextStartElement() && _mapRequest.isNull()) { // Make sure we only read the first request
+        QString method = _xml.name().toString();
+        QString methodNS = _xml.namespaceUri().toString();
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got IF-MAP client request:" << method
+                    << "in namespace:" << methodNS;
+        }
+
+        if (methodNS == IFMAP_NS_1 &&
+            _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
+            _requestVersion = MapRequest::IFMAPv11;
+        } else if (methodNS == IFMAP_NS_2 &&
+                   _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV20)) {
+            _requestVersion = MapRequest::IFMAPv20;
+        } else {
+            // ERROR!!!
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: Incorrect IF-MAP Namespace:" << methodNS;
+            _requestError = MapRequest::IfmapClientSoapFault;
+            _xml.raiseError("Did not get a valid IF-MAP Namespace");
+        }
+
+        if (method == "new-session" && methodNS == IFMAP_NS_1) {
+            parseNewSession();
+        } else if (method == "attach-session" && methodNS == IFMAP_NS_1) {
+            parseAttachSession();
+        } else if (method == "newSession" && methodNS == IFMAP_NS_2) {
+            parseNewSession();
+        } else if (method == "endSession" && methodNS == IFMAP_NS_2) {
+            parseEndSession();
+        } else if (method == "renewSession" && methodNS == IFMAP_NS_2) {
+            parseRenewSession();
+        } else if (method == "publish") {
+            registerMetadataNamespaces();
+            parsePublish();
+        } else if (method == "subscribe") {
+            registerMetadataNamespaces();
+            parseSubscribe();
+        } else if (method == "search") {
+            registerMetadataNamespaces();
+            parseSearch();
+        } else if (method == "purgePublisher") {
+            parsePurgePublisher();
+        } else if (method == "poll") {
+            parsePoll();
+        } else {
+            // ERROR!!!
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading element:" << _xml.name();
+            _requestError = MapRequest::IfmapClientSoapFault;
+            _xml.raiseError("Did not get a valid IF-MAP Request");
+        }
+    }
+}
+
+void ClientParser::parseRenewSession()
 {
     RenewSessionRequest rnReq;
     rnReq.setRequestVersion(_requestVersion);
@@ -294,7 +355,7 @@ void ClientParser::readRenewSession()
     _mapRequest.setValue(rnReq);
 }
 
-void ClientParser::readEndSession()
+void ClientParser::parseEndSession()
 {
     EndSessionRequest esReq;
     esReq.setRequestVersion(_requestVersion);
@@ -304,12 +365,9 @@ void ClientParser::readEndSession()
 
     _mapRequest.setValue(esReq);
 }
-#endif //IFMAP20
 
-void ClientParser::readPurgePublisher()
+void ClientParser::parsePurgePublisher()
 {
-    const char *fnName = "ClientParser::readPurgePublisher:";
-
     PurgePublisherRequest ppReq;
     ppReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::PurgePublisher;
@@ -319,19 +377,17 @@ void ClientParser::readPurgePublisher()
     QString pubIdAttrName;
     if (_requestVersion == MapRequest::IFMAPv11) {
         pubIdAttrName = "publisher-id";
-#ifdef IFMAP20
     } else if (_requestVersion == MapRequest::IFMAPv20) {
         pubIdAttrName = "ifmap-publisher-id";
-#endif //IFMAP20
     }
 
-    QXmlStreamAttributes attrs = _xmlReader.attributes();
+    QXmlStreamAttributes attrs = _xml.attributes();
     if (attrs.hasAttribute(pubIdAttrName)) {
         ppReq.setPublisherId(attrs.value(pubIdAttrName).toString());
         ppReq.setClientSetPublisherId(true);
     } else {
-        qDebug() << fnName << "Error reading publisher-id in purgePublisher request";
-        _xmlReader.raiseError("Error reading publisher-id in purgePublisher request");
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading publisher-id in purgePublisher request";
+        _xml.raiseError("Error reading publisher-id in purgePublisher request");
         _requestError = MapRequest::IfmapClientSoapFault;
         ppReq.setRequestError(MapRequest::IfmapClientSoapFault);
     }
@@ -339,75 +395,206 @@ void ClientParser::readPurgePublisher()
     _mapRequest.setValue(ppReq);
 }
 
-void ClientParser::readSubscribe()
+void ClientParser::parsePublish()
 {
-    const char *fnName = "ClientParser::readSubscribe:";
-    SubscribeRequest subReq;
-    subReq.setRequestVersion(_requestVersion);
-    _requestType = MapRequest::Subscribe;
-    setSessionId(subReq);
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "Start:" << _xml.name();
 
-    while (_xmlReader.readNextStartElement() && !subReq.requestError()) {
-        readSubscribeOperation(subReq);
-        if (_xmlReader.isCharacters()) {
-            qDebug() << fnName << "Reading past:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
-            _xmlReader.readNext();
+    PublishRequest pubReq;
+    pubReq.setRequestVersion(_requestVersion);
+    _requestType = MapRequest::Publish;
+    setSessionId(pubReq);
+    pubReq.setPublisherId(MapSessions::getInstance()->_activeSSRCSessions.key(pubReq.sessionId()));
+
+    while (_xml.readNextStartElement() && !pubReq.requestError()) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "nextStartElement:" << _xml.name();
+
+        if (_xml.name().compare("update", Qt::CaseSensitive) == 0) {
+            parsePublishUpdateOrNotify(PublishOperation::Update, pubReq);
+        } else if (_xml.name().compare("delete", Qt::CaseSensitive) == 0) {
+            parsePublishDelete(pubReq);
+        } else if (_xml.name().compare("notify", Qt::CaseSensitive) == 0) {
+            parsePublishUpdateOrNotify(PublishOperation::Notify, pubReq);
+        } else {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading publish operation in request";
+            _xml.raiseError("Error reading publish operation in request");
+            _requestError = MapRequest::IfmapClientSoapFault;
+            pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
         }
     }
-    _mapRequest.setValue(subReq);
+    _mapRequest.setValue(pubReq);
+
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "End:" << _xml.tokenString() << _xml.name();
 }
 
-void ClientParser::readSubscribeOperation(SubscribeRequest &subReq)
+void ClientParser::parsePublishUpdateOrNotify(PublishOperation::PublishType publishType, PublishRequest &pubReq)
 {
-    SubscribeOperation subOperation;
-    QXmlStreamAttributes attrs = _xmlReader.attributes();
-    if (attrs.hasAttribute("name")) {
-        subOperation.setName(attrs.value("name").toString());
-    } else {
-        _xmlReader.raiseError("Error reading subscription name");
-        _requestError = MapRequest::IfmapClientSoapFault;
-        subReq.setRequestError(MapRequest::IfmapClientSoapFault);
-    }
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "Start:" << _xml.name();
 
-    if (_xmlReader.name() == "update") {
-        subOperation.setSubscribeType(SubscribeOperation::Update);
-        subOperation.setSearch(parseSearch(subReq));
-        subReq.addSubscribeOperation(subOperation);
+    PublishOperation pubOperation;
+    QXmlStreamAttributes attrs = _xml.attributes();
 
-        if (subReq.requestVersion() == MapRequest::IFMAPv11) {
-            _xmlReader.readNextStartElement();
-            _xmlReader.readNext();
+    pubOperation._publishType = publishType;
+
+    if (publishType == PublishOperation::Update) {
+        if (pubReq.requestVersion() == MapRequest::IFMAPv11) {
+            pubOperation._lifetime = Meta::LifetimeForever;
+            pubOperation._clientSetLifetime = false;
+        } else if (pubReq.requestVersion() == MapRequest::IFMAPv20) {
+            if (attrs.hasAttribute("lifetime")) {
+                if (attrs.value("lifetime") == "session") {
+                    pubOperation._lifetime = Meta::LifetimeSession;
+                    pubOperation._clientSetLifetime = true;
+                } else if (attrs.value("lifetime") == "forever") {
+                    pubOperation._lifetime = Meta::LifetimeForever;
+                    pubOperation._clientSetLifetime = true;
+                } else {
+                    _xml.raiseError("Error reading publish lifetime");
+                    _requestError = MapRequest::IfmapClientSoapFault;
+                    pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
+                }
+            } else {
+                // IFMAP20: 3.7.1: LifetimeSession is default
+                pubOperation._lifetime = Meta::LifetimeSession;
+                pubOperation._clientSetLifetime = false;
+            }
         }
-        _xmlReader.readNextStartElement();
-        _xmlReader.readNext();
-
-    } else if (_xmlReader.name() == "delete") {
-        subOperation.setSubscribeType(SubscribeOperation::Delete);
-        subReq.addSubscribeOperation(subOperation);
     } else {
-        _xmlReader.raiseError("Error reading subscription operation");
-        _requestError = MapRequest::IfmapClientSoapFault;
-        subReq.setRequestError(MapRequest::IfmapClientSoapFault);
+        pubOperation._lifetime = Meta::LifetimeSession;
+        pubOperation._clientSetLifetime = false;
     }
+
+    bool done = false;
+    int numIds = 0;
+    Id id1;
+    Id id2;
+    bool haveMetadata = false;
+
+    while (!_xml.atEnd() && !done) {
+        _xml.readNext();
+
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "current element:" << _xml.name() << _xml.tokenString();
+
+        if (_xml.isStartElement() && ID_NAMES.contains(_xml.name().toString(), Qt::CaseSensitive)) {
+            if (numIds == 0) {
+                id1 = parseIdentifier(pubReq);
+            } else if (numIds == 1) {
+                id2 = parseIdentifier(pubReq);
+            }
+            numIds++;
+        } else if (_xml.isStartElement() && _xml.name().compare("metadata", Qt::CaseSensitive) == 0) {
+            pubOperation._metadata = parseMetadata(pubReq, pubOperation._lifetime);
+            haveMetadata = true;
+        }
+
+        if (_xml.tokenType() == QXmlStreamReader::EndElement &&
+            _xml.name().compare((publishType == PublishOperation::Update ? "update" : "notify"), Qt::CaseSensitive) == 0) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "done --------------------->";
+            done = true;
+        }
+    }
+
+    if (numIds < 1 || numIds > 2 || !haveMetadata) {
+        _xml.raiseError("Invalid publish operation");
+        _requestError = MapRequest::IfmapClientSoapFault;
+        pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
+    } else {
+        pubOperation._isLink = (numIds == 2 ? true : false);
+        if (numIds == 2) {
+            pubOperation._link = Identifier::makeLinkFromIds(id1, id2);
+        } else {
+            pubOperation._link.first = id1;
+        }
+        pubOperation._filterNamespaceDefinitions = _namespaces;
+        pubReq.addPublishOperation(pubOperation);
+    }
+
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "Have publish"
+            << (publishType == PublishOperation::Update ? "update" : "notify")
+            << "on"
+            << (numIds == 2 ? "link" : "identifier");
+
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "End:" << _xml.tokenString() << _xml.name();
 }
 
-void ClientParser::readSearch()
+void ClientParser::parsePublishDelete(PublishRequest &pubReq)
+{
+    qDebug() << __PRETTY_FUNCTION__ << ":" << _xml.name();
+
+    PublishOperation pubOperation;
+    pubOperation._publishType = PublishOperation::Delete;
+
+    QXmlStreamAttributes attrs = _xml.attributes();
+    if (attrs.hasAttribute("filter")) {
+        pubOperation._deleteFilter = attrs.value("filter").toString();
+        pubOperation._clientSetDeleteFilter = true;
+
+        // TODO: make sure the application of the delete filter
+        // does not result in a system error (from say a XMLQuery error)
+        // that would render the entire publish operation invalid.
+    }
+
+    bool done = false;
+    int numIds = 0;
+    Id id1;
+    Id id2;
+
+    while (!_xml.atEnd() && !done) {
+        _xml.readNext();
+
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "current element:" << _xml.name() << _xml.tokenString();
+
+        if (_xml.isStartElement() && ID_NAMES.contains(_xml.name().toString(), Qt::CaseSensitive)) {
+            if (numIds == 0) {
+                id1 = parseIdentifier(pubReq);
+            } else if (numIds == 1) {
+                id2 = parseIdentifier(pubReq);
+            }
+            numIds++;
+        }
+
+        if (_xml.tokenType() == QXmlStreamReader::EndElement && _xml.name().compare("delete") == 0) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "done --------------------->";
+            done = true;
+        }
+    }
+
+    if (numIds < 1 || numIds > 2) {
+        _xml.raiseError("Invalid publish operation");
+        _requestError = MapRequest::IfmapClientSoapFault;
+        pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
+    } else {
+        pubOperation._isLink = (numIds == 2 ? true : false);
+        if (numIds == 2) {
+            pubOperation._link = Identifier::makeLinkFromIds(id1, id2);
+        } else {
+            pubOperation._link.first = id1;
+        }
+        pubOperation._filterNamespaceDefinitions = _namespaces;
+        pubReq.addPublishOperation(pubOperation);
+    }
+
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "Have publish delete on"
+            << (numIds == 2 ? "link" : "identifier");
+
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "End:" << _xml.name();
+}
+
+void ClientParser::parseSearch()
 {
     SearchRequest searchReq;
     searchReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::Search;
     setSessionId(searchReq);
 
-    searchReq.setSearch(parseSearch(searchReq));
+    searchReq.setSearch(parseSearchDetails(searchReq));
     _mapRequest.setValue(searchReq);;
 }
 
-SearchType ClientParser::parseSearch(MapRequest &request)
+SearchType ClientParser::parseSearchDetails(MapRequest &request)
 {
-    const char *fnName = "ClientHandler::parseSearch:";
     SearchType search;
 
-    QXmlStreamAttributes attrs = _xmlReader.attributes();
+    QXmlStreamAttributes attrs = _xml.attributes();
 
     /* IFMAP20: 3.7.2.8: If a MAP Client does not specify max-depth,
        the MAP Server MUST process the search with a max-depth of zero.
@@ -421,28 +608,26 @@ SearchType ClientParser::parseSearch(MapRequest &request)
         maxDepth = md.toInt(&ok);
         if (ok) {
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got search parameter max-depth:" << maxDepth;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter max-depth:" << maxDepth;
             }
             if (maxDepth < 0 && request.requestVersion() == MapRequest::IFMAPv11) {
                 maxDepth = IFMAP_MAX_DEPTH_MAX;
-#ifdef IFMAP20
             } else if (maxDepth < 0 && request.requestVersion() == MapRequest::IFMAPv20) {
-                qDebug() << fnName << "Got invalid search parameter max-depth:" << maxDepth;
-                _xmlReader.raiseError("Error with search attribute max-depth");
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid search parameter max-depth:" << maxDepth;
+                _xml.raiseError("Error with search attribute max-depth");
                 _requestError = MapRequest::IfmapClientSoapFault;
                 request.setRequestError(MapRequest::IfmapClientSoapFault);
-#endif //IFMAP20
             }
         } else {
             maxDepth = 0;
-            qDebug() << fnName << "Got invalid search parameter max-depth:" << md;
-            _xmlReader.raiseError("Error converting search attribute max-depth");
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid search parameter max-depth:" << md;
+            _xml.raiseError("Error converting search attribute max-depth");
             _requestError = MapRequest::IfmapClientSoapFault;
             request.setRequestError(MapRequest::IfmapClientSoapFault);
         }
     } else {
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Using default search parameter max-depth:" << maxDepth;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter max-depth:" << maxDepth;
         }
     }
     search.setMaxDepth(maxDepth);
@@ -462,28 +647,26 @@ SearchType ClientParser::parseSearch(MapRequest &request)
         maxSize = ms.toInt(&ok);
         if (ok) {
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got search parameter max-size:" << maxSize;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter max-size:" << maxSize;
             }
             if (maxSize < 0 && request.requestVersion() == MapRequest::IFMAPv11) {
                 maxSize = IFMAP_MAX_SIZE;
-#ifdef IFMAP20
             } else if (maxSize < 0 && request.requestVersion() == MapRequest::IFMAPv20) {
-                qDebug() << fnName << "Got invalid search parameter max-size:" << maxSize;
-                _xmlReader.raiseError("Error with search attribute max-size");
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid search parameter max-size:" << maxSize;
+                _xml.raiseError("Error with search attribute max-size");
                 _requestError = MapRequest::IfmapClientSoapFault;
                 request.setRequestError(MapRequest::IfmapClientSoapFault);
-#endif //IFMAP20
             }
         } else {
             maxSize = 0;
-            qDebug() << fnName << "Got invalid search parameter max-size:" << ms;
-            _xmlReader.raiseError("Error converting search attribute max-size");
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid search parameter max-size:" << ms;
+            _xml.raiseError("Error converting search attribute max-size");
             _requestError = MapRequest::IfmapClientSoapFault;
             request.setRequestError(MapRequest::IfmapClientSoapFault);
         }
     } else {
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Using default search parameter max-size:" << maxSize;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter max-size:" << maxSize;
         }
     }
     search.setMaxSize(maxSize);
@@ -491,49 +674,47 @@ SearchType ClientParser::parseSearch(MapRequest &request)
     if (attrs.hasAttribute("match-links")) {
         QString matchLinks = attrs.value("match-links").toString();
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Got search parameter match-links:" << matchLinks;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter match-links:" << matchLinks;
         }
         search.setMatchLinks(Subscription::translateFilter(matchLinks));
     } else {
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Using default search parameter match-links:" << search.matchLinks();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter match-links:" << search.matchLinks();
         }
     }
 
     if (attrs.hasAttribute("result-filter")) {
         QString resultFilter = attrs.value("result-filter").toString();
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Got search parameter result-filter:" << resultFilter;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter result-filter:" << resultFilter;
         }
         search.setResultFilter(Subscription::translateFilter(resultFilter));
     } else {
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Using default search parameter result-filter:" << search.resultFilter();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter result-filter:" << search.resultFilter();
         }
     }
 
-#ifdef IFMAP20
     if (attrs.hasAttribute("terminal-identifier-type") && request.requestVersion() == MapRequest::IFMAPv20) {
         QString terminalId = attrs.value("terminal-identifier-type").toString();
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Got search parameter terminal-identifier-type:" << terminalId;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter terminal-identifier-type:" << terminalId;
         }
         search.setTerminalId(terminalId);
     } else {
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Using default search parameter terminal-identifier-type:" << search.terminalId();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter terminal-identifier-type:" << search.terminalId();
         }
     }
-#endif //IFMAP20
 
-    _xmlReader.readNextStartElement();
-    if (_xmlReader.name() == "identifier" && request.requestVersion() == MapRequest::IFMAPv11) {
-        _xmlReader.readNextStartElement();
+    _xml.readNextStartElement();
+    if (_xml.name() == "identifier" && request.requestVersion() == MapRequest::IFMAPv11) {
+        _xml.readNextStartElement();
     }
-    Id startId = readIdentifier(request);
+    Id startId = parseIdentifier(request);
     if (request.requestError() == MapRequest::ErrorNone) {
         if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Setting starting identifier:" << startId;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Setting starting identifier:" << startId;
         }
         search.setStartId(startId);
     }
@@ -544,7 +725,55 @@ SearchType ClientParser::parseSearch(MapRequest &request)
     return search;
 }
 
-void ClientParser::readPoll()
+void ClientParser::parseSubscribe()
+{
+    SubscribeRequest subReq;
+    subReq.setRequestVersion(_requestVersion);
+    _requestType = MapRequest::Subscribe;
+    setSessionId(subReq);
+
+
+    bool done = false;
+    while (!_xml.atEnd() && !done && !subReq.requestError()) {
+        _xml.readNext();
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "element:" << _xml.name() << _xml.tokenString();
+
+        SubscribeOperation subOperation;
+
+        if (_xml.tokenType() == QXmlStreamReader::StartElement) {
+            QXmlStreamAttributes attrs = _xml.attributes();
+            if (attrs.hasAttribute("name")) {
+                subOperation.setName(attrs.value("name").toString());
+            } else {
+                _xml.raiseError("Error reading subscription name");
+                _requestError = MapRequest::IfmapClientSoapFault;
+                subReq.setRequestError(MapRequest::IfmapClientSoapFault);
+            }
+
+            if (_xml.tokenType() == QXmlStreamReader::StartElement && _xml.name().compare("update", Qt::CaseSensitive) == 0) {
+                subOperation.setSubscribeType(SubscribeOperation::Update);
+                subOperation.setSearch(parseSearchDetails(subReq));
+                subReq.addSubscribeOperation(subOperation);
+            } else if (_xml.tokenType() == QXmlStreamReader::StartElement && _xml.name().compare("delete", Qt::CaseSensitive) == 0) {
+                subOperation.setSubscribeType(SubscribeOperation::Delete);
+                subReq.addSubscribeOperation(subOperation);
+            } else {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading subscribe operation in request";
+                _xml.raiseError("Error reading subscribe operation in request");
+                _requestError = MapRequest::IfmapClientSoapFault;
+                subReq.setRequestError(MapRequest::IfmapClientSoapFault);
+            }
+        }
+
+        if (_xml.tokenType() == QXmlStreamReader::EndElement && _xml.name().compare("subscribe") ==0) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "done --------------------->";
+            done = true;
+        }
+    }
+    _mapRequest.setValue(subReq);
+}
+
+void ClientParser::parsePoll()
 {
     PollRequest pollReq;
     pollReq.setRequestVersion(_requestVersion);
@@ -554,208 +783,12 @@ void ClientParser::readPoll()
     _mapRequest.setValue(pollReq);
 }
 
-void ClientParser::readPublish()
+Id ClientParser::parseIdentifier(MapRequest &request)
 {
-    const char *fnName = "ClientParser::readPublish";
-    PublishRequest pubReq;
-    pubReq.setRequestVersion(_requestVersion);
-    _requestType = MapRequest::Publish;
-    setSessionId(pubReq);
-    pubReq.setPublisherId(MapSessions::getInstance()->_activeSSRCSessions.key(pubReq.sessionId()));
-
-    while (_xmlReader.readNextStartElement() && !pubReq.requestError()) {
-        readPublishOperation(pubReq);
-        if (_xmlReader.isCharacters()) {
-            qDebug() << fnName << "Reading past:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
-            _xmlReader.readNext();
-        }
-    }
-
-    _mapRequest.setValue(pubReq);
-}
-
-void ClientParser::readPublishOperation(PublishRequest &pubReq)
-{
-    QString pubOperationName = _xmlReader.name().toString();
-    PublishOperation pubOperation;
-
-    QXmlStreamAttributes attrs = _xmlReader.attributes();
-
-    if (pubOperationName == "update") {
-        pubOperation._publishType = PublishOperation::Update;
-        if (pubReq.requestVersion() == MapRequest::IFMAPv11) {
-            pubOperation._lifetime = Meta::LifetimeForever;
-            pubOperation._clientSetLifetime = false;
-#ifdef IFMAP20
-        } else if (pubReq.requestVersion() == MapRequest::IFMAPv20) {
-            if (attrs.hasAttribute("lifetime")) {
-                if (attrs.value("lifetime") == "session") {
-                    pubOperation._lifetime = Meta::LifetimeSession;
-                    pubOperation._clientSetLifetime = true;
-                } else if (attrs.value("lifetime") == "forever") {
-                    pubOperation._lifetime = Meta::LifetimeForever;
-                    pubOperation._clientSetLifetime = true;
-                } else {
-                    _xmlReader.raiseError("Error reading publish lifetime");
-                    _requestError = MapRequest::IfmapClientSoapFault;
-                    pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
-                }
-            } else {
-                // IFMAP20: 3.7.1: LifetimeSession is default
-                pubOperation._lifetime = Meta::LifetimeSession;
-                pubOperation._clientSetLifetime = false;
-            }
-#endif //IFMAP20
-        }
-
-        bool isLink;
-        pubOperation._link = readLink(pubReq, isLink);
-        pubOperation._isLink = isLink;
-
-        pubOperation._metadata = readMetadata(pubReq, pubOperation._lifetime);
-
-    } else if (pubOperationName == "delete") {
-        pubOperation._publishType = PublishOperation::Delete;
-        if (attrs.hasAttribute("filter")) {
-            pubOperation._deleteFilter = attrs.value("filter").toString();
-            pubOperation._clientSetDeleteFilter = true;
-
-            // TODO: make sure the application of the delete filter
-            // does not result in a system error (from say a XMLQuery error)
-            // that would render the entire publish operation invalid.
-        }
-
-        bool isLink;
-        pubOperation._link = readLink(pubReq, isLink);
-        pubOperation._isLink = isLink;
-#ifdef IFMAP20
-    } else if (pubOperationName == "notify" && pubReq.requestVersion() == MapRequest::IFMAPv20) {
-        pubOperation._publishType = PublishOperation::Notify;
-
-        bool isLink;
-        pubOperation._link = readLink(pubReq, isLink);
-        pubOperation._isLink = isLink;
-
-        pubOperation._metadata = readMetadata(pubReq);
-#endif //IFMAP20
-    } else {
-        _xmlReader.raiseError("Error reading publish operation");
-        _requestError = MapRequest::IfmapClientSoapFault;
-        pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
-    }
-
-    if (!pubReq.requestError()) {
-        pubOperation._filterNamespaceDefinitions = _namespaces;
-        pubReq.addPublishOperation(pubOperation);
-    }
-}
-
-Link ClientParser::readLink(MapRequest &request, bool &isLink)
-{
-    const char *fnName = "ClientHandler::readLink:";
-    Link key;
-    Id id1;
-    Id id2;
-    int idCount = 0;
-
-    _xmlReader.readNextStartElement();
-
-    if (request.requestVersion() == MapRequest::IFMAPv11) {
-        if (_xmlReader.name() == "link") {
-            while (_xmlReader.readNextStartElement() && !_xmlReader.hasError()) {
-                if (_xmlReader.name() == "identifier") {
-                    if (_xmlReader.readNextStartElement()) {
-                        if (idCount == 0) {
-                            id1 = readIdentifier(request);
-                            _xmlReader.readNext();
-                            idCount++;
-                        } else if (idCount == 1) {
-                            id2 = readIdentifier(request);
-                            _xmlReader.readNext();
-                            idCount++;
-                        }
-                    } else {
-                        qDebug() << fnName << "Error reading <identifier>:" << _xmlReader.name();
-                        _xmlReader.raiseError("Invalid IF-MAP Structure");
-                        _requestError = MapRequest::IfmapClientSoapFault;
-                        request.setRequestError(MapRequest::IfmapClientSoapFault);
-                    }
-                    _xmlReader.readNext();
-                }
-                if (_xmlReader.isCharacters()) {
-                    qDebug() << fnName << "Reading past:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
-                    _xmlReader.readNext();
-                }
-            }
-        } else if (_xmlReader.name() == "identifier") {
-            if (_xmlReader.readNextStartElement()) {
-                if (idCount == 0) {
-                    id1 = readIdentifier(request);
-                    _xmlReader.readNext();
-                    idCount++;
-                }
-            } else {
-                qDebug() << fnName << "Error reading <identifier>:" << _xmlReader.name();
-                _xmlReader.raiseError("Invalid IF-MAP Structure");
-                _requestError = MapRequest::IfmapClientSoapFault;
-                request.setRequestError(MapRequest::IfmapClientSoapFault);
-            }
-            _xmlReader.readNext();
-        } else {
-            qDebug() << fnName << "Error reading <link>:" << _xmlReader.name();
-            _xmlReader.raiseError("Invalid IF-MAP Structure");
-            _requestError = MapRequest::IfmapClientSoapFault;
-            request.setRequestError(MapRequest::IfmapClientSoapFault);
-        }
-
-        _xmlReader.readNext();
-
-#ifdef IFMAP20
-    } else if (request.requestVersion() == MapRequest::IFMAPv20) {
-        // There's definitely one identifier...
-        if (idCount == 0) {
-            id1 = readIdentifier(request);
-            _xmlReader.readNext();
-            idCount++;
-        }
-
-        // Clear out potential whitespace between identifier elements
-        while (!_xmlReader.atEnd() && !_xmlReader.hasError() &&
-               _xmlReader.tokenType() != QXmlStreamReader::StartElement) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Reading past element:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
-            }
-            _xmlReader.readNext();
-        }
-
-        // ... and there may be another identifier, or it may be metadata
-        if (idCount == 1 && _xmlReader.name() != "metadata" && _xmlReader.tokenType() == QXmlStreamReader::StartElement) {
-            id2 = readIdentifier(request);
-            _xmlReader.readNext();
-            idCount++;
-            _xmlReader.readNextStartElement();
-        }
-#endif //IFMAP20
-    }
-
-    if (request.requestError() == MapRequest::ErrorNone && idCount == 1) {
-        key.first = id1;
-        isLink = false;
-    } else if (request.requestError() == MapRequest::ErrorNone && idCount == 2) {
-        key = Identifier::makeLinkFromIds(id1, id2);
-        isLink = true;
-    }
-
-    return key;
-}
-
-Id ClientParser::readIdentifier(MapRequest &request)
-{
-    const char *fnName = "ClientHandler::readIdentifier:";
+    qDebug() << __PRETTY_FUNCTION__ << ":" << _xml.name();
     bool parseError = false;
 
-    QString idName = _xmlReader.name().toString();
-    QXmlStreamAttributes attrs = _xmlReader.attributes();
+    QXmlStreamAttributes attrs = _xml.attributes();
     QString ad = attrs.hasAttribute("administrative-domain") ?
                  attrs.value("administrative-domain").toString() :
                  QString();
@@ -764,40 +797,42 @@ Id ClientParser::readIdentifier(MapRequest &request)
     QString value;
     QString other; // This is only for type Identifier::IdentityOther
 
-    if (idName.compare("access-request") == 0) {
+
+    if (_xml.name().compare("access-request", Qt::CaseSensitive) == 0) {
         idType = Identifier::AccessRequest;
         if (attrs.hasAttribute("name")) {
             idType = Identifier::AccessRequest;
             value = attrs.value("name").toString();
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got access-request name:" << value;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got access-request name:" << value;
             }
         } else {
             // Error - did not specify access-request name
             parseError = true;
             request.setRequestError(MapRequest::IfmapInvalidIdentifier);
         }
-    } else if (idName.compare("device") == 0) {
-        _xmlReader.readNextStartElement();
-        QString deviceType = _xmlReader.name().toString();
-        if (deviceType.compare("aik-name") == 0 && request.requestVersion() == MapRequest::IFMAPv11) {
-            idType = Identifier::DeviceAikName;
-            value = _xmlReader.readElementText();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got device aik-name:" << value;
+    } else if (_xml.name().compare("device", Qt::CaseSensitive) == 0) {
+        if (_xml.readNextStartElement()) {
+            if (_xml.name().compare("name", Qt::CaseSensitive) == 0) {
+                idType = Identifier::DeviceName;
+                value = _xml.readElementText();
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got device name:" << value;
+                }
+            } else if (_xml.name().compare("aik-name", Qt::CaseSensitive) == 0 && _requestVersion == MapRequest::IFMAPv11) {
+                idType = Identifier::DeviceAikName;
+                value = _xml.readElementText();
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got device aik-name:" << value;
+                }
+            } else {
+                // Error - unknown device type
+                parseError = true;
+                request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             }
-        } else if (deviceType.compare("name") == 0) {
-            idType = Identifier::DeviceName;
-            value = _xmlReader.readElementText();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got device name:" << value;
-            }
-        } else {
-            // Error - unknown device type
-            parseError = true;
-            request.setRequestError(MapRequest::IfmapInvalidIdentifier);
         }
-    } else if (idName.compare("identity") == 0) {
+
+    } else if (_xml.name().compare("identity", Qt::CaseSensitive) == 0) {
         QString type;
         if (attrs.hasAttribute("type")) {
             type = attrs.value("type").toString();
@@ -812,20 +847,15 @@ Id ClientParser::readIdentifier(MapRequest &request)
             } else if (type.compare("kerberos-principal") == 0) {
                 idType = Identifier::IdentityKerberosPrincipal;
             } else if (type.compare("trusted-platform-module") == 0
-#ifdef IFMAP20
-                       && request.requestVersion() == MapRequest::IFMAPv11
-#endif //IFMAP20
-                ) {
+                       && request.requestVersion() == MapRequest::IFMAPv11) {
                 idType = Identifier::IdentityTrustedPlatformModule;
             } else if (type.compare("username") == 0) {
                 idType = Identifier::IdentityUsername;
             } else if (type.compare("sip-uri") == 0) {
                 idType = Identifier::IdentitySipUri;
-#ifdef IFMAP20
             } else if (type.compare("hip-hit") == 0 &&
                 request.requestVersion() == MapRequest::IFMAPv20) {
                 idType = Identifier::IdentityHipHit;
-#endif //IFMAP20
             } else if (type.compare("tel-uri") == 0) {
                 idType = Identifier::IdentityTelUri;
             } else if (type.compare("other") == 0) {
@@ -844,7 +874,7 @@ Id ClientParser::readIdentifier(MapRequest &request)
         if (attrs.hasAttribute("name")) {
             value = attrs.value("name").toString();
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got identity name:" << value;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got identity name:" << value;
             }
         } else {
             // Error - did not specify identity name attribute
@@ -857,7 +887,7 @@ Id ClientParser::readIdentifier(MapRequest &request)
                 // Append other-type-definition to value
                 other = attrs.value("other-type-definition").toString();
                 if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                    qDebug() << fnName << "Got identity other-type-def:" << other;
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got identity other-type-def:" << other;
                 }
             } else {
                 // Error - MUST have other-type-definition if idType is IdentityOther
@@ -872,20 +902,20 @@ Id ClientParser::readIdentifier(MapRequest &request)
         if (idType == Identifier::IdentityHipHit && !parseError ) {
             if (!test.setAddress(value)) {
                 if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                    qDebug() << fnName << "Got invalid hip-hit address conversion:" << value;
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid hip-hit address conversion:" << value;
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
                 if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                    qDebug() << fnName << "Got different hip-hit address back to string:" << test.toString();
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got different hip-hit address back to string:" << test.toString();
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             }
         }
 
-    } else if (idName.compare("ip-address") == 0) {
+    } else if (_xml.name().compare("ip-address", Qt::CaseSensitive) == 0) {
         QString type;
         if (attrs.hasAttribute("type")) {
             type = attrs.value("type").toString();
@@ -905,19 +935,19 @@ Id ClientParser::readIdentifier(MapRequest &request)
         if (attrs.hasAttribute("value")) {
             value = attrs.value("value").toString();
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got ip-address:" << value;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got ip-address:" << value;
             }
             // Attempt to validate IP Address
             QHostAddress test;
             if (!test.setAddress(value)) {
                 if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                    qDebug() << fnName << "Got invalid ip-address:" << value;
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid ip-address:" << value;
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
                 if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                    qDebug() << fnName << "Got different ip-address address back to string:" << test.toString();
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got different ip-address address back to string:" << test.toString();
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
@@ -928,13 +958,13 @@ Id ClientParser::readIdentifier(MapRequest &request)
             request.setRequestError(MapRequest::IfmapInvalidIdentifier);
         }
 
-    } else if (idName.compare("mac-address") == 0) {
+    } else if (_xml.name().compare("mac-address", Qt::CaseSensitive) == 0) {
         idType = Identifier::MacAddress;
 
         if (attrs.hasAttribute("value")) {
             value = attrs.value("value").toString();
             if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got mac-address:" << value;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got mac-address:" << value;
             }
             // Attempt to validate MAC
             QRegExp re;
@@ -942,7 +972,7 @@ Id ClientParser::readIdentifier(MapRequest &request)
             re.setCaseSensitivity(Qt::CaseSensitive);
             if (!re.exactMatch(value)) {
                 if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                    qDebug() << fnName << "Got invalid mac-address:" << value;
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid mac-address:" << value;
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
@@ -952,6 +982,7 @@ Id ClientParser::readIdentifier(MapRequest &request)
             parseError = true;
             request.setRequestError(MapRequest::IfmapInvalidIdentifier);
         }
+
     } else {
         // Error - unknown identifier name
         parseError = true;
@@ -965,172 +996,123 @@ Id ClientParser::readIdentifier(MapRequest &request)
         id.setValue(value);
         id.setOther(other);
     } else {
-        qDebug() << fnName << "Error parsing identifier";
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Error parsing identifier";
         _requestError = request.requestError();
     }
     return id;
 }
 
-QList<Meta> ClientParser::readMetadata(PublishRequest &pubReq, Meta::Lifetime lifetime)
+QList<Meta> ClientParser::parseMetadata(PublishRequest &pubReq, Meta::Lifetime lifetime)
 {
-    const char *fnName = "ClientHandler::readMetadata:";
+    qDebug() << __PRETTY_FUNCTION__ << ":" << _xml.name();
 
     QList<Meta> metaList;
 
     QString cardinalityAttrName = "cardinality", pubIdAttrName = "publisher-id", timestampAttrName = "timestamp";
-#ifdef IFMAP20
     if (_requestVersion == MapRequest::IFMAPv20) {
         cardinalityAttrName = "ifmap-cardinality";
         pubIdAttrName = "ifmap-publisher-id";
         timestampAttrName = "ifmap-timestamp";
     }
-#endif //IFMAP20
-
-    // Clear out potential whitespace between <identifier> or <link> and <metadata> elements
-    if (_xmlReader.tokenType() != QXmlStreamReader::StartElement) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << fnName << "Reading past element:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
-        }
-        _xmlReader.readNextStartElement();
-    }
 
     QString allMetadata;
-    if (_xmlReader.name() == "metadata") {
-        while (_xmlReader.readNextStartElement() && !_xmlReader.hasError()) {
-            QString metaNS = _xmlReader.namespaceUri().toString();
-            QString metaName = _xmlReader.name().toString();
-            QString metaQName = _xmlReader.qualifiedName().toString();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Got metadata element:" << metaQName << "in ns:" << metaNS;
-            }
-            
-            if (metaNS.isEmpty()) {
-                qDebug() << fnName << "Error: metadata element has no associated namespace:" << metaName;
-                _requestError = MapRequest::IfmapInvalidMetadata;
-                pubReq.setRequestError(MapRequest::IfmapInvalidMetadata);
-            }
 
-            // Local QXmlStreamWriter to add operational attributes
-            QString metaString;
-            QXmlStreamWriter xmlWriter(&metaString);
+    while (_xml.readNextStartElement()) {
+        QString metaNS = _xml.namespaceUri().toString();
+        QString metaName = _xml.name().toString();
+        QString metaQName = _xml.qualifiedName().toString();
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Got metadata element:" << metaQName << "in ns:" << metaNS;
 
-            // Check for attributes to apply
-            QXmlStreamAttributes elementAttrs = _xmlReader.attributes();
+        if (metaNS.isEmpty()) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: metadata element has no associated namespace:" << metaName;
+        }
 
-#ifdef IFMAP20
-            if (_requestVersion == MapRequest::IFMAPv20) {
-                // Remove any ifmap-* invalid attributes; only allowed client-supplied attribute is ifmap-cardinality
-                for (int i=0; i<elementAttrs.size(); i++) {
-                    QString attrStr = elementAttrs.at(i).name().toString();
-                    if (attrStr.startsWith("ifmap-")) {
-                        if (attrStr.compare(cardinalityAttrName) != 0) {
-                            // Have invalid ifmap- attribute
-                            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                                qDebug() << fnName << "Got invalid ifmap- reserved attribute:" << attrStr;
-                            }
-                            elementAttrs.remove(i);
+        // Local QXmlStreamWriter to add operational attributes
+        QString metaString;
+        QXmlStreamWriter xmlWriter(&metaString);
+
+        // Check for attributes to apply
+        QXmlStreamAttributes elementAttrs = _xml.attributes();
+
+        if (_requestVersion == MapRequest::IFMAPv20) {
+            // Remove any ifmap-* invalid attributes; only allowed client-supplied attribute is ifmap-cardinality
+            for (int i=0; i<elementAttrs.size(); i++) {
+                QString attrStr = elementAttrs.at(i).name().toString();
+                if (attrStr.startsWith("ifmap-")) {
+                    if (attrStr.compare(cardinalityAttrName) != 0) {
+                        // Have invalid ifmap- attribute
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid ifmap- reserved attribute:" << attrStr;
                         }
+                        elementAttrs.remove(i);
                     }
                 }
             }
-#endif
-
-            xmlWriter.writeStartElement(metaNS, metaName);
-            xmlWriter.writeAttributes(elementAttrs);
-
-            Meta::Cardinality cardinalityValue;
-            // Make sure we have the cardinality attribute and default it to multiValue
-            if (elementAttrs.hasAttribute(cardinalityAttrName)) {
-                cardinalityValue = (elementAttrs.value(cardinalityAttrName) == "singleValue")
-                                   ? Meta::SingleValue : Meta::MultiValue;
-#ifdef IFMAP20
-            } else if (_requestVersion == MapRequest::IFMAPv20) {
-                /* IFMAP20: 3.3.3: A MAP client MUST define the ifmap-cardinality attribute of
-                   any metadata as singleValue or mulltiValue.
-                */
-                qDebug() << fnName << "Error: metadata element does not specify ifmap-cardinality:" << metaName;
-                _requestError = MapRequest::IfmapInvalidMetadata;
-                pubReq.setRequestError(MapRequest::IfmapInvalidMetadata);
-#endif //IFMAP20
-            } else {
-                qDebug() << fnName << "Notice: assigning metadata element multiValue cardinality:" << metaName;
-                cardinalityValue = Meta::MultiValue;
-                xmlWriter.writeAttribute(cardinalityAttrName, "multiValue");
-            }
-
-            // Set timestamp operational attribute
-            QString ts = QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ssZ");
-            xmlWriter.writeAttribute(timestampAttrName, ts);
-            // Set publisher-id operational attribute
-            xmlWriter.writeAttribute(pubIdAttrName, pubReq.publisherId());
-
-            _xmlReader.readNext();
-            // While loop to recursively descend this metaName element, stopping when we get
-            // to the closing metaName element (EndElement tokenType) or if we get an error
-            while (!(_xmlReader.tokenType() == QXmlStreamReader::EndElement &&
-		     _xmlReader.name() == metaName && _xmlReader.namespaceUri() == metaNS) &&
-                   !_xmlReader.hasError()) {
-
-                switch (_xmlReader.tokenType()) {
-                case QXmlStreamReader::NoToken:
-                case QXmlStreamReader::Invalid:
-                case QXmlStreamReader::StartDocument:
-                case QXmlStreamReader::EndDocument:
-                case QXmlStreamReader::Comment:
-                case QXmlStreamReader::DTD:
-                case QXmlStreamReader::EntityReference:
-                case QXmlStreamReader::ProcessingInstruction:
-                    // NO-OP
-                    break;
-                case QXmlStreamReader::StartElement:
-                case QXmlStreamReader::EndElement:
-                case QXmlStreamReader::Characters:
-                    xmlWriter.writeCurrentToken(_xmlReader);
-                    break;
-                }
-                _xmlReader.readNext();
-            }
-            xmlWriter.writeCurrentToken(_xmlReader);
-
-            if (_xmlReader.hasError()) {
-                qDebug() << fnName << "Got an error:" << _xmlReader.errorString();
-                pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
-                _requestError = MapRequest::IfmapClientSoapFault;
-            }
-
-            Meta aMeta(cardinalityValue, lifetime);
-            aMeta.setElementName(metaName);
-            aMeta.setElementNS(metaNS);
-            aMeta.setPublisherId(pubReq.publisherId());
-            aMeta.setMetaXML(metaString);
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                qDebug() << fnName << "Seting xml for:" << metaName << "metaXML:" << aMeta.metaXML();
-            }
-            metaList << aMeta;
-
-            allMetadata += metaString;
         }
-        _xmlReader.readNext();
-    } else {
-        qDebug() << fnName << "Expecting <metadata> but encountered:" << _xmlReader.name() << "of type:" << _xmlReader.tokenString();
-        pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
-        _xmlReader.raiseError("Invalid IF-MAP Structure");
-        _requestError = MapRequest::IfmapClientSoapFault;
+
+        xmlWriter.writeStartElement(metaNS, metaName);
+        xmlWriter.writeAttributes(elementAttrs);
+
+        Meta::Cardinality cardinalityValue;
+        // Make sure we have the cardinality attribute and default it to multiValue
+        if (elementAttrs.hasAttribute(cardinalityAttrName)) {
+            cardinalityValue = (elementAttrs.value(cardinalityAttrName) == "singleValue")
+                               ? Meta::SingleValue : Meta::MultiValue;
+        } else if (_requestVersion == MapRequest::IFMAPv20) {
+            /* IFMAP20: 3.3.3: A MAP client MUST define the ifmap-cardinality attribute of
+               any metadata as singleValue or mulltiValue.
+            */
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: metadata element does not specify ifmap-cardinality:" << metaName;
+            _requestError = MapRequest::IfmapInvalidMetadata;
+            pubReq.setRequestError(MapRequest::IfmapInvalidMetadata);
+        } else {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Notice: assigning metadata element multiValue cardinality:" << metaName;
+            cardinalityValue = Meta::MultiValue;
+            xmlWriter.writeAttribute(cardinalityAttrName, "multiValue");
+        }
+
+        // Set timestamp operational attribute
+        QString ts = QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ssZ");
+        xmlWriter.writeAttribute(timestampAttrName, ts);
+        // Set publisher-id operational attribute
+        xmlWriter.writeAttribute(pubIdAttrName, pubReq.publisherId());
+
+        // While loop to recursively descend this metaName element, stopping when we get
+        // to the closing metaName element (EndElement tokenType) or if we get an error
+        while (!_xml.hasError() &&
+               !(_xml.tokenType() == QXmlStreamReader::EndElement &&
+                  _xml.name().compare(metaName, Qt::CaseSensitive) == 0 &&
+                  _xml.namespaceUri().compare(metaNS, Qt::CaseSensitive) == 0)) {
+            _xml.readNext();
+            if (!_xml.isWhitespace()) {  // Don't include XML Whitespace
+                xmlWriter.writeCurrentToken(_xml);
+            }
+        }
+        xmlWriter.writeCurrentToken(_xml);
+
+        if (_xml.hasError()) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got an error:" << _xml.errorString();
+            pubReq.setRequestError(MapRequest::IfmapClientSoapFault);
+            _requestError = MapRequest::IfmapClientSoapFault;
+        }
+
+        Meta aMeta(cardinalityValue, lifetime);
+        aMeta.setElementName(metaName);
+        aMeta.setElementNS(metaNS);
+        aMeta.setPublisherId(pubReq.publisherId());
+        aMeta.setMetaXML(metaString);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Setting xml for:" << metaName << "metaXML:" << aMeta.metaXML();
+        }
+        metaList << aMeta;
+
+        allMetadata += metaString;
     }
 
     // Can check metadata length here too
     if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-        qDebug() << fnName << "All metadata in request:" << endl << allMetadata;
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "All metadata in request:" << endl << allMetadata;
     }
 
     return metaList;
-}
-
-void ClientParser::registerMetadataNamespaces()
-{
-    QXmlStreamNamespaceDeclarations nsVector = _xmlReader.namespaceDeclarations();
-    for (int i=0; i<nsVector.size(); i++) {
-        _namespaces.insert(nsVector.at(i).prefix().toString(), nsVector.at(i).namespaceUri().toString());
-    }
-
 }
