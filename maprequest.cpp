@@ -35,14 +35,12 @@ QString MapRequest::requestTypeString(MapRequest::RequestType reqType)
     case MapRequest::AttachSession:
         str = "AttachSession";
         break;
-#ifdef IFMAP20
     case MapRequest::EndSession:
         str = "EndSession";
         break;
     case MapRequest::RenewSession:
         str = "RenewSession";
         break;
-#endif //IFMAP20
     case MapRequest::Publish:
         str = "Publish";
         break;
@@ -74,11 +72,9 @@ QString MapRequest::requestVersionString(MapRequest::RequestVersion version)
     case MapRequest::IFMAPv11:
         str = "IFMAPv11";
         break;
-#ifdef IFMAP20
     case MapRequest::IFMAPv20:
         str = "IFMAPv20";
         break;
-#endif //IFMAP20
     }
 
     return str;
@@ -95,11 +91,9 @@ QString MapRequest::requestVersionNamespace(MapRequest::RequestVersion version)
     case MapRequest::IFMAPv11:
         str = IFMAP_NS_1;
         break;
-#ifdef IFMAP20
     case MapRequest::IFMAPv20:
         str = IFMAP_NS_2;
         break;
-#endif //IFMAP20
     }
 
     return str;
@@ -148,11 +142,9 @@ QString MapRequest::requestErrorString(MapRequest::RequestError error)
         case MapRequest::IfmapSearchResultsTooBig:
             str = "SearchResultsTooBig";
             break;
-#ifdef IFMAP20
         case MapRequest::IfmapPollResultsTooBig:
             str = "PollResultsTooBig";
             break;
-#endif //IFMAP20
         case MapRequest::IfmapSystemError:
             str = "SystemError";
             break;
@@ -178,7 +170,6 @@ MapRequest::MapRequest(const MapRequest &other)
     this->_sessionId = other._sessionId;
 }
 
-#ifdef IFMAP20
 NewSessionRequest::NewSessionRequest(int maxPollResultSize)
     : MapRequest(MapRequest::NewSession), _maxPollResultSize(maxPollResultSize)
 {
@@ -191,19 +182,7 @@ NewSessionRequest::NewSessionRequest(const NewSessionRequest &other)
     this->_clientSetMaxPollResultSize = other._clientSetMaxPollResultSize;
     this->_maxPollResultSize = other._maxPollResultSize;
 }
-#else
-NewSessionRequest::NewSessionRequest()
-    : MapRequest(MapRequest::NewSession)
-{
-}
 
-NewSessionRequest::NewSessionRequest(const NewSessionRequest &other)
-    : MapRequest(other)
-{
-}
-#endif //IFMAP20
-
-#ifdef IFMAP20
 EndSessionRequest::EndSessionRequest()
     : MapRequest(MapRequest::EndSession)
 {
@@ -223,7 +202,6 @@ RenewSessionRequest::RenewSessionRequest(const RenewSessionRequest &other)
     : MapRequest(other)
 {
 }
-#endif //IFMAP20
 
 AttachSessionRequest::AttachSessionRequest()
     : MapRequest(MapRequest::AttachSession)
@@ -277,15 +255,11 @@ SearchType::SearchType()
     _clientSetMaxSize = false;
     _clientSetResultFilter = false;
     _clientSetMatchLinks = false;
-#ifdef IFMAP20
     _clientSetTerminalId = false;
-#endif //IFMAP20
     // Intepretation of the spec is that no match-links attribute matches all links
     _matchLinks = "*";
     _resultFilter = "*";
-#ifdef IFMAP20
     _terminalId = "";
-#endif //IFMAP20
 }
 
 SubscribeOperation::SubscribeOperation()

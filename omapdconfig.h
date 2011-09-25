@@ -24,8 +24,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QtCore>
 
-#define IFMAP20
-
 class OmapdConfig : public QObject
 {
     Q_OBJECT
@@ -50,13 +48,25 @@ public:
                SupportNone = 0x00,
                SupportIfmapV10 = 0x01,
                SupportIfmapV11 = 0x02,
-#ifdef IFMAP20
                SupportIfmapV20 = 0x04
-#endif //IFMAP20
                            };
     Q_DECLARE_FLAGS(MapVersionSupportOptions, MapVersionSupport);
     static MapVersionSupportOptions mapVersionSupportOptions(unsigned int value);
     static QString mapVersionSupportString(OmapdConfig::MapVersionSupportOptions debug);
+
+    enum Authz {
+        DenyAll = 0x00,
+        AllowPublish = 0x01,
+        AllowSearch = 0x02,
+        AllowSubscribe = 0x04,
+        AllowPoll = 0x08,
+        AllowPurgeSelf = 0x10,
+        AllowPurgeOthers = 0x20,
+        AllowAll = 0xFF
+    };
+    Q_DECLARE_FLAGS(AuthzOptions, Authz);
+    static AuthzOptions authzOptions(unsigned int authzValue);
+    static QString authzOptionsString(OmapdConfig::AuthzOptions option);
 
     static OmapdConfig* getInstance();
 
@@ -80,10 +90,13 @@ private:
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::IfmapDebugOptions)
 Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::MapVersionSupportOptions)
+Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::AuthzOptions)
 Q_DECLARE_METATYPE(OmapdConfig::IfmapDebugOptions)
 Q_DECLARE_METATYPE(OmapdConfig::MapVersionSupportOptions)
+Q_DECLARE_METATYPE(OmapdConfig::AuthzOptions)
 
 QDebug operator<<(QDebug dbg, OmapdConfig::IfmapDebugOptions & dbgOptions);
 QDebug operator<<(QDebug dbg, OmapdConfig::MapVersionSupportOptions & dbgOptions);
+QDebug operator<<(QDebug dbg, OmapdConfig::AuthzOptions & authzOptions);
 
 #endif // OMAPDCONFIG_H

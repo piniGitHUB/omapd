@@ -22,25 +22,30 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef CLIENTPARSER_H
 #define CLIENTPARSER_H
 
-#include <QObject>
-#include <QTcpSocket>
 #include <QXmlStreamReader>
-#include <QMap>
+#include <QStringList>
+#include <QNetworkRequest>
 
+#include "omapdconfig.h"
 #include "maprequest.h"
 #include "identifier.h"
-#include "omapdconfig.h"
+
+static QStringList ID_NAMES = (QStringList()
+                               << "access-request"
+                               << "identity"
+                               << "device"
+                               << "ip-address"
+                               << "mac-address");
 
 class ClientParser : public QObject
 {
     Q_OBJECT
 public:
-    ClientParser(QObject *parent = 0);
+    ClientParser(QIODevice *parent = 0);
     ~ClientParser();
-
-    bool read(QTcpSocket *clientSocket);
-    QString errorString() const { return _xmlReader.errorString(); }
-    QXmlStreamReader::Error error() const { return _xmlReader.error(); }
+    QString clientXML() { return _clientRequestXml; }
+    QString errorString() const { return _xml.errorString(); }
+    QXmlStreamReader::Error error() const { return _xml.error(); }
 
     QVariant request() const { return _mapRequest; }
     MapRequest::RequestError requestError() const { return _requestError; }
@@ -48,40 +53,48 @@ public:
     MapRequest::RequestType requestType() const { return _requestType; }
     QString sessionId() const { return _sessionId; }
 
-private:
-    void readSoapEnvelope();
-    void readSoapHeader();
-    void readSoapBody();
-    void readMapRequest();
 
+signals:
+    void parsingComplete();
+    void headerReceived(QNetworkRequest requestHdrs);
+
+public slots:
+    void readData();
+
+private:
+    void parse();
+    void parseDocument();
+    void parseEnvelope();
+    void parseHeader();
+    void parseBody();
+    void parseNewSession();
+    void parseAttachSession();
+    void parseEndSession();
+    void parseRenewSession();
+    void parsePurgePublisher();
+    void parseSearch();
+    SearchType parseSearchDetails(MapRequest &request);
+    void parseSubscribe();
+    void parsePoll();
+    void parsePublish();
+    void parsePublishUpdateOrNotify(PublishOperation::PublishType publishType, PublishRequest &pubReq);
+    void parsePublishDelete(PublishRequest &pubReq);
+    Id parseIdentifier(MapRequest &request);
+    QList<Meta> parseMetadata(PublishRequest &pubReq, Meta::Lifetime lifetime);
+    void registerMetadataNamespaces();
     void setSessionId(MapRequest &request);
 
-    void readNewSession();
-    void readAttachSession();
-#ifdef IFMAP20
-    void readRenewSession();
-    void readEndSession();
-#endif //IFMAP20
-    void readPurgePublisher();
-    void readPublish();
-    void readSubscribe();
-    void readSearch();
-    void readPoll();
-
-    void readPublishOperation(PublishRequest &pubReq);
-    void readSubscribeOperation(SubscribeRequest &subReq);
-    SearchType parseSearch(MapRequest &request);
-
-    Link readLink(MapRequest &request, bool &isLink);
-    Id readIdentifier(MapRequest &request);
-    QList<Meta> readMetadata(PublishRequest &pubReq, Meta::Lifetime lifetime = Meta::LifetimeForever);
-
-    void registerMetadataNamespaces();
+    int readHeader();
+    void processHeader(QNetworkRequest requestHdrs);
 
 private:
     OmapdConfig* _omapdConfig;
 
-    QXmlStreamReader _xmlReader;
+    QXmlStreamReader _xmlSocketReader;
+    QXmlStreamReader _xml;
+    QXmlStreamWriter *_writer;
+    QString _clientRequestXml;
+
     // mapping of prefix --> namespace for metadata types
     QMap<QString,QString> _namespaces;
 

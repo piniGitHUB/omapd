@@ -163,13 +163,11 @@ void MapResponse::writeIdentifier(Identifier id)
         _xmlWriter.writeAttribute("name", id.value());
         _xmlWriter.writeAttribute("type", "sip-uri");
         break;
-#ifdef IFMAP20
     case Identifier::IdentityHipHit:
         _xmlWriter.writeEmptyElement("identity");
         _xmlWriter.writeAttribute("name", id.value());
         _xmlWriter.writeAttribute("type", "hip-hit");
         break;
-#endif //IFMAP20
     case Identifier::IdentityTelUri:
         _xmlWriter.writeEmptyElement("identity");
         _xmlWriter.writeAttribute("name", id.value());
@@ -222,11 +220,7 @@ void MapResponse::setErrorResponse(MapRequest::RequestError requestError, QStrin
     finishEnvelope();
 }
 
-#ifdef IFMAP20
 void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId, bool mprsSet, unsigned int mprs)
-#else
-void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId)
-#endif //IFMAP20
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement(_soap_envelope, "Header");
@@ -238,7 +232,6 @@ void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId)
         _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
         _xmlWriter.writeTextElement(IFMAP_NS_1, "publisher-id", publisherId);
         _xmlWriter.writeEndElement(); // </SOAP-ENV:Body>
-#ifdef IFMAP20
     } else if (_requestVersion == MapRequest::IFMAPv20) {
         startResponse();
         _xmlWriter.writeStartElement("newSessionResult");
@@ -251,13 +244,11 @@ void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId)
         }
         _xmlWriter.writeEndElement(); // </newSessionResult>
         endResponse();
-#endif //IFMAP20
     }
 
     finishEnvelope();
 }
 
-#ifdef IFMAP20
 void MapResponse::setRenewSessionResponse()
 {
     startResponse();
@@ -273,7 +264,6 @@ void MapResponse::setEndSessionResponse()
     endResponse();
     finishEnvelope();
 }
-#endif //IFMAP20
 
 void MapResponse::setAttachSessionResponse(QString sessionId, QString publisherId)
 {
@@ -354,7 +344,6 @@ void MapResponse::addLinkResult(Link link, QString metaXML)
             addMetadataResult(metaXML);
         }
         _xmlWriter.writeEndElement(); // </linkResult>
-#ifdef IFMAP20
     } else if (_requestVersion == MapRequest::IFMAPv20) {
         _xmlWriter.writeStartElement("resultItem");
         writeIdentifier(link.first);
@@ -363,7 +352,6 @@ void MapResponse::addLinkResult(Link link, QString metaXML)
             addMetadataResult(metaXML);
         }
         _xmlWriter.writeEndElement(); // </resultItem>
-#endif //IFMAP20
     }
 }
 
@@ -376,7 +364,6 @@ void MapResponse::addIdentifierResult(Identifier id, QString metaXML)
             addMetadataResult(metaXML);
         }
         _xmlWriter.writeEndElement(); // </identifierResult>
-#ifdef IFMAP20
     } else if (_requestVersion == MapRequest::IFMAPv20) {
         _xmlWriter.writeStartElement("resultItem");
         writeIdentifier(id);
@@ -384,7 +371,6 @@ void MapResponse::addIdentifierResult(Identifier id, QString metaXML)
             addMetadataResult(metaXML);
         }
         _xmlWriter.writeEndElement(); // </resultItem>
-#endif //IFMAP20
     }
 }
 
@@ -513,7 +499,6 @@ void MapResponse::startSearchResult(SearchResult::ResultType resultType, QString
     case SearchResult::SearchResultType:
         tagName = "searchResult";
         break;
-#ifdef IFMAP20
     case SearchResult::UpdateResultType:
         tagName = "updateResult";
         break;
@@ -523,7 +508,6 @@ void MapResponse::startSearchResult(SearchResult::ResultType resultType, QString
     case SearchResult::NotifyResultType:
         tagName = "notifyResult";
         break;
-#endif //IFMAP20
    }
 
     _xmlWriter.writeStartElement(tagName);

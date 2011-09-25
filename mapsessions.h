@@ -27,7 +27,9 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QtNetwork>
 
 #include "omapdconfig.h"
+#include "subscription.h"
 #include "server.h"
+#include "clienthandler.h"
 
 class MapSessions : public QObject
 {
@@ -35,12 +37,12 @@ class MapSessions : public QObject
 public:
     static MapSessions* getInstance();
 
-    void removeClientFromActivePolls(QTcpSocket *clientSocket);
-    void registerClient(QTcpSocket *socket, QString clientKey);
-    QString assignPublisherId(QTcpSocket *socket);
-    void validateSessionId(MapRequest &clientRequest, QTcpSocket *socket);
+    void removeClientFromActivePolls(ClientHandler *clientSocket);
+    void registerClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString clientKey);
+    QString assignPublisherId(QString authToken);
+    void validateSessionId(MapRequest &clientRequest, QString authToken);
 
-    QHash<QString, QTcpSocket*> _activePolls;  // pubId --> QTcpSocket
+    QHash<QString, ClientHandler*> _activePolls;  // pubId --> QTcpSocket
     QHash<QString, QList<Subscription> > _subscriptionLists;  // pubId --> all subscriptions for pubId
     QHash<QString, QString> _activeARCSessions;  // pubId --> sessId
     QHash<QString, QString> _activeSSRCSessions; // pubId --> sessId
@@ -58,7 +60,7 @@ private:
 
 
     // Registry for MAP Clients
-    QHash<QString, QTcpSocket*> _mapClientConnections;  // clientKey --> QTcpSocket
+    QHash<QString, const ClientHandler*> _mapClientConnections;  // clientKey --> QTcpSocket
     QHash<QString, QString> _mapClientRegistry;  // clientKey --> pubId
 
 };

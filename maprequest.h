@@ -28,19 +28,15 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "metadata.h"
 #include "omapdconfig.h"
 
-#ifdef IFMAP20
 static QString IFMAP_NS_2 = "http://www.trustedcomputinggroup.org/2010/IFMAP/2";
 static QString IFMAP_META_NS_2 = "http://www.trustedcomputinggroup.org/2010/IFMAP-METADATA/2";
-#endif //IFMAP20
 static QString IFMAP_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP/1";
 static QString IFMAP_META_NS_1 = "http://www.trustedcomputinggroup.org/2006/IFMAP-METADATA/1";
 
 #define IFMAP_MAX_SIZE 100000;
 #define IFMAP_MAX_DEPTH_MAX 10000;
 
-#ifdef IFMAP20
 #define MAXPOLLRESULTSIZEDEFAULT    5000000
-#endif //IFMAP20
 
 class MapRequest
 {
@@ -48,19 +44,15 @@ public:
     enum RequestVersion {
         VersionNone = 0,
         IFMAPv11,
-#ifdef IFMAP20
         IFMAPv20
-#endif //IFMAP20
     };
 
     enum RequestType {
         RequestNone = 0,
         NewSession,
         AttachSession,
-#ifdef IFMAP20
         EndSession,
         RenewSession,
-#endif //IFMAP20
         Publish,
         Subscribe,
         Search,
@@ -89,10 +81,15 @@ public:
         IfmapInvalidSessionID,
         IfmapMetadataTooLong,
         IfmapSearchResultsTooBig,
-#ifdef IFMAP20
         IfmapPollResultsTooBig,
-#endif //IFMAP20
         IfmapSystemError // Server error
+    };
+
+    enum AuthenticationType {
+        AuthNone = 0,
+        AuthAllowNone,
+        AuthBasic,
+        AuthCert
     };
     
     MapRequest(MapRequest::RequestType requestType = MapRequest::RequestNone);
@@ -109,12 +106,16 @@ public:
     MapRequest::RequestType requestType() const { return _requestType; }
     QString sessionId() const { return _sessionId; }
     bool clientSetSessionId() const { return _clientSetSessionId; }
+    MapRequest::AuthenticationType authType() const { return _authType; }
+    QString authToken() const { return _authValue; }
 
     void setRequestError(MapRequest::RequestError requestError) { _requestError = requestError; }
     void setRequestType(MapRequest::RequestType requestType) { _requestType = requestType; }
     void setRequestVersion(MapRequest::RequestVersion requestVersion) { _requestVersion = requestVersion; }
     void setSessionId(QString sessionId) { _sessionId = sessionId; }
     void setClientSetSessionId(bool set) { _clientSetSessionId = set; }
+    void setAuthType(MapRequest::AuthenticationType type) { _authType = type; }
+    void setAuthValue(QString value) { _authValue = value; }
 
 protected:
     MapRequest::RequestError _requestError;
@@ -122,20 +123,17 @@ protected:
     MapRequest::RequestType _requestType;
     QString _sessionId;
     bool _clientSetSessionId;
+    MapRequest::AuthenticationType _authType;
+    QString _authValue;
 };
 
 class NewSessionRequest : public MapRequest
 {
 public:
-#ifdef IFMAP20
     NewSessionRequest(int maxPollResultSize = MAXPOLLRESULTSIZEDEFAULT);
-#else
-    NewSessionRequest();
-#endif //IFMAP20
     NewSessionRequest(const NewSessionRequest&);
     ~NewSessionRequest() {;}
 
-#ifdef IFMAP20
     unsigned int maxPollResultSize() const { return _maxPollResultSize; }
     bool clientSetMaxPollResultSize() const { return _clientSetMaxPollResultSize; }
     void setMaxPollResultSize(unsigned int mprs) { _maxPollResultSize = mprs; }
@@ -143,7 +141,6 @@ public:
 private:
     unsigned int _maxPollResultSize;
     bool _clientSetMaxPollResultSize;
-#endif //IFMAP20
 };
 Q_DECLARE_METATYPE(NewSessionRequest)
 
@@ -156,7 +153,6 @@ public:
 };
 Q_DECLARE_METATYPE(AttachSessionRequest)
 
-#ifdef IFMAP20
 class EndSessionRequest : public MapRequest
 {
 public:
@@ -175,7 +171,6 @@ public:
     ~RenewSessionRequest() {;}
 };
 Q_DECLARE_METATYPE(RenewSessionRequest)
-#endif //IFMAP20
 
 class PurgePublisherRequest : public MapRequest
 {
@@ -201,9 +196,7 @@ public:
     enum PublishType {
         None = 0,
         Update,
-#ifdef IFMAP20
         Notify,
-#endif //IFMAP20
         Delete
     };
 
@@ -248,9 +241,7 @@ public:
     int maxSize() const { return _maxSize; }
     QString resultFilter() const { return _resultFilter; }
     QString matchLinks() const { return _matchLinks; }
-#ifdef IFMAP20
     QString terminalId() const { return _terminalId; }
-#endif //IFMAP20
     Id startId() const { return _startId; }
     QMap<QString, QString> filterNamespaceDefinitions() const { return _filterNamespaceDefinitions; }
 
@@ -258,17 +249,13 @@ public:
     bool clientSetMaxSize() const { return _clientSetMaxSize; }
     bool clientSetResultFilter() const { return _clientSetResultFilter; }
     bool clientSetMatchLinks() const { return _clientSetMatchLinks; }
-#ifdef IFMAP20
     bool clientSetTerminalId() const { return _clientSetTerminalId; }
-#endif //IFMAP20
 
     void setMaxDepth(int maxDepth) { _maxDepth = maxDepth; _clientSetMaxDepth = true; }
     void setMaxSize(int maxSize) { _maxSize = maxSize; _clientSetMaxSize = true; }
     void setResultFilter(QString resultFilter) { _resultFilter = resultFilter; _clientSetResultFilter = true; }
     void setMatchLinks(QString matchLinks) { _matchLinks = matchLinks; _clientSetMatchLinks = true; }
-#ifdef IFMAP20
     void setTerminalId(QString terminalId) { _terminalId = terminalId; _clientSetTerminalId = true; }
-#endif //IFMAP20
     void setStartId(Id id) { _startId = id; }
     void setFilterNamespaceDefinitions(QMap<QString,QString> nsDefs) {_filterNamespaceDefinitions = nsDefs; }
 protected:
@@ -280,10 +267,8 @@ protected:
     bool _clientSetResultFilter;
     QString _matchLinks;
     bool _clientSetMatchLinks;
-#ifdef IFMAP20
     QString _terminalId;
     bool _clientSetTerminalId;
-#endif //IFMAP20
     Id _startId;
     QMap<QString, QString> _filterNamespaceDefinitions;
 };
