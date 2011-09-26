@@ -34,8 +34,8 @@ bool Server::startListening()
 {
     bool rc = false;
     QHostAddress listenOn;
-    if (listenOn.setAddress(_omapdConfig->valueFor("ifmap_address").toString())) {
-        unsigned int port = _omapdConfig->valueFor("ifmap_port").toUInt();
+    if (listenOn.setAddress(_omapdConfig->valueFor("address").toString())) {
+        unsigned int port = _omapdConfig->valueFor("port").toUInt();
 
         if (listen(listenOn, port)) {
             rc = true;

@@ -25,11 +25,15 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QObject>
 #include <QtCore>
 #include <QtNetwork>
+#include <QtXmlPatterns>
 
 #include "omapdconfig.h"
 #include "subscription.h"
 #include "server.h"
 #include "clienthandler.h"
+
+typedef QPair<QString, QString> VSM;
+//uint qHash(const VSM & key) { return qHash(key.first + key.second); }
 
 class MapSessions : public QObject
 {
@@ -42,13 +46,12 @@ public:
     QString assignPublisherId(QString authToken);
     void validateSessionId(MapRequest &clientRequest, QString authToken);
 
+    bool validateMetadata(Meta aMeta);
+
     QHash<QString, ClientHandler*> _activePolls;  // pubId --> QTcpSocket
     QHash<QString, QList<Subscription> > _subscriptionLists;  // pubId --> all subscriptions for pubId
     QHash<QString, QString> _activeARCSessions;  // pubId --> sessId
     QHash<QString, QString> _activeSSRCSessions; // pubId --> sessId
-
-public slots:
-    void foo() {;}
 
 private:
     MapSessions(QObject *parent = 0);
@@ -63,6 +66,16 @@ private:
     QHash<QString, const ClientHandler*> _mapClientConnections;  // clientKey --> QTcpSocket
     QHash<QString, QString> _mapClientRegistry;  // clientKey --> pubId
 
+    // Registry for published vendor specific metadata cardinalities
+    QHash<VSM, Meta::Cardinality> _vsmRegistry;
+
+    // Standard IF-MAP schemas
+    QXmlSchema _ifmapBase11;
+    QXmlSchema _ifmapMeta11;
+    QXmlSchema _ifmapBase20;
+    QXmlSchema _ifmapMeta20;
+    QXmlSchemaValidator _ifmapMeta11Validator;
+    QXmlSchemaValidator _ifmapMeta20Validator;
 };
 
 #endif // MAPSESSIONS_H

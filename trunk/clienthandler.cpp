@@ -63,8 +63,8 @@ void ClientHandler::setupCrypto()
 
     QString ssl_proto = "AnyProtocol";
     _disallowSSLv2 = false;
-    if (_omapdConfig->isSet("ifmap_ssl_protocol")) {
-        ssl_proto = _omapdConfig->valueFor("ifmap_ssl_protocol").toString();
+    if (_omapdConfig->isSet("ssl_protocol")) {
+        ssl_proto = _omapdConfig->valueFor("ssl_protocol").toString();
         if (ssl_proto == "NoSslV2") _disallowSSLv2 = true;
     }
     if ( ( ssl_proto == "AnyProtocol") || ( ssl_proto == "NoSslV2" ) )
@@ -77,7 +77,7 @@ void ClientHandler::setupCrypto()
         this->setProtocol(QSsl::TlsV1);
     else {
         // If this else is reached - an invalid protocol was in the xml file
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "ifmap_ssl_protocol -- type invalid -- trying to continue "
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "ssl_protocol -- type invalid -- trying to continue "
                 << "using AnyProtocol";
         this->setProtocol(QSsl::AnyProtocol);
     }
@@ -90,10 +90,10 @@ void ClientHandler::setupCrypto()
     // Set server cert, private key, CRLs, etc.
     QString keyFileName = "server.key";
     QByteArray keyPassword = "";
-    if (_omapdConfig->isSet("ifmap_private_key_file")) {
-        keyFileName = _omapdConfig->valueFor("ifmap_private_key_file").toString();
-        if (_omapdConfig->isSet("ifmap_private_key_password")) {
-            keyPassword = _omapdConfig->valueFor("ifmap_private_key_password").toByteArray();
+    if (_omapdConfig->isSet("private_key_file")) {
+        keyFileName = _omapdConfig->valueFor("private_key_file").toString();
+        if (_omapdConfig->isSet("private_key_password")) {
+            keyPassword = _omapdConfig->valueFor("private_key_password").toByteArray();
         }
     }
     QFile keyFile(keyFileName);
@@ -103,14 +103,14 @@ void ClientHandler::setupCrypto()
         qDebug() << __PRETTY_FUNCTION__ << ":" << "No private key file:" << keyFile.fileName();
     } else {
         this->setPrivateKey(keyFileName, QSsl::Rsa, QSsl::Pem, keyPassword);
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded private key";
     }
 
     QString certFileName = "server.cert";
     // TODO: Add QSsl::Der format support from _omapdConfig
-    if (_omapdConfig->isSet("ifmap_certificate_file")) {
-        certFileName = _omapdConfig->valueFor("ifmap_certificate_file").toString();
+    if (_omapdConfig->isSet("certificate_file")) {
+        certFileName = _omapdConfig->valueFor("certificate_file").toString();
     }
     QFile certFile(certFileName);
     if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -124,18 +124,18 @@ void ClientHandler::setupCrypto()
             serverCert = QSslCertificate(&certFile, QSsl::Der);
 
         this->setLocalCertificate(serverCert);
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
     }
 
     // Load server CAs
-    if (_omapdConfig->isSet("ifmap_ca_certificates_file")) {
-        QFile caFile(_omapdConfig->valueFor("ifmap_ca_certificates_file").toString());
+    if (_omapdConfig->isSet("ca_certificates_file")) {
+        QFile caFile(_omapdConfig->valueFor("ca_certificates_file").toString());
         if (!caFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not find CA certificates file" << caFile.fileName();
         } else {
             this->setCaCertificates(QSslCertificate::fromDevice(&caFile, QSsl::Pem));
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded CA certs in:" << caFile.fileName();
         }
     }
@@ -188,7 +188,7 @@ void ClientHandler::registerCert()
                     << clientCerts.at(i).subjectInfo(QSslCertificate::LocalityName)
                     << clientCerts.at(i).subjectInfo(QSslCertificate::OrganizationalUnitName)
                     << clientCerts.at(i).subjectInfo(QSslCertificate::CommonName);
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Cert chain for client at:" << this->peerAddress().toString();
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << dnElements.join("/");
             }
@@ -204,7 +204,7 @@ void ClientHandler::registerCert()
 
 void ClientHandler::clientConnState(QAbstractSocket::SocketState sState)
 {
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPState))
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPState))
         qDebug() << __PRETTY_FUNCTION__ << ":" << "socket state for socket:" << this
                  << "------------->:" << sState;
 }
@@ -213,11 +213,11 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
 {
     // TODO: Improve http protocol support
     if (requestHdrs.hasRawHeader(QByteArray("Expect"))) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Expect header";
         QByteArray expectValue = requestHdrs.rawHeader(QByteArray("Expect"));
         if (! expectValue.isEmpty() && expectValue.contains(QByteArray("100-continue"))) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got 100-continue Expect Header";
             }
             sendHttpResponse(100, "Continue");
@@ -225,12 +225,12 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
     }
 
     if (requestHdrs.hasRawHeader(QByteArray("Content-Length"))) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Length header";
         bool ok = false;
         int contentLength = requestHdrs.rawHeader(QByteArray("Content-Length")).toInt(&ok);
         if (ok) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Length value:" << contentLength;
             }
 
@@ -238,19 +238,19 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
             // FIXME: Do I need this commented code?
             //_headersReceived.insert(socket, contentLength);
         } else {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading Content-Length header value";
             }
         }
     }
 
     if (requestHdrs.hasRawHeader(QByteArray("Authorization"))) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Authorization header";
         QByteArray basicAuthValue = requestHdrs.rawHeader(QByteArray("Authorization"));
         if (! basicAuthValue.isEmpty() && basicAuthValue.contains(QByteArray("Basic"))) {
             basicAuthValue = basicAuthValue.mid(6);
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Basic Auth value:" << basicAuthValue;
             }
             // TODO: This will over write any AuthCert value since that happened earlier
@@ -258,7 +258,7 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
             _authToken = basicAuthValue;
             //FIXME check this
             /*
-            if (_omapdConfig->valueFor("ifmap_create_client_configurations").toBool()) {
+            if (_omapdConfig->valueFor("create_client_configurations").toBool()) {
                 _mapSessions->registerClient(this, QString(basicAuthValue));
             }
             */
@@ -269,7 +269,7 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
 
 void ClientHandler::sendHttpResponse(int hdrNumber, QString hdrText)
 {
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending Http Response:" << hdrNumber << hdrText;
 
     QHttpResponseHeader header(hdrNumber, hdrText);
@@ -290,7 +290,7 @@ void ClientHandler::handleParseComplete()
     // Make sure we have something for clients that send no auth token
     if (_authType == MapRequest::AuthNone) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "No authentication from client";
-        if (_omapdConfig->valueFor("ifmap_allow_unauthenticated_clients").toBool()) {
+        if (_omapdConfig->valueFor("allow_unauthenticated_clients").toBool()) {
             _authToken = this->peerAddress().toString();
             _authType = MapRequest::AuthAllowNone;
             qDebug() << __PRETTY_FUNCTION__ << ":" << "_authToken:" << _authToken;
@@ -303,7 +303,7 @@ void ClientHandler::handleParseComplete()
         clientFaultResponse.setClientFault(_parser->errorString());
         sendMapResponse(clientFaultResponse);
     } else {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got request type:" << MapRequest::requestTypeString(_parser->requestType())
                      << "and IF-MAP version:" << MapRequest::requestVersionString(_parser->requestVersion());
 
@@ -375,10 +375,10 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
         this->write(header.toString().toUtf8() );
         this->write(response);
 
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply headers to client:" << endl << header.toString();
 
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML))
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply to client:" << endl << response << endl;
     } else {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket is not connected!  Not sending reply to client";
@@ -497,7 +497,7 @@ void ClientHandler::processEndSession(QVariant clientRequest)
     if (!requestError) {
         QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
         terminateSession(sessId, esReq.requestVersion());
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated session-id:" << sessId
                      << "for publisher-id:" << publisherId;
         }
@@ -536,7 +536,7 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Already have existing ARC session, terminating";
             asResp.setErrorResponse(requestError, sessId);
         } else {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
             }
             _mapSessions->_activeARCSessions.insert(publisherId, sessId);
@@ -612,12 +612,12 @@ void ClientHandler::processPublish(QVariant clientRequest)
                         if (delMeta.isEmpty()) {
                             // Keep this metadata (delete filter did not match)
                             keepMetaList.append(aMeta);
-                            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Found Meta to keep:" << aMeta.elementName();
                             }
                         } else {
                             deleteMetaList.append(aMeta);
-                            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Meta will be deleted:" << aMeta.elementName();
                             }
                             // Delete matched something, so this may affect subscriptions
@@ -627,7 +627,7 @@ void ClientHandler::processPublish(QVariant clientRequest)
                 }
 
                 if (metadataDeleted) {
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "Updating map graph because metadata was deleted";
                     }
                     _mapGraph->replaceMeta(pubOper._link, pubOper._isLink, keepMetaList);
@@ -640,7 +640,7 @@ void ClientHandler::processPublish(QVariant clientRequest)
                 metadataDeleted = true;
                 deleteMetaList = existingMetaList;
             } else {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "No metadata to delete!";
                 }
             }
@@ -662,7 +662,7 @@ void ClientHandler::processPublish(QVariant clientRequest)
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Error in publish:" << MapRequest::requestErrorString(requestError);
     } else {
         sendResultsOnActivePolls();
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
             _mapGraph->dumpMap();
         }
     }
@@ -684,7 +684,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
     QString sessId = subReq.sessionId();
     QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
 
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Will manage subscriptions for publisher:" << publisherId;
     }
 
@@ -700,7 +700,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
             int currentDepth = -1;
             buildSearchGraph(sub, sub._search.startId(), currentDepth);
 
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Subscription:" << subOper.name();
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << sub._idList.size();
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << sub._linkList.size();
@@ -714,12 +714,12 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
                 subList.removeOne(sub);
                 subList << sub;
             }
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << subList.size();
             }
 
             _mapSessions->_subscriptionLists.insert(publisherId, subList);
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding SearchGraph to _subscriptionLists with name:" << sub._name;
             }
 
@@ -735,7 +735,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
             QList<Subscription> subList = _mapSessions->_subscriptionLists.take(publisherId);
             if (! subList.isEmpty()) {
                 subList.removeOne(delSub);
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscription from subList with name:" << delSub._name;
                 }
             } else {
@@ -746,7 +746,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
                 _mapSessions->_subscriptionLists.insert(publisherId, subList);
             }
 
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << subList.size();
             }
 
@@ -777,7 +777,7 @@ void ClientHandler::processSearch(QVariant clientRequest)
         int currentDepth = -1;
         buildSearchGraph(tempSub, tempSub._search.startId(), currentDepth);
 
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Search Lists";
             // NB: idList size should be 1 or more, because we always include the starting identifier
             qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << tempSub._idList.size();
@@ -830,7 +830,7 @@ void ClientHandler::processPurgePublisher(QVariant clientRequest)
             if (haveChange) {
                 updateSubscriptions(idMetaDeleted, linkMetaDeleted);
                 sendResultsOnActivePolls();
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
                     _mapGraph->dumpMap();
                 }
             }
@@ -862,7 +862,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
 
             if (_mapSessions->_subscriptionLists.value(publisherId).isEmpty()) {
                 // No immediate client response
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions for publisherId:" << publisherId;
                 }
             } else {
@@ -876,7 +876,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
                 requestError = MapRequest::IfmapInvalidSessionID;
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Already have existing ARC session, terminating";
             } else {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
                 }
                 _mapSessions->_activeARCSessions.insert(publisherId, sessId);
@@ -885,7 +885,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
 
                 if (_mapSessions->_subscriptionLists.value(publisherId).isEmpty()) {
                     // No immediate client response
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions for publisherId:" << publisherId;
                     }
                 } else {
@@ -935,7 +935,7 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
         */
         if (_mapSessions->_subscriptionLists.contains(publisherId)) {
             _mapSessions->_subscriptionLists.remove(publisherId);
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << publisherId;
             }
         }
@@ -962,7 +962,7 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
         if (haveChange) {
             updateSubscriptions(idMetaDeleted, linkMetaDeleted);
             sendResultsOnActivePolls();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
                 _mapGraph->dumpMap();
             }
         }
@@ -1071,7 +1071,7 @@ QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMa
                     << filter;
     }
 
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterStatements))
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterStatements))
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Statement:" << endl << qString;
 
     QXmlQuery query;
@@ -1094,7 +1094,7 @@ QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMa
     } else {
         // If there are no query results, we won't add <metadata> enclosing element
         if (! resultString.isEmpty()) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Result:" << endl << resultString;
 
             resultString.prepend("<metadata>");
@@ -1176,7 +1176,7 @@ void ClientHandler::collectSearchGraphMetadata(Subscription &sub, SearchResult::
     while (idIt.hasNext() && !operationError) {
         Id id = idIt.next();
         QList<Meta> idMetaList = _mapGraph->metaForId(id);
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
         }
         // TODO: Should the identifier be added if there is no metadata at all?
@@ -1187,7 +1187,7 @@ void ClientHandler::collectSearchGraphMetadata(Subscription &sub, SearchResult::
     while (linkIt.hasNext() && !operationError) {
         Link link = linkIt.next();
         QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
         }
         addLinkResult(sub, link, linkMetaList, resultType, operationError);
@@ -1200,7 +1200,7 @@ void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::
     while (idIt.hasNext() && !operationError) {
         Id id = idIt.next();
         QList<Meta> idMetaList = _mapGraph->metaForId(id);
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
         }
         addIdentifierResult(sub, id, idMetaList, resultType, operationError);
@@ -1210,7 +1210,7 @@ void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::
     while (linkIt.hasNext() && !operationError) {
         Link link = linkIt.next();
         QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
         }
         addLinkResult(sub, link, linkMetaList, resultType, operationError);
@@ -1228,7 +1228,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
     /* IFMAP20: 3.7.2.8: Recursive Algorithm is from spec */
     // 1. Current id, current results, current depth
     currentDepth++;
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Starting identifier:" << startId;
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Current depth:" << currentDepth;
     }
@@ -1244,7 +1244,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
         QStringList terminalIdList = sub._search.terminalId().split(",");
 
         if (terminalIdList.contains(curIdTypeStr)) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Reached terminal identifier:" << curIdTypeStr;
             }
             return;
@@ -1253,7 +1253,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
 
     // 4. Check max depth reached
     if (currentDepth >= sub._search.maxDepth()) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "max depth reached:" << sub._search.maxDepth();
         }
         return;
@@ -1276,7 +1276,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
         MapRequest::RequestError error = MapRequest::ErrorNone;
         QString matchLinkMeta = filteredMetadata(curLinkMeta, sub._search.matchLinks(), sub._search.filterNamespaceDefinitions(), error);
         if (! matchLinkMeta.isEmpty()) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding link:" << link;
             }
             linksWithCurId.insert(link);
@@ -1287,7 +1287,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
     linksWithCurId.subtract(sub._linkList);
 
     if (linksWithCurId.isEmpty()) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "linksWithCurId is empty!!!";
         }
         return;
@@ -1352,7 +1352,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
         allSubsIt.next();
         QString pubId = allSubsIt.key();
         QList<Subscription> subList = allSubsIt.value();
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
         }
 
@@ -1360,7 +1360,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
         QMutableListIterator<Subscription> subIt(subList);
         while (subIt.hasNext()) {
             Subscription sub = subIt.next();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
             }
 
@@ -1373,7 +1373,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                 if (sub._idList.contains(link.first)) {
                     // Case 1.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
                     }
                 }
@@ -1381,7 +1381,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                 if (sub._linkList.contains(link) && publishType == Meta::PublishDelete) {
                     // Case 3.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
                     }
                 }
@@ -1406,7 +1406,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                         // Metadata on these ids are in deleteResults
                         idsWithConnectedGraphDeletes = existingIdList - sub._idList;
 
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newIdList.size:" << sub._idList.size();
                         }
                     }
@@ -1419,7 +1419,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                         // Metadata on these links are in deleteResults
                         linksWithConnectedGraphDeletes = existingLinkList - sub._linkList;
 
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newLinkList.size:" << sub._linkList.size();
                         }
                     }
@@ -1436,7 +1436,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                     // Add results from publish/delete/endSession/purgePublisher (that don't modify SearchGraph)
                     if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
                         SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding update/delete results from un-changed SearchGraph";
                         }
                         if (isLink) {
@@ -1447,14 +1447,14 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                     }
                     // Add results from extending SearchGraph for this subscription
                     if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding updateResults from changed SearchGraph";
                         }
                         addUpdateAndDeleteMetadata(sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
                     }
                     // Add results from pruning SearchGraph for this subscription
                     if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding deleteResults from changed SearchGraph";
                         }
                         addUpdateAndDeleteMetadata(sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
@@ -1486,7 +1486,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
         allSubsIt.next();
         QString pubId = allSubsIt.key();
         QList<Subscription> subList = allSubsIt.value();
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
         }
 
@@ -1494,7 +1494,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
         QMutableListIterator<Subscription> subIt(subList);
         while (subIt.hasNext()) {
             Subscription sub = subIt.next();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
             }
             bool subIsDirty = false;
@@ -1503,7 +1503,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
                 // Case 1.
                 if (sub._idList.contains(link.first)) {
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
                     }
                 }
@@ -1511,13 +1511,13 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
                 if (sub._linkList.contains(link)) {
                     // Case 2.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
                     }
                 } else if (sub._idList.contains(link.first) || sub._idList.contains(link.second)) {
                     // Case 3.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with one end of the link in SearchGraph:" << link;
                     }
                 }
@@ -1560,7 +1560,7 @@ void ClientHandler::sendResultsOnActivePolls()
         // Only check subscriptions for publisher if client has an active poll
         if (_mapSessions->_activePolls.contains(pubId)) {
             QList<Subscription> subList = allSubsIt.value();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
             }
 
@@ -1573,7 +1573,7 @@ void ClientHandler::sendResultsOnActivePolls()
                 Subscription sub = subIt.next();
 
                 MapRequest::RequestError subError = MapRequest::ErrorNone;
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "--Checking subscription named:" << sub._name;
                 }
 
@@ -1607,7 +1607,7 @@ void ClientHandler::sendResultsOnActivePolls()
                         pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
                         subIt.setValue(sub);
                     } else if (sub._searchResults.count() > 0) {
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "--Gathering initial poll results for publisher with active poll:" << pubId;
                         }
 
@@ -1634,14 +1634,14 @@ void ClientHandler::sendResultsOnActivePolls()
                         pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
                         subIt.setValue(sub);
                     } else {
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "--No results for subscription at this time";
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----_activePolls.contains(pubId):" << _mapSessions->_activePolls.contains(pubId);
                         }
                     }
                 } else if (sub._deltaResults.count() > 0) {
                     // Build results from update/delete/notify results
-                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "--Gathering delta poll results for publisher with active poll:" << pubId;
                     }
 
@@ -1657,7 +1657,7 @@ void ClientHandler::sendResultsOnActivePolls()
             }
 
             if (pollResponse) {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending pollResults";
                 pollResponse->endPollResponse();
                 // FIXME: Need to figure out how to send this to a different ClientHandler
