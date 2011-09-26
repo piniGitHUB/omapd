@@ -1,0 +1,1687 @@
+/*
+clienthandler.cpp: Implementation of ClientHandler class
+
+Copyright (C) 2011  Sarab D. Mattes <mattes@nixnux.org>
+
+This file is part of omapd.
+
+omapd is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+omapd is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with omapd.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include <QHostAddress>
+#include <QSslCipher>
+#include <QNetworkRequest>
+#include <QHttpResponseHeader>
+#include <QXmlQuery>
+
+#include "clienthandler.h"
+#include "clientparser.h"
+#include "mapsessions.h"
+
+ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
+    QSslSocket(parent), _mapGraph(mapGraph)
+{
+    _omapdConfig = OmapdConfig::getInstance();
+    _mapSessions = MapSessions::getInstance();
+
+    _authType = MapRequest::AuthNone;
+
+    this->setupCrypto();
+    // Connect SSL error signals to local slots
+    connect(this, SIGNAL(peerVerifyError(QSslError)),
+            this, SLOT(clientSSLVerifyError(QSslError)));
+    connect(this, SIGNAL(sslErrors(QList<QSslError>)),
+            this, SLOT(clientSSLErrors(QList<QSslError>)));
+    connect(this, SIGNAL(encrypted()), this, SLOT(socketReady()));
+
+    _parser = new ClientParser(this);
+    connect(_parser, SIGNAL(parsingComplete()),this, SLOT(handleParseComplete()));
+    connect(_parser, SIGNAL(headerReceived(QNetworkRequest)),
+            this, SLOT(processHeader(QNetworkRequest)));
+
+}
+
+ClientHandler::~ClientHandler()
+{
+    delete _parser;
+}
+
+void ClientHandler::setupCrypto()
+{
+    this->setCiphers(QSslSocket::supportedCiphers());
+
+    QString ssl_proto = "AnyProtocol";
+    _disallowSSLv2 = false;
+    if (_omapdConfig->isSet("ifmap_ssl_protocol")) {
+        ssl_proto = _omapdConfig->valueFor("ifmap_ssl_protocol").toString();
+        if (ssl_proto == "NoSslV2") _disallowSSLv2 = true;
+    }
+    if ( ( ssl_proto == "AnyProtocol") || ( ssl_proto == "NoSslV2" ) )
+        this->setProtocol(QSsl::AnyProtocol);
+    else if (ssl_proto == "SslV2")
+        this->setProtocol(QSsl::SslV2);
+    else if (ssl_proto == "SslV3")
+        this->setProtocol(QSsl::SslV3);
+    else if (ssl_proto == "TlsV1")
+        this->setProtocol(QSsl::TlsV1);
+    else {
+        // If this else is reached - an invalid protocol was in the xml file
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "ifmap_ssl_protocol -- type invalid -- trying to continue "
+                << "using AnyProtocol";
+        this->setProtocol(QSsl::AnyProtocol);
+    }
+
+    // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
+    this->setPeerVerifyMode(QSslSocket::VerifyPeer);
+    // QueryPeer just asks for the client cert, but does not verify it
+    //this->setPeerVerifyMode(QSslSocket::QueryPeer);
+
+    // Set server cert, private key, CRLs, etc.
+    QString keyFileName = "server.key";
+    QByteArray keyPassword = "";
+    if (_omapdConfig->isSet("ifmap_private_key_file")) {
+        keyFileName = _omapdConfig->valueFor("ifmap_private_key_file").toString();
+        if (_omapdConfig->isSet("ifmap_private_key_password")) {
+            keyPassword = _omapdConfig->valueFor("ifmap_private_key_password").toByteArray();
+        }
+    }
+    QFile keyFile(keyFileName);
+    // TODO: Add QSsl::Der format support from _omapdConfig
+    // TODO: Add QSsl::Dsa support from _omapdConfig
+    if (!keyFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "No private key file:" << keyFile.fileName();
+    } else {
+        this->setPrivateKey(keyFileName, QSsl::Rsa, QSsl::Pem, keyPassword);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded private key";
+    }
+
+    QString certFileName = "server.cert";
+    // TODO: Add QSsl::Der format support from _omapdConfig
+    if (_omapdConfig->isSet("ifmap_certificate_file")) {
+        certFileName = _omapdConfig->valueFor("ifmap_certificate_file").toString();
+    }
+    QFile certFile(certFileName);
+    if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "No certificate file:" << certFile.fileName();
+    } else {
+        QSslCertificate serverCert;
+        // Try PEM format fail over to DER; since they are the only 2
+        // supported by the QSsl Certificate classes
+        serverCert = QSslCertificate(&certFile, QSsl::Pem);
+        if ( serverCert.isNull() )
+            serverCert = QSslCertificate(&certFile, QSsl::Der);
+
+        this->setLocalCertificate(serverCert);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
+    }
+
+    // Load server CAs
+    if (_omapdConfig->isSet("ifmap_ca_certificates_file")) {
+        QFile caFile(_omapdConfig->valueFor("ifmap_ca_certificates_file").toString());
+        if (!caFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not find CA certificates file" << caFile.fileName();
+        } else {
+            this->setCaCertificates(QSslCertificate::fromDevice(&caFile, QSsl::Pem));
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded CA certs in:" << caFile.fileName();
+        }
+    }
+
+}
+
+void ClientHandler::socketReady()
+{
+    if (this->protocol() == QSsl::SslV2 && _disallowSSLv2) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Disconnecting client - client is using SslV2 - NoSslV2 was requested in config ";
+        this->disconnectFromHost();
+        return;
+    }
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "Successful SSL handshake with peer:" << this->peerAddress().toString();
+
+    registerCert();
+
+    connect(this, SIGNAL(readyRead()), this, SLOT(processReadyRead()));
+
+    connect(this, SIGNAL(stateChanged(QAbstractSocket::SocketState)),
+            this, SLOT(clientConnState(QAbstractSocket::SocketState)));
+}
+
+void ClientHandler::clientSSLVerifyError(const QSslError &error)
+{
+    qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
+}
+
+void ClientHandler::clientSSLErrors(const QList<QSslError> &errors)
+{
+    foreach (const QSslError &error, errors) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
+    }
+
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "ALERT!!!!!!!! Calling ignoreSslErrors";
+    this->ignoreSslErrors();
+}
+
+void ClientHandler::registerCert()
+{
+    QList<QSslCertificate> clientCerts = this->peerCertificateChain();
+    if (clientCerts.size() > 0) {
+        QStringList authToken;
+        QStringList dnElements;
+
+        for (int i=0; i<clientCerts.size(); i++) {
+            dnElements << clientCerts.at(i).subjectInfo(QSslCertificate::Organization)
+                    << clientCerts.at(i).subjectInfo(QSslCertificate::CountryName)
+                    << clientCerts.at(i).subjectInfo(QSslCertificate::StateOrProvinceName)
+                    << clientCerts.at(i).subjectInfo(QSslCertificate::LocalityName)
+                    << clientCerts.at(i).subjectInfo(QSslCertificate::OrganizationalUnitName)
+                    << clientCerts.at(i).subjectInfo(QSslCertificate::CommonName);
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Cert chain for client at:" << this->peerAddress().toString();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << dnElements.join("/");
+            }
+        }
+        authToken << dnElements.join("/") << ":";
+
+        _authType = MapRequest::AuthCert;
+        _authToken = authToken.join("");
+
+        _mapSessions->registerClient(this, _authType, _authToken);
+    }
+}
+
+void ClientHandler::clientConnState(QAbstractSocket::SocketState sState)
+{
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPState))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "socket state for socket:" << this
+                 << "------------->:" << sState;
+}
+
+void ClientHandler::processHeader(QNetworkRequest requestHdrs)
+{
+    // TODO: Improve http protocol support
+    if (requestHdrs.hasRawHeader(QByteArray("Expect"))) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Expect header";
+        QByteArray expectValue = requestHdrs.rawHeader(QByteArray("Expect"));
+        if (! expectValue.isEmpty() && expectValue.contains(QByteArray("100-continue"))) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got 100-continue Expect Header";
+            }
+            sendHttpResponse(100, "Continue");
+        }
+    }
+
+    if (requestHdrs.hasRawHeader(QByteArray("Content-Length"))) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Length header";
+        bool ok = false;
+        int contentLength = requestHdrs.rawHeader(QByteArray("Content-Length")).toInt(&ok);
+        if (ok) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Length value:" << contentLength;
+            }
+
+            // Keep track of number of bytes expected on this socket
+            // FIXME: Do I need this commented code?
+            //_headersReceived.insert(socket, contentLength);
+        } else {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading Content-Length header value";
+            }
+        }
+    }
+
+    if (requestHdrs.hasRawHeader(QByteArray("Authorization"))) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Authorization header";
+        QByteArray basicAuthValue = requestHdrs.rawHeader(QByteArray("Authorization"));
+        if (! basicAuthValue.isEmpty() && basicAuthValue.contains(QByteArray("Basic"))) {
+            basicAuthValue = basicAuthValue.mid(6);
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Basic Auth value:" << basicAuthValue;
+            }
+            // TODO: This will over write any AuthCert value since that happened earlier
+            _authType = MapRequest::AuthBasic;
+            _authToken = basicAuthValue;
+            //FIXME check this
+            /*
+            if (_omapdConfig->valueFor("ifmap_create_client_configurations").toBool()) {
+                _mapSessions->registerClient(this, QString(basicAuthValue));
+            }
+            */
+        }
+    }
+
+}
+
+void ClientHandler::sendHttpResponse(int hdrNumber, QString hdrText)
+{
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending Http Response:" << hdrNumber << hdrText;
+
+    QHttpResponseHeader header(hdrNumber, hdrText);
+    if (this->state() == QAbstractSocket::ConnectedState) {
+        this->write(header.toString().toUtf8() );
+    }
+}
+
+void ClientHandler::processReadyRead()
+{
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "bytesAvailable:" << this->bytesAvailable() << "on ClientHandler:" << this;
+
+    _parser->readData();
+}
+
+void ClientHandler::handleParseComplete()
+{
+    // Make sure we have something for clients that send no auth token
+    if (_authType == MapRequest::AuthNone) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "No authentication from client";
+        if (_omapdConfig->valueFor("ifmap_allow_unauthenticated_clients").toBool()) {
+            _authToken = this->peerAddress().toString();
+            _authType = MapRequest::AuthAllowNone;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "_authToken:" << _authToken;
+        }
+    }
+
+    if (_parser->requestVersion() == MapRequest::VersionNone) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "XML Error reading client request:" << _parser->errorString();
+        MapResponse clientFaultResponse(MapRequest::VersionNone);
+        clientFaultResponse.setClientFault(_parser->errorString());
+        sendMapResponse(clientFaultResponse);
+    } else {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got request type:" << MapRequest::requestTypeString(_parser->requestType())
+                     << "and IF-MAP version:" << MapRequest::requestVersionString(_parser->requestVersion());
+
+        if (_parser->requestError()) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client Error:" << MapRequest::requestErrorString(_parser->requestError());
+        }
+
+        processClientRequest();
+    }
+
+    delete _parser;
+    _parser = new ClientParser(this);
+    connect(_parser, SIGNAL(parsingComplete()),this, SLOT(handleParseComplete()));
+    connect(_parser, SIGNAL(headerReceived(QNetworkRequest)),
+            this, SLOT(processHeader(QNetworkRequest)));
+
+//    if (xmlError == QXmlStreamReader::NoError) {
+//        qDebug() << __PRETTY_FUNCTION__ << ":" << "Got request type:" << MapRequest::requestTypeString(_parser->requestType())
+//                << "and IF-MAP version:" << MapRequest::requestVersionString(_parser->requestVersion());
+
+//        if (_parser->requestError()) {
+//            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client Error:" << MapRequest::requestErrorString(_parser->requestError());
+//        }
+
+//        processClientRequest();
+
+//    } else if (_parser->requestError() != MapRequest::ErrorNone) {
+//        MapResponse errorResp(_parser->requestVersion());
+//        if (_parser->requestError() == MapRequest::IfmapClientSoapFault) {
+//            errorResp.setClientFault(_parser->errorString());
+//        } else {
+//            errorResp.setErrorResponse(_parser->requestError(), _parser->sessionId());
+//        }
+//        sendMapResponse(errorResp);
+//    } else {
+//        qDebug() << __PRETTY_FUNCTION__ << ":" << "XML Error reading client request:" << _parser->errorString();
+//        MapResponse clientFaultResponse(MapRequest::VersionNone);
+//        clientFaultResponse.setClientFault(_parser->errorString());
+//        sendMapResponse(clientFaultResponse);
+//    }
+}
+
+void ClientHandler::sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
+{
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "in public method: this:" << this;
+    this->sendResponse(response, reqVersion);
+}
+
+void ClientHandler::sendMapResponse(MapResponse &mapResponse)
+{
+    this->sendResponse(mapResponse.responseData(), mapResponse.requestVersion());
+}
+
+void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
+{
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "sending response from ClientHandler: this:" << this;
+    QHttpResponseHeader header(200,"OK");
+    header.setContentLength(response.size());
+
+    if (reqVersion == MapRequest::IFMAPv11) {
+        header.setContentType("text/xml");
+        header.setValue("Server","omapd/ifmap1.1");
+    } else if (reqVersion == MapRequest::IFMAPv20) {
+        header.setContentType("application/soap+xml");
+        header.setValue("Server","omapd/ifmap2.0");
+    }
+
+    if (this->state() == QAbstractSocket::ConnectedState) {
+        this->write(header.toString().toUtf8() );
+        this->write(response);
+
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply headers to client:" << endl << header.toString();
+
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply to client:" << endl << response << endl;
+    } else {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket is not connected!  Not sending reply to client";
+    }
+}
+
+void ClientHandler::processClientRequest()
+{
+    MapRequest::RequestType reqType = _parser->requestType();
+    QVariant clientRequest = _parser->request();
+
+    MapResponse *clientFaultResponse;
+
+    switch (reqType) {
+    case MapRequest::RequestNone:
+        // Error
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "No valid client request, will send SOAP Client Fault";
+        clientFaultResponse = new MapResponse(MapRequest::VersionNone);
+        clientFaultResponse->setClientFault("No valid client request");
+        sendMapResponse(*clientFaultResponse);
+        break;
+    case MapRequest::NewSession:
+        processNewSession(clientRequest);
+        break;
+    case MapRequest::AttachSession:
+        processAttachSession(clientRequest);
+        break;
+    case MapRequest::RenewSession:
+        processRenewSession(clientRequest);
+        break;
+    case MapRequest::EndSession:
+        processEndSession(clientRequest);
+        break;
+    case MapRequest::PurgePublisher:
+        processPurgePublisher(clientRequest);
+        break;
+    case MapRequest::Publish:
+        processPublish(clientRequest);
+        break;
+    case MapRequest::Subscribe:
+        processSubscribe(clientRequest);
+        break;
+    case MapRequest::Search:
+        processSearch(clientRequest);
+        break;
+    case MapRequest::Poll:
+        processPoll(clientRequest);
+        break;
+    }
+
+}
+
+void ClientHandler::processNewSession(QVariant clientRequest)
+{
+    NewSessionRequest nsReq = clientRequest.value<NewSessionRequest>();
+    MapResponse nsResp(nsReq.requestVersion());
+
+    MapRequest::RequestError requestError = nsReq.requestError();
+
+    nsReq.setAuthType(_authType);
+    nsReq.setAuthValue(_authToken);
+
+    _mapSessions->registerClient(this, _authType, _authToken);
+
+    QString publisherId = _mapSessions->assignPublisherId(nsReq.authToken());
+    if (publisherId.isEmpty()) {
+        //FIXME: This should be an error!
+        requestError = MapRequest::IfmapAccessDenied;
+    }
+
+    if (!requestError) {
+        QString sessId;
+        // Check if we have an SSRC session already for this publisherId
+        if (_mapSessions->_activeSSRCSessions.contains(publisherId)) {
+            /* Per IFMAP20: 4.3: If a MAP Client sends more than one SOAP request
+           containing a newSession element in the SOAP body, the MAP Server
+           MUST respond by ending the previous session and starting a new
+           session. The new session MAY use the same session-id or allocate a new one.
+        */
+            sessId = _mapSessions->_activeSSRCSessions.value(publisherId);
+            terminateSession(sessId, nsReq.requestVersion());
+        } else {
+            QString sid;
+            sid.setNum(qrand());
+            QByteArray sidhash = QCryptographicHash::hash(sid.toAscii(), QCryptographicHash::Md5);
+            sessId = QString(sidhash.toHex());
+        }
+        _mapSessions->_activeSSRCSessions.insert(publisherId, sessId);
+        nsResp.setNewSessionResponse(sessId, publisherId, nsReq.clientSetMaxPollResultSize(), nsReq.maxPollResultSize());
+    } else {
+        nsResp.setErrorResponse(requestError, "");
+    }
+
+    sendMapResponse(nsResp);
+}
+
+void ClientHandler::processRenewSession(QVariant clientRequest)
+{
+    /* IFMAP20: 4.4: In order to keep an IF-MAP session from timing out,
+       a MAP Client MUST either keep the underlying TCP connection associated
+       with the SSRC open, or send periodic renewSession requests to the MAP Server.
+    */
+    RenewSessionRequest rsReq = clientRequest.value<RenewSessionRequest>();
+    MapResponse rsResp(rsReq.requestVersion());
+    rsResp.setRenewSessionResponse();
+    sendMapResponse(rsResp);
+}
+
+void ClientHandler::processEndSession(QVariant clientRequest)
+{
+    EndSessionRequest esReq = clientRequest.value<EndSessionRequest>();
+
+    MapRequest::RequestError requestError = esReq.requestError();
+    QString sessId = esReq.sessionId();
+
+    if (!requestError) {
+        QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+        terminateSession(sessId, esReq.requestVersion());
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated session-id:" << sessId
+                     << "for publisher-id:" << publisherId;
+        }
+    }
+
+    MapResponse esResp(esReq.requestVersion());
+    esResp.setEndSessionResponse();
+    sendMapResponse(esResp);
+}
+
+void ClientHandler::processAttachSession(QVariant clientRequest)
+{
+    AttachSessionRequest asReq = clientRequest.value<AttachSessionRequest>();
+    MapResponse asResp(asReq.requestVersion());
+
+    /* IFMAP20: 4.3
+    If a MAP Server receives a message containing a SOAP body containing an attachSession
+    element that specifies a session which already has an ARC with an outstanding poll request, the
+    MAP Server MUST:
+         end the session
+         respond to the poll request on the older ARC with an endSessionResult
+         respond to the attachSession request on the newer ARC with an errorResult response
+           with an errorCode of InvalidSessionID
+    */
+
+    MapRequest::RequestError requestError = asReq.requestError();
+    QString sessId = asReq.sessionId();
+    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+
+    if (!requestError) {
+        // Terminate any existing ARC sessions
+        if (terminateARCSession(sessId, asReq.requestVersion())) {
+            // If we had an existing ARC session, end the session
+            terminateSession(sessId, asReq.requestVersion());
+            requestError = MapRequest::IfmapInvalidSessionID;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Already have existing ARC session, terminating";
+            asResp.setErrorResponse(requestError, sessId);
+        } else {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
+            }
+            _mapSessions->_activeARCSessions.insert(publisherId, sessId);
+
+            asResp.setAttachSessionResponse(sessId, publisherId);
+        }
+    } else {
+        asResp.setErrorResponse(requestError, sessId);
+    }
+
+    sendMapResponse(asResp);
+}
+
+void ClientHandler::processPublish(QVariant clientRequest)
+{
+    PublishRequest pubReq = clientRequest.value<PublishRequest>();
+
+    MapRequest::RequestError requestError = pubReq.requestError();
+    QString sessId = pubReq.sessionId();
+    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+
+    bool mapGraphChanged = false;
+
+    /* IFMAP20: 3.7.1:
+       A successful metadata publish MUST result in a publishReceived message. Otherwise,
+       the entire publish request MUST fail without effect and the response MUST contain
+       an errorResult element with an errorCode attribute indicating the cause of the
+       failure.
+    */
+    QList<PublishOperation> publishOperations = pubReq.publishOperations();
+    QListIterator<PublishOperation> pubOperIt(publishOperations);
+    while (pubOperIt.hasNext() && !requestError) {
+        PublishOperation pubOper = pubOperIt.next();
+
+        if (pubOper._publishType == PublishOperation::Update
+            || pubOper._publishType == PublishOperation::Notify) {
+
+            if (pubOper._publishType == PublishOperation::Update) {
+                _mapGraph->addMeta(pubOper._link, pubOper._isLink, pubOper._metadata, publisherId);
+                mapGraphChanged = true;
+                // TODO: Move this outside of while loop for major performance boost!
+                // update subscriptions
+                updateSubscriptions(pubOper._link, pubOper._isLink, pubOper._metadata, Meta::PublishUpdate);
+            } else if (pubOper._publishType == PublishOperation::Notify) {
+                // Deal with notify
+                updateSubscriptionsWithNotify(pubOper._link, pubOper._isLink, pubOper._metadata);
+            }
+        } else if (pubOper._publishType == PublishOperation::Delete) {
+
+            QList<Meta> existingMetaList;
+            if (pubOper._isLink) existingMetaList = _mapGraph->metaForLink(pubOper._link);
+            else existingMetaList = _mapGraph->metaForId(pubOper._link.first);
+
+            bool metadataDeleted = false;
+
+            QList<Meta> keepMetaList;
+            QList<Meta> deleteMetaList;
+
+            bool haveFilter = pubOper._clientSetDeleteFilter;
+
+            if (!existingMetaList.isEmpty() && haveFilter) {
+                QString filter = Subscription::translateFilter(pubOper._deleteFilter);
+
+                QListIterator<Meta> metaListIt(existingMetaList);
+                while (metaListIt.hasNext()) {
+                    Meta aMeta = metaListIt.next();
+                    /* First need to know if the delete filter will match anything,
+                       because if it does match, then we'll need to notify any
+                       active subscribers.
+                    */
+                    QString delMeta = filteredMetadata(aMeta, filter, pubOper._filterNamespaceDefinitions, requestError);
+                    if (! requestError) {
+                        if (delMeta.isEmpty()) {
+                            // Keep this metadata (delete filter did not match)
+                            keepMetaList.append(aMeta);
+                            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                                qDebug() << __PRETTY_FUNCTION__ << ":" << "Found Meta to keep:" << aMeta.elementName();
+                            }
+                        } else {
+                            deleteMetaList.append(aMeta);
+                            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                                qDebug() << __PRETTY_FUNCTION__ << ":" << "Meta will be deleted:" << aMeta.elementName();
+                            }
+                            // Delete matched something, so this may affect subscriptions
+                            metadataDeleted = true;
+                        }
+                    }
+                }
+
+                if (metadataDeleted) {
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Updating map graph because metadata was deleted";
+                    }
+                    _mapGraph->replaceMeta(pubOper._link, pubOper._isLink, keepMetaList);
+                }
+
+            } else if (! existingMetaList.isEmpty()) {
+                // Default 3rd parameter on replaceMeta (empty QList) implies no meta to replace
+                // No filter provided so we just delete all metadata
+                _mapGraph->replaceMeta(pubOper._link, pubOper._isLink);
+                metadataDeleted = true;
+                deleteMetaList = existingMetaList;
+            } else {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "No metadata to delete!";
+                }
+            }
+
+            if (metadataDeleted && !requestError) {
+                mapGraphChanged = true;
+                updateSubscriptions(pubOper._link, pubOper._isLink, deleteMetaList, Meta::PublishDelete);
+            }
+
+        }
+    }
+
+    // Per IFMAP20: 3.7.1.4: The entire publish operation
+    // MUST appear atomic to other clients.  So if multiple sub-operations, they need
+    // to ALL be applied before any other search is allowed, or subscriptions matched.
+
+    // At this point all the publishes have occurred, we can check subscriptions
+    if (requestError) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Error in publish:" << MapRequest::requestErrorString(requestError);
+    } else {
+        sendResultsOnActivePolls();
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+            _mapGraph->dumpMap();
+        }
+    }
+
+    MapResponse pubResp(pubReq.requestVersion());
+    if (requestError) {
+        pubResp.setErrorResponse(requestError, sessId);
+    } else {
+        pubResp.setPublishResponse(sessId);
+    }
+    sendMapResponse(pubResp);
+}
+
+void ClientHandler::processSubscribe(QVariant clientRequest)
+{
+    SubscribeRequest subReq = clientRequest.value<SubscribeRequest>();
+
+    MapRequest::RequestError requestError = subReq.requestError();
+    QString sessId = subReq.sessionId();
+    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Will manage subscriptions for publisher:" << publisherId;
+    }
+
+    QList<SubscribeOperation> subOperations = subReq.subscribeOperations();
+    QListIterator<SubscribeOperation> subOperIt(subOperations);
+    while (subOperIt.hasNext() && !requestError) {
+        SubscribeOperation subOper = subOperIt.next();
+
+        if (subOper.subscribeType() == SubscribeOperation::Update) {
+            Subscription sub(subReq.requestVersion());
+            sub._name = subOper.name();
+            sub._search = subOper.search();
+            int currentDepth = -1;
+            buildSearchGraph(sub, sub._search.startId(), currentDepth);
+
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Subscription:" << subOper.name();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << sub._idList.size();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << sub._linkList.size();
+            }
+
+            QList<Subscription> subList = _mapSessions->_subscriptionLists.value(publisherId);
+            if (subList.isEmpty()) {
+                subList << sub;
+            } else {
+                // Replace any existing subscriptions with the same name
+                subList.removeOne(sub);
+                subList << sub;
+            }
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << subList.size();
+            }
+
+            _mapSessions->_subscriptionLists.insert(publisherId, subList);
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding SearchGraph to _subscriptionLists with name:" << sub._name;
+            }
+
+            if (_mapSessions->_activePolls.contains(publisherId)) {
+                // signal to check subscriptions for polls
+                sendResultsOnActivePolls();
+            }
+
+        } else if (subOper.subscribeType() == SubscribeOperation::Delete) {
+            Subscription delSub(subReq.requestVersion());
+            delSub._name = subOper.name();
+
+            QList<Subscription> subList = _mapSessions->_subscriptionLists.take(publisherId);
+            if (! subList.isEmpty()) {
+                subList.removeOne(delSub);
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscription from subList with name:" << delSub._name;
+                }
+            } else {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions to delete for publisher:" << publisherId;
+            }
+
+            if (! subList.isEmpty()) {
+                _mapSessions->_subscriptionLists.insert(publisherId, subList);
+            }
+
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << subList.size();
+            }
+
+        }
+    }
+
+    MapResponse subResp(subReq.requestVersion());
+    if (requestError) {
+        subResp.setErrorResponse(requestError, sessId);
+    } else {
+        subResp.setSubscribeResponse(sessId);
+    }
+    sendMapResponse(subResp);
+}
+
+void ClientHandler::processSearch(QVariant clientRequest)
+{
+    SearchRequest searchReq = clientRequest.value<SearchRequest>();
+    MapResponse searchResp(searchReq.requestVersion());
+
+    MapRequest::RequestError requestError = searchReq.requestError();
+    QString sessId = searchReq.sessionId();
+
+    if (!requestError) {
+        Subscription tempSub(searchReq.requestVersion());
+        tempSub._search = searchReq.search();
+
+        int currentDepth = -1;
+        buildSearchGraph(tempSub, tempSub._search.startId(), currentDepth);
+
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Search Lists";
+            // NB: idList size should be 1 or more, because we always include the starting identifier
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << tempSub._idList.size();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << tempSub._linkList.size();
+        }
+
+        collectSearchGraphMetadata(tempSub, SearchResult::SearchResultType, requestError);
+
+        if (requestError != MapRequest::ErrorNone) {
+            tempSub.clearSearchResults();
+            searchResp.setErrorResponse(requestError, sessId);
+        } else {
+            searchResp.setSearchResults(sessId, tempSub._searchResults);
+            tempSub.clearSearchResults();
+        }
+    } else {
+        searchResp.setErrorResponse(requestError, searchReq.sessionId());
+    }
+
+    sendMapResponse(searchResp);
+}
+
+void ClientHandler::processPurgePublisher(QVariant clientRequest)
+{
+    PurgePublisherRequest ppReq = clientRequest.value<PurgePublisherRequest>();
+
+    MapRequest::RequestError requestError = ppReq.requestError();
+    QString sessId = ppReq.sessionId();
+    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+
+    if (!requestError) {
+        QString purgePubId = ppReq.publisherId();
+        /* IFMAP20: 3.7.6:
+           A MAP Server MAY forbid a MAP Client to use the purgePublisher
+           request to remove data published by a different MAP Client, in
+           which case the MAP Server MUST respond with an AccessDenied error.
+        */
+        if (purgePubId.compare(publisherId) != 0) {
+            // TODO: Set configuration option for this
+            requestError = MapRequest::IfmapAccessDenied;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Computed publisher-id and purgePublisher attribute do NOT match";
+        }
+
+        if (!requestError) {
+            QHash<Id, QList<Meta> > idMetaDeleted;
+            QHash<Link, QList<Meta> > linkMetaDeleted;
+            bool haveChange = _mapGraph->deleteMetaWithPublisherId(purgePubId, &idMetaDeleted, &linkMetaDeleted);
+
+            // Check subscriptions for changes to Map Graph
+            if (haveChange) {
+                updateSubscriptions(idMetaDeleted, linkMetaDeleted);
+                sendResultsOnActivePolls();
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+                    _mapGraph->dumpMap();
+                }
+            }
+        }
+    }
+
+    MapResponse ppResp(ppReq.requestVersion());
+    if (requestError) {
+        ppResp.setErrorResponse(requestError, sessId);
+    } else {
+        ppResp.setPurgePublisherResponse(sessId);
+    }
+    sendMapResponse(ppResp);
+}
+
+void ClientHandler::processPoll(QVariant clientRequest)
+{
+    PollRequest pollReq = clientRequest.value<PollRequest>();
+
+    MapRequest::RequestError requestError = pollReq.requestError();
+    QString sessId = pollReq.sessionId();
+    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+
+    if (!requestError) {
+        if (_mapSessions->_activeARCSessions.contains(publisherId) &&
+            (pollReq.requestVersion() == MapRequest::IFMAPv11)) {
+            // Track the TCP socket this publisher's poll is on
+            _mapSessions->_activePolls.insert(publisherId, this);
+
+            if (_mapSessions->_subscriptionLists.value(publisherId).isEmpty()) {
+                // No immediate client response
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions for publisherId:" << publisherId;
+                }
+            } else {
+                sendResultsOnActivePolls();
+            }
+        } else if (pollReq.requestVersion() == MapRequest::IFMAPv20) {
+            // Terminate any existing ARC sessions
+            if (_mapSessions->_activePolls.contains(publisherId)) {
+                // If we had an existing ARC session, end the session
+                terminateSession(sessId, pollReq.requestVersion());
+                requestError = MapRequest::IfmapInvalidSessionID;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Already have existing ARC session, terminating";
+            } else {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
+                }
+                _mapSessions->_activeARCSessions.insert(publisherId, sessId);
+                // Track the TCP socket this publisher's poll is on
+                _mapSessions->_activePolls.insert(publisherId, this);
+
+                if (_mapSessions->_subscriptionLists.value(publisherId).isEmpty()) {
+                    // No immediate client response
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions for publisherId:" << publisherId;
+                    }
+                } else {
+                    sendResultsOnActivePolls();
+                }
+            }
+        } else {
+            // Error
+            requestError = MapRequest::IfmapInvalidSessionID;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "No active ARC session for poll from publisherId:" << publisherId;
+        }
+    }
+
+    /* IFMAP20: 3.7.5:
+       If a server responds to a poll with an errorResult, all of the clients
+       subscriptions are automatically invalidated and MUST be removed by the
+       server.
+    */
+    if (requestError) {
+        if (_mapSessions->_subscriptionLists.contains(publisherId)) {
+            _mapSessions->_subscriptionLists.remove(publisherId);
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << publisherId;
+        }
+
+        MapResponse pollErrorResponse(pollReq.requestVersion());
+        pollErrorResponse.setErrorResponse(requestError, sessId);
+        sendMapResponse(pollErrorResponse);
+    }
+}
+
+bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersion requestVersion)
+{
+    bool hadExistingSession = false;
+
+    // Remove sessionId from list of active SSRC Sessions
+    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessionId);
+
+    if (! publisherId.isEmpty()) {
+        hadExistingSession = true;
+
+        _mapSessions->_activeSSRCSessions.remove(sessionId);
+
+        /* IFMAP20: 3.7.4:
+           When a MAP Client initially connects to a MAP Server, the MAP Server MUST
+           delete any previous subscriptions corresponding to the MAP Client. In
+           other words, subscription lists are only valid for a single MAP Client session.
+        */
+        if (_mapSessions->_subscriptionLists.contains(publisherId)) {
+            _mapSessions->_subscriptionLists.remove(publisherId);
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << publisherId;
+            }
+        }
+
+        /* IFMAP20: 4.3:
+           When a session ends for any reason, and there is an outstanding poll
+           request on the ARC, the MAP Server MUST send an endSessionResult to the
+           MAP Client on the ARC.
+        */
+        terminateARCSession(sessionId, requestVersion);
+
+        /* IFMAP20: 3.3.5:
+           If an element was published with lifetime=session and the client
+           session ends, either due to inactivity (see Section 4.1.1) or at the
+           clients request, the MAP server MUST delete the metadata.   This
+           deletion MUST be completed before the publishing client is allowed
+           to create another session.
+        */
+        // Delete all session-level metadata for this publisher
+        QHash<Id, QList<Meta> > idMetaDeleted;
+        QHash<Link, QList<Meta> > linkMetaDeleted;
+        bool haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
+        // Check subscriptions for changes to Map Graph
+        if (haveChange) {
+            updateSubscriptions(idMetaDeleted, linkMetaDeleted);
+            sendResultsOnActivePolls();
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+                _mapGraph->dumpMap();
+            }
+        }
+    }
+
+    return hadExistingSession;
+}
+
+bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVersion requestVersion)
+{
+    bool hadExistingARCSession = false;
+
+    QString publisherId = _mapSessions->_activeARCSessions.key(sessionId);
+
+    if (! publisherId.isEmpty()) {
+        hadExistingARCSession = true;
+
+        // End active ARC Session
+        _mapSessions->_activeARCSessions.remove(publisherId);
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Ending active ARC Session for publisherId:" << publisherId;
+
+        // Terminate polls
+        if (_mapSessions->_activePolls.contains(publisherId)) {
+            ClientHandler *client = _mapSessions->_activePolls.value(publisherId);
+            if (requestVersion == MapRequest::IFMAPv20) {
+                if (client->isValid()) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending endSessionResult to publisherId:"
+                             << publisherId << "on client socket" << client;
+                    MapResponse pollEndSessionResponse(MapRequest::IFMAPv20); // Has to be IF-MAP 2.0!
+                    pollEndSessionResponse.setEndSessionResponse();
+                    // FIXME: Need to figure out how to send this to another ClientHandler
+                    emit needToSendPollResponse(client, pollEndSessionResponse.responseData(), pollEndSessionResponse.requestVersion());
+                    //sendMapResponse(pollSocket, pollEndSessionResponse);
+                    //pollSocket->disconnectFromHost();
+                }
+            }
+            _mapSessions->_activePolls.remove(publisherId);
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated active poll for publisherId:" << publisherId;
+        }
+    }
+
+    return hadExistingARCSession;
+}
+
+QString ClientHandler::filteredMetadata(Meta meta, QString filter, QMap<QString, QString> searchNamespaces, MapRequest::RequestError &error)
+{
+    QList<Meta> singleMetaList;
+    singleMetaList.append(meta);
+    return filteredMetadata(singleMetaList, filter, searchNamespaces, error);
+}
+
+QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMap<QString, QString>searchNamespaces, MapRequest::RequestError &error)
+{
+    QString resultString("");
+    bool matchAll = false;
+
+    /* The filter will be either a match-links, result-filter, or delete filter,
+       depending on where this method is called.  The "invert" parameter reverses the
+       sense of the filter, so if the filter is a delete filter, be sure
+       to set invert = true.
+    */
+    /* Per IFMAP20: 3.7.2.3:match-links specifies the criteria for positive matching
+       for including metadata from any link visited in the search. match-links also
+       specifies the criteria for including linked identifiers in the search.
+    */
+    /* Per IFMAP20: 3.7.2.5: result-filter
+       The filter specifies any further rules for deleting data from the results. If
+       there is no result-filter attribute, all metadata on all identifiers and links
+       that match the search is returned to the client. If an empty filter result-filter
+       attribute is specified, the identifiers and links that match the search are
+       returned to the client with no metadata.
+    */
+
+    if (filter.isEmpty()) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Empty filter string matches nothing";
+        return resultString;
+    } else if (filter == "*") {
+        matchAll = true;
+    }
+
+    QString qString;
+    QTextStream queryStream(&qString);
+
+    if (!matchAll) {
+        QMapIterator<QString, QString> nsIt(searchNamespaces);
+        while (nsIt.hasNext()) {
+            nsIt.next();
+            queryStream << "declare namespace "
+                    << nsIt.key()
+                    << " = \""
+                    << nsIt.value()
+                    << "\";";
+        }
+
+        queryStream << "<metadata>";
+    }
+
+    QListIterator<Meta> metaIt(metaList);
+    while (metaIt.hasNext()) {
+        queryStream << metaIt.next().metaXML();
+    }
+
+    if (!matchAll) {
+        queryStream << "</metadata>";
+        queryStream << "//"
+                    << filter;
+    }
+
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterStatements))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Statement:" << endl << qString;
+
+    QXmlQuery query;
+    bool qrc;
+
+    if (!matchAll) {
+        query.setQuery(qString);
+        qrc = query.evaluateTo(&resultString);
+    } else {
+        resultString = qString;
+        qrc = true;
+    }
+
+    // Make sure (resultString.size() == 0) is true for checking if we have results
+    resultString = resultString.trimmed();
+
+    if (! qrc) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Error running query!";
+        error = MapRequest::IfmapSystemError;
+    } else {
+        // If there are no query results, we won't add <metadata> enclosing element
+        if (! resultString.isEmpty()) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Result:" << endl << resultString;
+
+            resultString.prepend("<metadata>");
+            resultString.append("</metadata>");
+        }
+    }
+
+    return resultString;
+}
+
+void ClientHandler::addIdentifierResult(Subscription &sub, Identifier id, QList<Meta> metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
+{
+
+    SearchResult *searchResult = new SearchResult(resultType, SearchResult::IdentifierResult);
+    searchResult->_id = id;
+
+    if (!metaList.isEmpty() && ! sub._search.resultFilter().isEmpty()) {
+        QString metaString = filteredMetadata(metaList, sub._search.resultFilter(), sub._search.filterNamespaceDefinitions(), operationError);
+
+        if (! metaString.isEmpty()) {
+            searchResult->_metadata = metaString;
+            sub._curSize += metaString.size();
+            if (sub._curSize > sub._search.maxSize()) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize;" << sub._curSize;
+                operationError = MapRequest::IfmapSearchResultsTooBig;
+                sub._subscriptionError = MapRequest::IfmapSearchResultsTooBig;
+            }
+        }
+    }
+
+    if (resultType == SearchResult::SearchResultType) {
+        sub._searchResults.append(searchResult);
+    } else {
+        sub._deltaResults.append(searchResult);
+    }
+}
+
+void ClientHandler::addLinkResult(Subscription &sub, Link link, QList<Meta> metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
+{
+
+    SearchResult *searchResult = new SearchResult(resultType, SearchResult::LinkResult);
+    searchResult->_link = link;
+
+    if (!metaList.isEmpty() && ! sub._search.resultFilter().isEmpty()) {
+        QString combinedFilter = sub._search.matchLinks();
+        if (sub._search.resultFilter().compare("*") != 0) {
+            combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
+        }
+        QString metaString = filteredMetadata(metaList, combinedFilter, sub._search.filterNamespaceDefinitions(), operationError);
+
+        if (! metaString.isEmpty()) {
+            searchResult->_metadata = metaString;
+            sub._curSize += metaString.size();
+            if (sub._curSize > sub._search.maxSize()) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize;" << sub._curSize;
+                operationError = MapRequest::IfmapSearchResultsTooBig;
+                sub._subscriptionError = MapRequest::IfmapSearchResultsTooBig;
+            }
+        }
+    }
+
+    if (resultType == SearchResult::SearchResultType) {
+        sub._searchResults.append(searchResult);
+    } else {
+        sub._deltaResults.append(searchResult);
+    }
+}
+
+void ClientHandler::collectSearchGraphMetadata(Subscription &sub, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
+{
+
+    /* Per IFMAP20: 3.7.3: Since all identifiers for a given identifier type
+       are always valid to search, the MAP Server MUST never return an
+       identifier not found error when searching for an identifier. In this
+       case, the MAP Server MUST return the identifier with no metadata or
+       links attached to it.
+    */
+    QSetIterator<Id> idIt(sub._idList);
+    while (idIt.hasNext() && !operationError) {
+        Id id = idIt.next();
+        QList<Meta> idMetaList = _mapGraph->metaForId(id);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
+        }
+        // TODO: Should the identifier be added if there is no metadata at all?
+        addIdentifierResult(sub, id, idMetaList, resultType, operationError);
+    }
+
+    QSetIterator<Link> linkIt(sub._linkList);
+    while (linkIt.hasNext() && !operationError) {
+        Link link = linkIt.next();
+        QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
+        }
+        addLinkResult(sub, link, linkMetaList, resultType, operationError);
+    }
+}
+
+void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, QSet<Id>idList, QSet<Link>linkList, MapRequest::RequestError &operationError)
+{
+    QSetIterator<Id> idIt(idList);
+    while (idIt.hasNext() && !operationError) {
+        Id id = idIt.next();
+        QList<Meta> idMetaList = _mapGraph->metaForId(id);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
+        }
+        addIdentifierResult(sub, id, idMetaList, resultType, operationError);
+    }
+
+    QSetIterator<Link> linkIt(linkList);
+    while (linkIt.hasNext() && !operationError) {
+        Link link = linkIt.next();
+        QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
+        }
+        addLinkResult(sub, link, linkMetaList, resultType, operationError);
+    }
+
+    if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT) { // TODO: Replace with client setting
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max poll result size with curSize:" << sub._curSize;
+        sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
+    }
+}
+
+// currentDepth is pass by value!  Must initially be -1.
+void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentDepth)
+{
+    /* IFMAP20: 3.7.2.8: Recursive Algorithm is from spec */
+    // 1. Current id, current results, current depth
+    currentDepth++;
+    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Starting identifier:" << startId;
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Current depth:" << currentDepth;
+    }
+
+    // 2. Save current identifier in list of traversed identifiers
+    // so we can later gather metadata from these identifiers.
+    sub._idList.insert(startId);
+
+    // 3. If the current identifiers type is contained within
+    // terminal-identifier-type, return current results.
+    if (! sub._search.terminalId().isEmpty() && sub._requestVersion == MapRequest::IFMAPv20) {
+        QString curIdTypeStr = Identifier::idBaseStringForType(startId.type());
+        QStringList terminalIdList = sub._search.terminalId().split(",");
+
+        if (terminalIdList.contains(curIdTypeStr)) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Reached terminal identifier:" << curIdTypeStr;
+            }
+            return;
+        }
+    }
+
+    // 4. Check max depth reached
+    if (currentDepth >= sub._search.maxDepth()) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "max depth reached:" << sub._search.maxDepth();
+        }
+        return;
+    }
+
+    // 5. Get list of links that have startId in link and pass matchLinks filter
+    QSet<Link> linksWithCurId;
+    QList<Id> startIdLinks = _mapGraph->linksTo(startId);
+    QListIterator<Id> idIter(startIdLinks);
+    while (idIter.hasNext()) {
+        // TODO: performance increase by excluding the previous startId from this loop
+
+        // matchId is the other end of the link
+        Id matchId = idIter.next();
+        // Get identifier-order independent link
+        Link link = Identifier::makeLinkFromIds(startId, matchId);
+        // Get metadata on this link
+        QList<Meta> curLinkMeta = _mapGraph->metaForLink(link);
+        //If any of this metadata matches matchLinks add link to idMatchList
+        MapRequest::RequestError error = MapRequest::ErrorNone;
+        QString matchLinkMeta = filteredMetadata(curLinkMeta, sub._search.matchLinks(), sub._search.filterNamespaceDefinitions(), error);
+        if (! matchLinkMeta.isEmpty()) {
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding link:" << link;
+            }
+            linksWithCurId.insert(link);
+        }
+    }
+
+    // Remove links we've already seen before
+    linksWithCurId.subtract(sub._linkList);
+
+    if (linksWithCurId.isEmpty()) {
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "linksWithCurId is empty!!!";
+        }
+        return;
+    } else {
+        // 6. Append subLinkList to linkList (unite removes repeats)
+        sub._linkList.unite(linksWithCurId);
+
+        // 7. Recurse
+        QSetIterator<Link > linkIter(linksWithCurId);
+        while (linkIter.hasNext()) {
+            Link link = linkIter.next();
+            Id linkedId = Identifier::otherIdForLink(link, startId);
+            // linkedId becomes startId in recursion
+            buildSearchGraph(sub, linkedId, currentDepth);
+        }
+    }
+
+
+}
+
+void ClientHandler::updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Link, QList<Meta> > linkMetaDeleted)
+{
+    QHashIterator<Id, QList<Meta> > idIter(idMetaDeleted);
+    while (idIter.hasNext()) {
+        idIter.next();
+        Link idLink;
+        idLink.first = idIter.key();
+        QList<Meta> deletedMetaList = idIter.value();
+        updateSubscriptions(idLink, false, deletedMetaList, Meta::PublishDelete);
+    }
+
+    QHashIterator<Link, QList<Meta> > linkIter(linkMetaDeleted);
+    while (linkIter.hasNext()) {
+        linkIter.next();
+        Link link = linkIter.key();
+        QList<Meta> deletedMetaList = linkIter.value();
+        updateSubscriptions(link,true, deletedMetaList, Meta::PublishDelete);
+    }
+}
+
+// Iterate over all subscriptions for all publishers, checking and/or rebuilding
+// the SearchGraphs.  If a subscription results in a changed SearchGraph that
+// matches the subscription, build the appropriate metadata results, so that we
+// can send out pollResults.
+void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges, Meta::PublishOperationType publishType)
+{
+    // An existing subscription becomes dirty in 4 cases:
+    // 1. metadata is added to or removed from an identifier already in the SearchGraph
+    //    --> In this case, we don't need to rebuild the SearchGraph
+    // 2. metadata is added to a link already in the SearchGraph
+    //    --> In this case, we don't need to rebuild the SearchGraph
+    // 3. metadata is deleted from a link already in SearchGraph
+    //    --> In this case we need to rebuild the SearchGraph if there is no more metadata on link
+    // 4. metadata is added to or removed from a link which has one identifier
+    //    already in the SearchGraph
+    //    --> In this case we need to rebuild the SearchGraph, especially because a
+    //        new link could link two separate sub-graphs together or a deleted link
+    //        could prune a graph into two separate sub-graphs.
+
+    QMutableHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->_subscriptionLists);
+    while (allSubsIt.hasNext()) {
+        allSubsIt.next();
+        QString pubId = allSubsIt.key();
+        QList<Subscription> subList = allSubsIt.value();
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
+        }
+
+        bool publisherHasDirtySub = false;
+        QMutableListIterator<Subscription> subIt(subList);
+        while (subIt.hasNext()) {
+            Subscription sub = subIt.next();
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
+            }
+
+            QSet<Id> idsWithConnectedGraphUpdates, idsWithConnectedGraphDeletes;
+            QSet<Link> linksWithConnectedGraphUpdates, linksWithConnectedGraphDeletes;
+            bool modifiedSearchGraph = false;
+            bool subIsDirty = false;
+
+            if (! isLink) {
+                if (sub._idList.contains(link.first)) {
+                    // Case 1.
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
+                    }
+                }
+            } else {
+                if (sub._linkList.contains(link) && publishType == Meta::PublishDelete) {
+                    // Case 3.
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
+                    }
+                }
+
+                if (sub._linkList.contains(link) && publishType == Meta::PublishUpdate) {
+                    // Case 2.
+                    subIsDirty = true;
+                } else {
+                    // Case 4. (and search graph rebuild for case 3)
+                    QSet<Id> existingIdList = sub._idList;
+                    QSet<Link> existingLinkList = sub._linkList;
+                    sub._idList.clear();
+                    sub._linkList.clear();
+                    int currentDepth = -1;
+                    buildSearchGraph(sub, sub._search.startId(), currentDepth);
+
+                    if (sub._idList != existingIdList) {
+                        subIsDirty = true;
+                        modifiedSearchGraph = true;
+                        // Metadata on these ids are in updateResults
+                        idsWithConnectedGraphUpdates = sub._idList - existingIdList;
+                        // Metadata on these ids are in deleteResults
+                        idsWithConnectedGraphDeletes = existingIdList - sub._idList;
+
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newIdList.size:" << sub._idList.size();
+                        }
+                    }
+
+                    if (sub._linkList != existingLinkList) {
+                        subIsDirty = true;
+                        modifiedSearchGraph = true;
+                        // Metadata on these links are in updateResults
+                        linksWithConnectedGraphUpdates = sub._linkList - existingLinkList;
+                        // Metadata on these links are in deleteResults
+                        linksWithConnectedGraphDeletes = existingLinkList - sub._linkList;
+
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newLinkList.size:" << sub._linkList.size();
+                        }
+                    }
+                }
+            }
+
+            if (subIsDirty && !sub._subscriptionError) {
+                // Construct results for the subscription
+                if (sub._requestVersion == MapRequest::IFMAPv11) {
+                    // Trigger to build and send pollResults
+                    sub._sentFirstResult = false;
+                } else if (sub._sentFirstResult && sub._requestVersion == MapRequest::IFMAPv20) {
+                    MapRequest::RequestError error;
+                    // Add results from publish/delete/endSession/purgePublisher (that don't modify SearchGraph)
+                    if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
+                        SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding update/delete results from un-changed SearchGraph";
+                        }
+                        if (isLink) {
+                            addLinkResult(sub, link, metaChanges, resultType, error);
+                        } else {
+                            addIdentifierResult(sub, link.first, metaChanges, resultType, error);
+                        }
+                    }
+                    // Add results from extending SearchGraph for this subscription
+                    if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding updateResults from changed SearchGraph";
+                        }
+                        addUpdateAndDeleteMetadata(sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
+                    }
+                    // Add results from pruning SearchGraph for this subscription
+                    if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding deleteResults from changed SearchGraph";
+                        }
+                        addUpdateAndDeleteMetadata(sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
+                    }
+                }
+                subIt.setValue(sub);
+                publisherHasDirtySub = true;
+            }
+        }
+
+        if (publisherHasDirtySub) {
+            allSubsIt.setValue(subList);
+        }
+    }
+}
+
+// Iterate over all subscriptions for all publishers, checking the SearchGraphs
+// to see if subscriptions match the notify metadata.  If a subscription matches,
+// mark the subscription as dirty, so that we can send out pollResults.
+void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<Meta> notifyMetaList)
+{
+    // An existing subscription becomes dirty in 3 cases:
+    // 1. metadata is publish-notify on an identifier in the SearchGraph
+    // 2. metadata is publish-notify on a link in the SearchGraph
+    // 3. metadata is publish-notify on a link with one identifier in the SearchGraph
+
+    QMutableHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->_subscriptionLists);
+    while (allSubsIt.hasNext()) {
+        allSubsIt.next();
+        QString pubId = allSubsIt.key();
+        QList<Subscription> subList = allSubsIt.value();
+        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
+        }
+
+        bool publisherHasDirtySub = false;
+        QMutableListIterator<Subscription> subIt(subList);
+        while (subIt.hasNext()) {
+            Subscription sub = subIt.next();
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
+            }
+            bool subIsDirty = false;
+
+            if (! isLink) {
+                // Case 1.
+                if (sub._idList.contains(link.first)) {
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
+                    }
+                }
+            } else {
+                if (sub._linkList.contains(link)) {
+                    // Case 2.
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
+                    }
+                } else if (sub._idList.contains(link.first) || sub._idList.contains(link.second)) {
+                    // Case 3.
+                    subIsDirty = true;
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with one end of the link in SearchGraph:" << link;
+                    }
+                }
+            }
+
+            if (subIsDirty && !sub._subscriptionError) {
+                // Construct results for the subscription
+                MapRequest::RequestError error;
+                if (isLink) {
+                    addLinkResult(sub, link, notifyMetaList, SearchResult::NotifyResultType, error);
+                } else {
+                    addIdentifierResult(sub, link.first, notifyMetaList, SearchResult::NotifyResultType, error);
+                }
+
+                if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT) { // TODO: Replace with client setting
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max poll result size with curSize:" << sub._curSize;
+                    sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
+                }
+
+                subIt.setValue(sub);
+                publisherHasDirtySub = true;
+            }
+        }
+
+        if (publisherHasDirtySub) {
+            allSubsIt.setValue(subList);
+        }
+    }
+}
+
+void ClientHandler::sendResultsOnActivePolls()
+{
+    // TODO: Often this slot gets signaled from a method that really only needs to
+    // send results on active polls for a specific publisherId.  Could optimize
+    // this slot in those cases.
+    QMutableHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->_subscriptionLists);
+    while (allSubsIt.hasNext()) {
+        allSubsIt.next();
+        QString pubId = allSubsIt.key();
+        // Only check subscriptions for publisher if client has an active poll
+        if (_mapSessions->_activePolls.contains(pubId)) {
+            QList<Subscription> subList = allSubsIt.value();
+            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
+            }
+
+            bool publisherHasError = false;
+            MapResponse *pollResponse = 0;
+            MapRequest::RequestVersion pollResponseVersion = MapRequest::VersionNone;
+
+            QMutableListIterator<Subscription> subIt(subList);
+            while (subIt.hasNext()) {
+                Subscription sub = subIt.next();
+
+                MapRequest::RequestError subError = MapRequest::ErrorNone;
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "--Checking subscription named:" << sub._name;
+                }
+
+                if (pollResponseVersion == MapRequest::VersionNone) {
+                    pollResponseVersion = sub._requestVersion;
+                }
+
+                if (sub._subscriptionError) {
+                    if (!pollResponse) {
+                        pollResponse = new MapResponse(pollResponseVersion);
+                        pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                    }
+                    pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
+
+                    sub.clearSearchResults();
+                    subIt.setValue(sub);
+                } else if (!sub._sentFirstResult) {
+                    // Build results from entire search graph for the first poll response
+                    collectSearchGraphMetadata(sub, SearchResult::SearchResultType, subError);
+
+                    if (subError) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize:" << sub._curSize;
+                        sub._subscriptionError = subError;
+                        sub.clearSearchResults();
+                        publisherHasError = true;
+
+                        if (!pollResponse) {
+                            pollResponse = new MapResponse(pollResponseVersion);
+                            pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                        }
+                        pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
+                        subIt.setValue(sub);
+                    } else if (sub._searchResults.count() > 0) {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "--Gathering initial poll results for publisher with active poll:" << pubId;
+                        }
+
+                        if (!pollResponse) {
+                            pollResponse = new MapResponse(pollResponseVersion);
+                            pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                        }
+                        pollResponse->addPollResults(sub._searchResults, sub._name);
+                        sub.clearSearchResults();
+
+                        sub._sentFirstResult = true;
+                        subIt.setValue(sub);
+                    } else if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT &&
+                               sub._requestVersion == MapRequest::IFMAPv20) { // TODO: Replace with client setting
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max poll result size with curSize:" << sub._curSize;
+                        sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
+                        sub.clearSearchResults();
+                        publisherHasError = true;
+
+                        if (!pollResponse) {
+                            pollResponse = new MapResponse(pollResponseVersion);
+                            pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                        }
+                        pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
+                        subIt.setValue(sub);
+                    } else {
+                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "--No results for subscription at this time";
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----_activePolls.contains(pubId):" << _mapSessions->_activePolls.contains(pubId);
+                        }
+                    }
+                } else if (sub._deltaResults.count() > 0) {
+                    // Build results from update/delete/notify results
+                    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "--Gathering delta poll results for publisher with active poll:" << pubId;
+                    }
+
+                    if (!pollResponse) {
+                        pollResponse = new MapResponse(pollResponseVersion);
+                        pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                    }
+                    pollResponse->addPollResults(sub._deltaResults, sub._name);
+
+                    sub.clearSearchResults();
+                    subIt.setValue(sub);
+                }
+            }
+
+            if (pollResponse) {
+                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending pollResults";
+                pollResponse->endPollResponse();
+                // FIXME: Need to figure out how to send this to a different ClientHandler
+                emit needToSendPollResponse(_mapSessions->_activePolls.value(pubId), pollResponse->responseData(), pollResponse->requestVersion());
+                //sendMapResponse(_mapSessions->_activePolls.value(pubId), *pollResponse);
+                delete pollResponse;
+                // Update subscription list for this publisher
+                allSubsIt.setValue(subList);
+                _mapSessions->_activePolls.remove(pubId);
+            }
+
+            if (publisherHasError) {
+                /* IFMAP20: 3.7.5:
+                If a server responds to a poll with an errorResult, all of the clients
+                subscriptions are automatically invalidated and MUST be removed by the
+                server.
+                */
+                if (pollResponseVersion == MapRequest::IFMAPv20) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << pubId;
+                    allSubsIt.remove();
+                }
+
+                _mapSessions->_activePolls.remove(pubId);
+            }
+        }
+    }
+}
