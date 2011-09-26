@@ -35,6 +35,23 @@ MapSessions::MapSessions(QObject *parent)
     : QObject(parent)
 {
     _omapdConfig = OmapdConfig::getInstance();
+
+    // Load standard schemas
+    if (_omapdConfig->isSet("ifmap_metadata_v11_schema_path")) {
+        QString meta11FileName = _omapdConfig->valueFor("ifmap_metadata_v11_schema_path").toString();
+        QFile xsd11MetaFile(meta11FileName);
+        xsd11MetaFile.open(QIODevice::ReadOnly);
+        _ifmapMeta11.load(&xsd11MetaFile, QUrl::fromLocalFile(xsd11MetaFile.fileName()));
+        _ifmapMeta11Validator.setSchema(_ifmapMeta11);
+    }
+
+    if (_omapdConfig->isSet("ifmap_metadata_v11_schema_path")) {
+        QString meta20FileName = _omapdConfig->valueFor("ifmap_metadata_v20_schema_path").toString();
+        QFile xsd20MetaFile(meta20FileName);
+        xsd20MetaFile.open(QIODevice::ReadOnly);
+        _ifmapMeta20.load(&xsd20MetaFile, QUrl::fromLocalFile(xsd20MetaFile.fileName()));
+        _ifmapMeta20Validator.setSchema(_ifmapMeta20);
+    }
 }
 
 MapSessions::~MapSessions()
@@ -56,7 +73,7 @@ void MapSessions::registerClient(ClientHandler *socket, MapRequest::Authenticati
     const char *fnName = "MapSessions::registerClient:";
 
     if (authType != MapRequest::AuthNone && !authToken.isEmpty()) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << fnName << "Registering client with authType:" << authType
                     << "authToken:" << authToken
                     << "from host:" << socket->peerAddress().toString();
@@ -66,17 +83,17 @@ void MapSessions::registerClient(ClientHandler *socket, MapRequest::Authenticati
 
         if (_mapClientRegistry.contains(authToken)) {
             // Already have a publisher-id for this client
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << fnName << "Already have client configuration with pub-id:" << _mapClientRegistry.value(authToken);
             }
-        } else if (_omapdConfig->valueFor("ifmap_create_client_configurations").toBool()) {
+        } else if (_omapdConfig->valueFor("create_client_configurations").toBool()) {
             // Create a new publisher-id for this client
             QString pubid;
             pubid.setNum(qrand());
             QByteArray pubidhash = QCryptographicHash::hash(pubid.toAscii(), QCryptographicHash::Md5);
             pubid = QString(pubidhash.toHex());
             _mapClientRegistry.insert(authToken,pubid);
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << fnName << "Created client configuration with pub-id:" << _mapClientRegistry.value(authToken);
             }
         }
@@ -105,10 +122,10 @@ void MapSessions::validateSessionId(MapRequest &clientRequest, QString authToken
        an errorResult element, specifying an InvalidSessionID errorCode.
     */
     if (clientRequest.clientSetSessionId()) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << fnName << "Using session-id in client request:" << clientRequest.sessionId();
         }
-    } else if (_omapdConfig->valueFor("ifmap_allow_invalid_session_id").toBool()) {
+    } else if (_omapdConfig->valueFor("allow_invalid_session_id").toBool()) {
         // NON-STANDARD BEHAVIOR!!!
         // This let's someone curl in a bunch of messages without worrying about
         // maintaining SSRC state.
@@ -123,7 +140,7 @@ void MapSessions::validateSessionId(MapRequest &clientRequest, QString authToken
     QString publisherId = _activeSSRCSessions.key(clientRequest.sessionId());
     if (! publisherId.isEmpty()) {
         // We do have an active SSRC session
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << fnName << "Got session-id:" << clientRequest.sessionId()
                      << "and publisherId:" << publisherId;
         }
@@ -134,3 +151,67 @@ void MapSessions::validateSessionId(MapRequest &clientRequest, QString authToken
     }
 }
 
+bool MapSessions::validateMetadata(Meta aMeta)
+{
+    bool isValid = false;
+
+    if (aMeta.elementNS().compare(IFMAP_META_NS_1, Qt::CaseSensitive) == 0) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Validating standard IF-MAP v1.1 Metadata";
+        }
+
+        if (_ifmapMeta11.isValid()) {
+            if (_ifmapMeta11Validator.validate(aMeta.metaXML().toUtf8())) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Validated standard IF-MAP v1.1 Metadata:" << aMeta.elementName();
+                }
+                isValid = true;
+            } else if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Error validating standard IF-MAP v1.1 Metadata:" << aMeta.elementName();
+            }
+        } else if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error with IF-MAP v1.1 Metadata Schema: unable to use schema for validation";
+        }
+
+    } else if (aMeta.elementNS().compare(IFMAP_META_NS_2, Qt::CaseSensitive) == 0) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Validating standard IF-MAP v2.0 Metadata";
+        }
+
+        if (_ifmapMeta20.isValid()) {
+            if (_ifmapMeta20Validator.validate(aMeta.metaXML().toUtf8())) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Validated standard IF-MAP v2.0 Metadata:" << aMeta.elementName();
+                }
+                isValid = true;
+            } else if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Error validating standard IF-MAP v2.0 Metadata:" << aMeta.elementName();
+            }
+        } else if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Error with IF-MAP v2.0 Metadata Schema: unable to use schema for validation";
+        }
+
+    } else {
+        VSM metaNSName;
+        metaNSName.first = aMeta.elementName();
+        metaNSName.second = aMeta.elementNS();
+
+        if (_vsmRegistry.contains(metaNSName)) {
+            Meta::Cardinality registeredCardinality = _vsmRegistry.value(metaNSName);
+            if (registeredCardinality == aMeta.cardinality()) {
+                isValid = true;
+            }
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "VSM registry contains metadata and cardinality matches:" << isValid;
+            }
+        } else {
+            _vsmRegistry.insert(metaNSName, aMeta.cardinality());
+            isValid = true;
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding cardinality for metadata to VSM registry";
+            }
+        }
+    }
+
+    return isValid;
+}

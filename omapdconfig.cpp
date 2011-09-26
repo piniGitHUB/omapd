@@ -156,14 +156,14 @@ OmapdConfig::OmapdConfig(QObject *parent)
     // Defaults
     _omapdConfig.insert("log_stderr", true);
     var.setValue(OmapdConfig::mapVersionSupportOptions(3));
-    _omapdConfig.insert("ifmap_version_support", var);
+    _omapdConfig.insert("version_support", var);
     var.setValue(OmapdConfig::debugOptions(0));
-    _omapdConfig.insert("ifmap_debug_level", var);
-    _omapdConfig.insert("ifmap_address", "0.0.0.0");
-    _omapdConfig.insert("ifmap_port", 8081);
-    _omapdConfig.insert("ifmap_ssl_configuration", false);
-    _omapdConfig.insert("ifmap_create_client_configurations", true);
-    _omapdConfig.insert("ifmap_allow_invalid_session_id", false);
+    _omapdConfig.insert("debug_level", var);
+    _omapdConfig.insert("address", "0.0.0.0");
+    _omapdConfig.insert("port", 8081);
+    _omapdConfig.insert("ssl_configuration", false);
+    _omapdConfig.insert("create_client_configurations", true);
+    _omapdConfig.insert("allow_invalid_session_id", false);
 }
 
 OmapdConfig::~OmapdConfig()
@@ -187,9 +187,9 @@ void OmapdConfig::showConfigValues()
         QVariant var = configIt.value();
         if (var.type() == QVariant::UserType) {
             QString value;
-            if (configIt.key() == "ifmap_debug_level")
+            if (configIt.key() == "debug_level")
                 value = OmapdConfig::debugString(var.value<OmapdConfig::IfmapDebugOptions>());
-            else if (configIt.key() == "ifmap_version_support")
+            else if (configIt.key() == "version_support")
                 value = OmapdConfig::mapVersionSupportString(var.value<OmapdConfig::MapVersionSupportOptions>());
 
             qDebug() << fnName << configIt.key() << "-->" << value;
@@ -233,7 +233,13 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                     if (ok) {
                         dbgVar.setValue(OmapdConfig::debugOptions(dbgVal));
                     }
-                    addConfigItem("ifmap_" + xmlReader.name().toString(), dbgVar);
+                    addConfigItem(xmlReader.name().toString(), dbgVar);
+
+                } else if (xmlReader.name() == "ifmap_metadata_v11_schema_path") {
+                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
+
+                } else if (xmlReader.name() == "ifmap_metadata_v20_schema_path") {
+                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
 
                 } else if (xmlReader.name() == "service_configuration") {
 
@@ -247,61 +253,61 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             if (ok) {
                                 supportVar.setValue(OmapdConfig::mapVersionSupportOptions(supportVal));
                             }
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), supportVar);
+                            addConfigItem(xmlReader.name().toString(), supportVar);
 
                         } else if (xmlReader.name() == "address") {
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
+                            addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
 
                         } else if (xmlReader.name() == "port") {
                             QString value = xmlReader.readElementText();
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), QVariant(value.toUInt()));
+                            addConfigItem(xmlReader.name().toString(), QVariant(value.toUInt()));
 
                         } else if (xmlReader.name() == "create_client_configurations") {
                             bool enable = false;
                             if (xmlReader.attributes().value("enable") == "yes")
                                 enable = true;
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), enable);
+                            addConfigItem(xmlReader.name().toString(), enable);
 
                         } else if (xmlReader.name() == "allow_unauthenticated_clients") {
                             bool allow = false;
                             if (xmlReader.attributes().value("allow") == "yes")
                                 allow = true;
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), allow);
+                            addConfigItem(xmlReader.name().toString(), allow);
 
                         } else if (xmlReader.name() == "allow_invalid_session_id") {
                             bool allow = false;
                             if (xmlReader.attributes().value("allow") == "yes")
                                 allow = true;
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), allow);
+                            addConfigItem(xmlReader.name().toString(), allow);
 
                         } else if (xmlReader.name() == "ssl_configuration") {
                             bool enable = false;
                             if (xmlReader.attributes().value("enable") == "yes")
                                 enable = true;
-                            addConfigItem("ifmap_" + xmlReader.name().toString(), enable);
+                            addConfigItem(xmlReader.name().toString(), enable);
 
                             while (xmlReader.readNextStartElement()) {
                                 if ( xmlReader.name() == "ssl_protocol") {
                                     /// TODO: Insert string validator for protocol type
-                                    addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
+                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
                                 }
                                 else if (xmlReader.name() == "certificate_file") {
-                                    addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
+                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
 
                                 } else if (xmlReader.name() == "ca_certificates_file") {
-                                    addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
+                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
 
                                 } else if (xmlReader.name() == "private_key_file") {
-                                    addConfigItem("ifmap_" + xmlReader.name().toString(), xmlReader.readElementText());
+                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
                                     if (xmlReader.attributes().hasAttribute("password")) {
-                                        addConfigItem("ifmap_private_key_password", xmlReader.attributes().value("password").toString());
+                                        addConfigItem("private_key_password", xmlReader.attributes().value("password").toString());
                                     }
 
                                 } else if (xmlReader.name() == "require_client_certificates") {
                                     bool enable = true;
                                     if (xmlReader.attributes().value("enable") == "no")
                                         enable = false;
-                                    addConfigItem("ifmap_" + xmlReader.name().toString(), enable);
+                                    addConfigItem(xmlReader.name().toString(), enable);
 
                                 } else {
                                     xmlReader.skipCurrentElement();
@@ -312,7 +318,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             xmlReader.skipCurrentElement();
                         }
                         xmlReader.readNext();
-                    }  // ifmap_configuration
+                    }  // service_configuration
                 } else if (xmlReader.name() == "client_configuration") {
                     while (xmlReader.readNextStartElement()) {
                         if (xmlReader.name() == "authentication") {

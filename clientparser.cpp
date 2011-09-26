@@ -89,7 +89,7 @@ int ClientParser::readHeader()
         emit headerReceived(requestWithHdr);
     }
 
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
         qDebug() << __PRETTY_FUNCTION__ << ":" << "headerStr:" << endl << headerStr;
 
     return headerStr.length();
@@ -113,7 +113,7 @@ void ClientParser::readData()
     }
 
     if (didGetCompleteRequest && !_xmlSocketReader.error()) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << endl
                     << "------ start client request XML ---------" << endl
                     << _clientRequestXml << endl
@@ -167,7 +167,7 @@ void ClientParser::parseDocument()
 {
     if (_xml.readNextStartElement()) {
         if (_xml.name().compare("Envelope", Qt::CaseSensitive) == 0) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Envelope"
                         << "in namespace:" << _xml.namespaceUri();
             }
@@ -186,14 +186,14 @@ void ClientParser::parseEnvelope()
     while (_xml.readNextStartElement()) {
 
         if (_xml.name().compare("Header", Qt::CaseSensitive) == 0) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Header"
                         << "in namespace:" << _xml.namespaceUri();
             }
             registerMetadataNamespaces();
             parseHeader();
         } else if (_xml.name().compare("Body", Qt::CaseSensitive) == 0) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Body"
                         << "in namespace:" << _xml.namespaceUri();
             }
@@ -210,17 +210,17 @@ void ClientParser::parseEnvelope()
 void ClientParser::parseHeader()
 {
     if (_xml.name() == "new-session" && _xml.namespaceUri() == IFMAP_NS_1 &&
-        _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
+        _omapdConfig->valueFor("version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
         // Support for IF-MAP 1.0 client new-session, but this is still IF-MAP 1.1 operations
         _requestVersion = MapRequest::IFMAPv11;
         parseNewSession();
     } else if (_xml.name() == "attach-session" && _xml.namespaceUri() == IFMAP_NS_1 &&
-               _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
+               _omapdConfig->valueFor("version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
         // Support for IF-MAP 1.0 client attach-session, but this is still IF-MAP 1.1 operations
         _requestVersion = MapRequest::IFMAPv11;
         parseAttachSession();
     } else if (_xml.name() == "session-id" && _xml.namespaceUri() == IFMAP_NS_1 &&
-               _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
+               _omapdConfig->valueFor("version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "reading session-id";
         _sessionId = _xml.readElementText();
         _clientSetSessionId = true;
@@ -267,7 +267,7 @@ void ClientParser::parseAttachSession()
     _requestType = MapRequest::AttachSession;
 
     QString sessionId = _xml.readElementText();
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Got session-id in request:" << sessionId;
     }
 
@@ -294,16 +294,16 @@ void ClientParser::parseBody()
     while (_xml.readNextStartElement() && _mapRequest.isNull()) { // Make sure we only read the first request
         QString method = _xml.name().toString();
         QString methodNS = _xml.namespaceUri().toString();
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got IF-MAP client request:" << method
                     << "in namespace:" << methodNS;
         }
 
         if (methodNS == IFMAP_NS_1 &&
-            _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
+            _omapdConfig->valueFor("version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV11)) {
             _requestVersion = MapRequest::IFMAPv11;
         } else if (methodNS == IFMAP_NS_2 &&
-                   _omapdConfig->valueFor("ifmap_version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV20)) {
+                   _omapdConfig->valueFor("version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV20)) {
             _requestVersion = MapRequest::IFMAPv20;
         } else {
             // ERROR!!!
@@ -607,7 +607,7 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
         bool ok;
         maxDepth = md.toInt(&ok);
         if (ok) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter max-depth:" << maxDepth;
             }
             if (maxDepth < 0 && request.requestVersion() == MapRequest::IFMAPv11) {
@@ -626,7 +626,7 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
             request.setRequestError(MapRequest::IfmapClientSoapFault);
         }
     } else {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter max-depth:" << maxDepth;
         }
     }
@@ -646,7 +646,7 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
         bool ok;
         maxSize = ms.toInt(&ok);
         if (ok) {
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter max-size:" << maxSize;
             }
             if (maxSize < 0 && request.requestVersion() == MapRequest::IFMAPv11) {
@@ -665,7 +665,7 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
             request.setRequestError(MapRequest::IfmapClientSoapFault);
         }
     } else {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter max-size:" << maxSize;
         }
     }
@@ -673,36 +673,36 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
 
     if (attrs.hasAttribute("match-links")) {
         QString matchLinks = attrs.value("match-links").toString();
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter match-links:" << matchLinks;
         }
         search.setMatchLinks(Subscription::translateFilter(matchLinks));
     } else {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter match-links:" << search.matchLinks();
         }
     }
 
     if (attrs.hasAttribute("result-filter")) {
         QString resultFilter = attrs.value("result-filter").toString();
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter result-filter:" << resultFilter;
         }
         search.setResultFilter(Subscription::translateFilter(resultFilter));
     } else {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter result-filter:" << search.resultFilter();
         }
     }
 
     if (attrs.hasAttribute("terminal-identifier-type") && request.requestVersion() == MapRequest::IFMAPv20) {
         QString terminalId = attrs.value("terminal-identifier-type").toString();
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter terminal-identifier-type:" << terminalId;
         }
         search.setTerminalId(terminalId);
     } else {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter terminal-identifier-type:" << search.terminalId();
         }
     }
@@ -713,7 +713,7 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
     }
     Id startId = parseIdentifier(request);
     if (request.requestError() == MapRequest::ErrorNone) {
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Setting starting identifier:" << startId;
         }
         search.setStartId(startId);
@@ -803,7 +803,7 @@ Id ClientParser::parseIdentifier(MapRequest &request)
         if (attrs.hasAttribute("name")) {
             idType = Identifier::AccessRequest;
             value = attrs.value("name").toString();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got access-request name:" << value;
             }
         } else {
@@ -816,13 +816,13 @@ Id ClientParser::parseIdentifier(MapRequest &request)
             if (_xml.name().compare("name", Qt::CaseSensitive) == 0) {
                 idType = Identifier::DeviceName;
                 value = _xml.readElementText();
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got device name:" << value;
                 }
             } else if (_xml.name().compare("aik-name", Qt::CaseSensitive) == 0 && _requestVersion == MapRequest::IFMAPv11) {
                 idType = Identifier::DeviceAikName;
                 value = _xml.readElementText();
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got device aik-name:" << value;
                 }
             } else {
@@ -873,7 +873,7 @@ Id ClientParser::parseIdentifier(MapRequest &request)
 
         if (attrs.hasAttribute("name")) {
             value = attrs.value("name").toString();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got identity name:" << value;
             }
         } else {
@@ -886,7 +886,7 @@ Id ClientParser::parseIdentifier(MapRequest &request)
             if (attrs.hasAttribute("other-type-definition")) {
                 // Append other-type-definition to value
                 other = attrs.value("other-type-definition").toString();
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got identity other-type-def:" << other;
                 }
             } else {
@@ -901,13 +901,13 @@ Id ClientParser::parseIdentifier(MapRequest &request)
         QHostAddress test;
         if (idType == Identifier::IdentityHipHit && !parseError ) {
             if (!test.setAddress(value)) {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid hip-hit address conversion:" << value;
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got different hip-hit address back to string:" << test.toString();
                 }
                 parseError = true;
@@ -934,19 +934,19 @@ Id ClientParser::parseIdentifier(MapRequest &request)
 
         if (attrs.hasAttribute("value")) {
             value = attrs.value("value").toString();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got ip-address:" << value;
             }
             // Attempt to validate IP Address
             QHostAddress test;
             if (!test.setAddress(value)) {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid ip-address:" << value;
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got different ip-address address back to string:" << test.toString();
                 }
                 parseError = true;
@@ -963,7 +963,7 @@ Id ClientParser::parseIdentifier(MapRequest &request)
 
         if (attrs.hasAttribute("value")) {
             value = attrs.value("value").toString();
-            if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got mac-address:" << value;
             }
             // Attempt to validate MAC
@@ -971,7 +971,7 @@ Id ClientParser::parseIdentifier(MapRequest &request)
             re.setPattern("([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]");
             re.setCaseSensitivity(Qt::CaseSensitive);
             if (!re.exactMatch(value)) {
-                if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid mac-address:" << value;
                 }
                 parseError = true;
@@ -1041,7 +1041,7 @@ QList<Meta> ClientParser::parseMetadata(PublishRequest &pubReq, Meta::Lifetime l
                 if (attrStr.startsWith("ifmap-")) {
                     if (attrStr.compare(cardinalityAttrName) != 0) {
                         // Have invalid ifmap- attribute
-                        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got invalid ifmap- reserved attribute:" << attrStr;
                         }
                         elementAttrs.remove(i);
@@ -1101,16 +1101,23 @@ QList<Meta> ClientParser::parseMetadata(PublishRequest &pubReq, Meta::Lifetime l
         aMeta.setElementNS(metaNS);
         aMeta.setPublisherId(pubReq.publisherId());
         aMeta.setMetaXML(metaString);
-        if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Setting xml for:" << metaName << "metaXML:" << aMeta.metaXML();
-        }
-        metaList << aMeta;
 
-        allMetadata += metaString;
+        if (MapSessions::getInstance()->validateMetadata(aMeta)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Setting xml for:" << metaName << "metaXML:" << aMeta.metaXML();
+            }
+            metaList << aMeta;
+
+            allMetadata += metaString;
+        } else {
+            pubReq.setRequestError(MapRequest::IfmapInvalidMetadata);
+            _requestError = MapRequest::IfmapInvalidMetadata;
+            _xml.raiseError("Metadata did not pass validation test");
+        }
     }
 
     // Can check metadata length here too
-    if (_omapdConfig->valueFor("ifmap_debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "All metadata in request:" << endl << allMetadata;
     }
 
