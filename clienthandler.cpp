@@ -1590,6 +1590,8 @@ void ClientHandler::sendResultsOnActivePolls()
 
                     sub.clearSearchResults();
                     subIt.setValue(sub);
+
+                    publisherHasError = true;
                 } else if (!sub._sentFirstResult) {
                     // Build results from entire search graph for the first poll response
                     collectSearchGraphMetadata(sub, SearchResult::SearchResultType, subError);
