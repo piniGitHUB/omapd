@@ -640,11 +640,11 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
        specifies a max-size that exceeds what the MAP Server can support,
        the MAP Server MUST enforce its own maximum size constraints.
     */
-    int maxSize = IFMAP_MAX_SIZE;
+    long maxSize = IFMAP_MAX_SIZE;
     if (attrs.hasAttribute("max-size")) {
         QString ms = attrs.value("max-size").toString();
         bool ok;
-        maxSize = ms.toInt(&ok);
+        maxSize = ms.toLong(&ok);
         if (ok) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter max-size:" << maxSize;
