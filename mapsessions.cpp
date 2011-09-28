@@ -58,19 +58,26 @@ MapSessions::~MapSessions()
 {
 }
 
-void MapSessions::removeClientFromActivePolls(ClientHandler *clientSocket)
+void MapSessions::removeClientConnections(ClientHandler *clientSocket)
 {
-    const char *fnName = "MapSessions::removeClientFromActivePolls:";
+    const char *fnName = "MapSessions::removeClientConnections:";
     QString pubId = _activePolls.key(clientSocket);
     if (! pubId.isEmpty()) {
-        qDebug() << fnName << "Client disconnected:" << pubId;
+        qDebug() << fnName << "Client removed from activePolls:" << pubId;
         _activePolls.remove(pubId);
+    }
+
+    QString key = _mapClientConnections.key(clientSocket, "");
+    if (!key.isEmpty()) {
+        _mapClientConnections.remove(key);
+        qDebug() << fnName << "Client removed from mapClientConnections:" << clientSocket;
     }
 }
 
-void MapSessions::registerClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString authToken)
+QString MapSessions::registerClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString authToken)
 {
     const char *fnName = "MapSessions::registerClient:";
+    QString pubId;
 
     if (authType != MapRequest::AuthNone && !authToken.isEmpty()) {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -78,44 +85,32 @@ void MapSessions::registerClient(ClientHandler *socket, MapRequest::Authenticati
                     << "authToken:" << authToken
                     << "from host:" << socket->peerAddress().toString();
         }
-        //FIXME: not sure about this
         _mapClientConnections.insert(authToken, socket);
 
         if (_mapClientRegistry.contains(authToken)) {
             // Already have a publisher-id for this client
+            pubId = _mapClientRegistry.value(authToken);
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << fnName << "Already have client configuration with pub-id:" << _mapClientRegistry.value(authToken);
+                qDebug() << fnName << "Already have client configuration with pub-id:" << pubId;
             }
         } else if (_omapdConfig->valueFor("create_client_configurations").toBool()) {
             // Create a new publisher-id for this client
-            QString pubid;
-            pubid.setNum(qrand());
-            QByteArray pubidhash = QCryptographicHash::hash(pubid.toAscii(), QCryptographicHash::Md5);
-            pubid = QString(pubidhash.toHex());
-            _mapClientRegistry.insert(authToken,pubid);
+            pubId.setNum(qrand());
+            QByteArray pubidhash = QCryptographicHash::hash(pubId.toAscii(), QCryptographicHash::Md5);
+            pubId = QString(pubidhash.toHex());
+            _mapClientRegistry.insert(authToken,pubId);
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << fnName << "Created client configuration with pub-id:" << _mapClientRegistry.value(authToken);
             }
         }
     }
+
+    return pubId;
 }
 
-QString MapSessions::assignPublisherId(QString authToken)
+void MapSessions::checkSessionIdIsActive(MapRequest &clientRequest, QString authToken)
 {
-    const char *fnName = "MapSessions::assignPublisherId:";
-    QString publisherId;
-
-    publisherId = _mapClientRegistry.value(authToken);
-    if (publisherId.isEmpty()) {
-        qDebug() << fnName << "Error looking up client configuration";
-    }
-
-    return publisherId;
-}
-
-void MapSessions::validateSessionId(MapRequest &clientRequest, QString authToken)
-{
-    const char *fnName = "MapSessions::validateSessionId:";
+    const char *fnName = "MapSessions::checkSessionIdIsActive:";
 
     /* IFMAP20: 4.4: If the session-id is valid, the server MUST respond with
        a renewSessionResult element.  Otherwise, the server MUST respond with
@@ -130,7 +125,7 @@ void MapSessions::validateSessionId(MapRequest &clientRequest, QString authToken
         // This let's someone curl in a bunch of messages without worrying about
         // maintaining SSRC state.
         qDebug() << fnName << "NON-STANDARD: Ignoring invalid or missing session-id";
-        QString publisherId = assignPublisherId(authToken);
+        QString publisherId = _mapClientRegistry.value(authToken);
         if (_activeSSRCSessions.contains(publisherId)) {
             clientRequest.setSessionId(_activeSSRCSessions.value(publisherId));
         }
@@ -149,6 +144,22 @@ void MapSessions::validateSessionId(MapRequest &clientRequest, QString authToken
         qDebug() << fnName << "Invalid Session Id for client with authToken:" << authToken;
         clientRequest.setRequestError(MapRequest::IfmapInvalidSessionID);
     }
+}
+
+bool MapSessions::validateSessionId(QString sessId, QString authToken)
+{
+    QString pubIdForSessionId = _activeSSRCSessions.key(sessId);
+    QString pubIdForAuthToken = _mapClientRegistry.value(authToken);
+
+    if (pubIdForSessionId.compare(pubIdForAuthToken, Qt::CaseSensitive) == 0)
+        return true;
+    else
+        return false;
+}
+
+QString MapSessions::pubIdForAuthToken(QString authToken)
+{
+    return _mapClientRegistry.value(authToken);
 }
 
 bool MapSessions::validateMetadata(Meta aMeta)

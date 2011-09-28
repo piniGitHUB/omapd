@@ -63,8 +63,8 @@ public:
 
     void setErrorResponse(MapRequest::RequestError requestError, QString sessionId, QString errorString = "", QString name = "");
     void setNewSessionResponse(QString sessiondId, QString publisherId, bool mprsSet = false, unsigned int mprs = 0);
-    void setRenewSessionResponse();
-    void setEndSessionResponse();
+    void setRenewSessionResponse(QString sessiondId);
+    void setEndSessionResponse(QString sessiondId);
     void setAttachSessionResponse(QString sessionId, QString publisherId);
     void setPublishResponse(QString sessionId);
     void setSubscribeResponse(QString sessionId);

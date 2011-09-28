@@ -72,7 +72,7 @@ void Server::discardClient()
     ClientHandler *client = (ClientHandler*)sender();
     qDebug() << __PRETTY_FUNCTION__ << ":" << "client:" << client;
 
-    MapSessions::getInstance()->removeClientFromActivePolls(client);
+    MapSessions::getInstance()->removeClientConnections(client);
 
     client->deleteLater();
 }

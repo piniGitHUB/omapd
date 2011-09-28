@@ -156,7 +156,7 @@ void ClientParser::setSessionId(MapRequest &request)
 
     // FIXME: This should move out of here
     ClientHandler *client = (ClientHandler*)this->parent();
-    MapSessions::getInstance()->validateSessionId(request, client->peerAddress().toString());
+    MapSessions::getInstance()->checkSessionIdIsActive(request, client->peerAddress().toString());
     if (request.requestError()) {
         _requestError = request.requestError();
         _xml.raiseError("Invalid Session Id");
@@ -281,7 +281,7 @@ void ClientParser::parseAttachSession()
 
     // FIXME: This should move out of here
     ClientHandler *client = (ClientHandler*)this->parent();
-    MapSessions::getInstance()->validateSessionId(asReq, client->peerAddress().toString());
+    MapSessions::getInstance()->checkSessionIdIsActive(asReq, client->peerAddress().toString());
     if (asReq.requestError()) {
         _requestError = asReq.requestError();
     }
@@ -388,8 +388,8 @@ void ClientParser::parsePurgePublisher()
     } else {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading publisher-id in purgePublisher request";
         _xml.raiseError("Error reading publisher-id in purgePublisher request");
-        _requestError = MapRequest::IfmapClientSoapFault;
-        ppReq.setRequestError(MapRequest::IfmapClientSoapFault);
+        _requestError = MapRequest::IfmapAccessDenied;
+        ppReq.setRequestError(MapRequest::IfmapAccessDenied);
     }
 
     _mapRequest.setValue(ppReq);
@@ -403,6 +403,7 @@ void ClientParser::parsePublish()
     pubReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::Publish;
     setSessionId(pubReq);
+    // FIXME: should be getting publisher id from authtoken, not session id
     pubReq.setPublisherId(MapSessions::getInstance()->_activeSSRCSessions.key(pubReq.sessionId()));
 
     while (_xml.readNextStartElement() && !pubReq.requestError()) {
@@ -428,8 +429,6 @@ void ClientParser::parsePublish()
 
 void ClientParser::parsePublishUpdateOrNotify(PublishOperation::PublishType publishType, PublishRequest &pubReq)
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "Start:" << _xml.name();
-
     PublishOperation pubOperation;
     QXmlStreamAttributes attrs = _xml.attributes();
 
@@ -472,8 +471,6 @@ void ClientParser::parsePublishUpdateOrNotify(PublishOperation::PublishType publ
     while (!_xml.atEnd() && !done) {
         _xml.readNext();
 
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "current element:" << _xml.name() << _xml.tokenString();
-
         if (_xml.isStartElement() && ID_NAMES.contains(_xml.name().toString(), Qt::CaseSensitive)) {
             if (numIds == 0) {
                 id1 = parseIdentifier(pubReq);
@@ -488,7 +485,6 @@ void ClientParser::parsePublishUpdateOrNotify(PublishOperation::PublishType publ
 
         if (_xml.tokenType() == QXmlStreamReader::EndElement &&
             _xml.name().compare((publishType == PublishOperation::Update ? "update" : "notify"), Qt::CaseSensitive) == 0) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "done --------------------->";
             done = true;
         }
     }
@@ -508,18 +504,16 @@ void ClientParser::parsePublishUpdateOrNotify(PublishOperation::PublishType publ
         pubReq.addPublishOperation(pubOperation);
     }
 
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "Have publish"
-            << (publishType == PublishOperation::Update ? "update" : "notify")
-            << "on"
-            << (numIds == 2 ? "link" : "identifier");
-
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "End:" << _xml.tokenString() << _xml.name();
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Have publish"
+                << (publishType == PublishOperation::Update ? "update" : "notify")
+                << "on"
+                << (numIds == 2 ? "link" : "identifier");
+    }
 }
 
 void ClientParser::parsePublishDelete(PublishRequest &pubReq)
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << _xml.name();
-
     PublishOperation pubOperation;
     pubOperation._publishType = PublishOperation::Delete;
 
@@ -541,8 +535,6 @@ void ClientParser::parsePublishDelete(PublishRequest &pubReq)
     while (!_xml.atEnd() && !done) {
         _xml.readNext();
 
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "current element:" << _xml.name() << _xml.tokenString();
-
         if (_xml.isStartElement() && ID_NAMES.contains(_xml.name().toString(), Qt::CaseSensitive)) {
             if (numIds == 0) {
                 id1 = parseIdentifier(pubReq);
@@ -553,7 +545,6 @@ void ClientParser::parsePublishDelete(PublishRequest &pubReq)
         }
 
         if (_xml.tokenType() == QXmlStreamReader::EndElement && _xml.name().compare("delete") == 0) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "done --------------------->";
             done = true;
         }
     }
@@ -573,8 +564,10 @@ void ClientParser::parsePublishDelete(PublishRequest &pubReq)
         pubReq.addPublishOperation(pubOperation);
     }
 
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "Have publish delete on"
-            << (numIds == 2 ? "link" : "identifier");
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Have publish delete on"
+                << (numIds == 2 ? "link" : "identifier");
+    }
 
     qDebug() << __PRETTY_FUNCTION__ << ":" << "End:" << _xml.name();
 }
@@ -707,16 +700,18 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
         }
     }
 
-    _xml.readNextStartElement();
-    if (_xml.name() == "identifier" && request.requestVersion() == MapRequest::IFMAPv11) {
+    if (!_xml.hasError()) {
         _xml.readNextStartElement();
-    }
-    Id startId = parseIdentifier(request);
-    if (request.requestError() == MapRequest::ErrorNone) {
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Setting starting identifier:" << startId;
+        if (_xml.name() == "identifier" && request.requestVersion() == MapRequest::IFMAPv11) {
+            _xml.readNextStartElement();
         }
-        search.setStartId(startId);
+        Id startId = parseIdentifier(request);
+        if (request.requestError() == MapRequest::ErrorNone) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Setting starting identifier:" << startId;
+            }
+            search.setStartId(startId);
+        }
     }
 
     // Finally set filterNamespaceDefinitions pulled out of SOAP Message
@@ -736,7 +731,6 @@ void ClientParser::parseSubscribe()
     bool done = false;
     while (!_xml.atEnd() && !done && !subReq.requestError()) {
         _xml.readNext();
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "element:" << _xml.name() << _xml.tokenString();
 
         SubscribeOperation subOperation;
 
@@ -766,7 +760,6 @@ void ClientParser::parseSubscribe()
         }
 
         if (_xml.tokenType() == QXmlStreamReader::EndElement && _xml.name().compare("subscribe") ==0) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "done --------------------->";
             done = true;
         }
     }
@@ -785,7 +778,6 @@ void ClientParser::parsePoll()
 
 Id ClientParser::parseIdentifier(MapRequest &request)
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << _xml.name();
     bool parseError = false;
 
     QXmlStreamAttributes attrs = _xml.attributes();

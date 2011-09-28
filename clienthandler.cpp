@@ -256,12 +256,6 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
             // TODO: This will over write any AuthCert value since that happened earlier
             _authType = MapRequest::AuthBasic;
             _authToken = basicAuthValue;
-            //FIXME check this
-            /*
-            if (_omapdConfig->valueFor("create_client_configurations").toBool()) {
-                _mapSessions->registerClient(this, QString(basicAuthValue));
-            }
-            */
         }
     }
 
@@ -302,16 +296,34 @@ void ClientHandler::handleParseComplete()
         MapResponse clientFaultResponse(MapRequest::VersionNone);
         clientFaultResponse.setClientFault(_parser->errorString());
         sendMapResponse(clientFaultResponse);
+    } else if (_parser->requestError() != MapRequest::ErrorNone) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Client Error:" << MapRequest::requestErrorString(_parser->requestError());
+
+        MapResponse errorResp(_parser->requestVersion());
+        if (_parser->requestError() == MapRequest::IfmapClientSoapFault) {
+            errorResp.setClientFault(_parser->errorString());
+        } else {
+            errorResp.setErrorResponse(_parser->requestError(), _parser->sessionId());
+        }
+        sendMapResponse(errorResp);
     } else {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got request type:" << MapRequest::requestTypeString(_parser->requestType())
                      << "and IF-MAP version:" << MapRequest::requestVersionString(_parser->requestVersion());
 
-        if (_parser->requestError()) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client Error:" << MapRequest::requestErrorString(_parser->requestError());
+        bool sentError = false;
+        if (_parser->requestType() != MapRequest::NewSession) {
+            // Validate session-id belongs to this client
+            if (! _mapSessions->validateSessionId(_parser->sessionId(), _authToken)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Invalid session-id from ClientHandler:" << this;
+                MapResponse errorResp(_parser->requestVersion());
+                errorResp.setErrorResponse(MapRequest::IfmapInvalidSessionID, _parser->sessionId());
+                sendMapResponse(errorResp);
+                sentError = true;
+            }
         }
 
-        processClientRequest();
+        if (!sentError) processClientRequest();
     }
 
     delete _parser;
@@ -319,31 +331,6 @@ void ClientHandler::handleParseComplete()
     connect(_parser, SIGNAL(parsingComplete()),this, SLOT(handleParseComplete()));
     connect(_parser, SIGNAL(headerReceived(QNetworkRequest)),
             this, SLOT(processHeader(QNetworkRequest)));
-
-//    if (xmlError == QXmlStreamReader::NoError) {
-//        qDebug() << __PRETTY_FUNCTION__ << ":" << "Got request type:" << MapRequest::requestTypeString(_parser->requestType())
-//                << "and IF-MAP version:" << MapRequest::requestVersionString(_parser->requestVersion());
-
-//        if (_parser->requestError()) {
-//            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client Error:" << MapRequest::requestErrorString(_parser->requestError());
-//        }
-
-//        processClientRequest();
-
-//    } else if (_parser->requestError() != MapRequest::ErrorNone) {
-//        MapResponse errorResp(_parser->requestVersion());
-//        if (_parser->requestError() == MapRequest::IfmapClientSoapFault) {
-//            errorResp.setClientFault(_parser->errorString());
-//        } else {
-//            errorResp.setErrorResponse(_parser->requestError(), _parser->sessionId());
-//        }
-//        sendMapResponse(errorResp);
-//    } else {
-//        qDebug() << __PRETTY_FUNCTION__ << ":" << "XML Error reading client request:" << _parser->errorString();
-//        MapResponse clientFaultResponse(MapRequest::VersionNone);
-//        clientFaultResponse.setClientFault(_parser->errorString());
-//        sendMapResponse(clientFaultResponse);
-//    }
 }
 
 void ClientHandler::sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
@@ -399,6 +386,7 @@ void ClientHandler::processClientRequest()
         clientFaultResponse = new MapResponse(MapRequest::VersionNone);
         clientFaultResponse->setClientFault("No valid client request");
         sendMapResponse(*clientFaultResponse);
+        delete clientFaultResponse;
         break;
     case MapRequest::NewSession:
         processNewSession(clientRequest);
@@ -441,31 +429,30 @@ void ClientHandler::processNewSession(QVariant clientRequest)
     nsReq.setAuthType(_authType);
     nsReq.setAuthValue(_authToken);
 
-    _mapSessions->registerClient(this, _authType, _authToken);
-
-    QString publisherId = _mapSessions->assignPublisherId(nsReq.authToken());
+    QString publisherId = _mapSessions->registerClient(this, _authType, _authToken);
     if (publisherId.isEmpty()) {
         //FIXME: This should be an error!
         requestError = MapRequest::IfmapAccessDenied;
     }
 
     if (!requestError) {
+        QString sid;
+        sid.setNum(qrand());
+        QByteArray sidhash = QCryptographicHash::hash(sid.toAscii(), QCryptographicHash::Md5);
+
         QString sessId;
         // Check if we have an SSRC session already for this publisherId
         if (_mapSessions->_activeSSRCSessions.contains(publisherId)) {
             /* Per IFMAP20: 4.3: If a MAP Client sends more than one SOAP request
-           containing a newSession element in the SOAP body, the MAP Server
-           MUST respond by ending the previous session and starting a new
-           session. The new session MAY use the same session-id or allocate a new one.
-        */
+               containing a newSession element in the SOAP body, the MAP Server
+               MUST respond by ending the previous session and starting a new
+               session. The new session MAY use the same session-id or allocate a
+               new one.
+            */
             sessId = _mapSessions->_activeSSRCSessions.value(publisherId);
             terminateSession(sessId, nsReq.requestVersion());
-        } else {
-            QString sid;
-            sid.setNum(qrand());
-            QByteArray sidhash = QCryptographicHash::hash(sid.toAscii(), QCryptographicHash::Md5);
-            sessId = QString(sidhash.toHex());
         }
+        sessId = QString(sidhash.toHex());
         _mapSessions->_activeSSRCSessions.insert(publisherId, sessId);
         nsResp.setNewSessionResponse(sessId, publisherId, nsReq.clientSetMaxPollResultSize(), nsReq.maxPollResultSize());
     } else {
@@ -482,8 +469,15 @@ void ClientHandler::processRenewSession(QVariant clientRequest)
        with the SSRC open, or send periodic renewSession requests to the MAP Server.
     */
     RenewSessionRequest rsReq = clientRequest.value<RenewSessionRequest>();
+    MapRequest::RequestError requestError = rsReq.requestError();
+    QString sessId = rsReq.sessionId();
+
     MapResponse rsResp(rsReq.requestVersion());
-    rsResp.setRenewSessionResponse();
+    if (requestError) {
+        rsResp.setErrorResponse(requestError, sessId);
+    } else {
+        rsResp.setRenewSessionResponse(sessId);
+    }
     sendMapResponse(rsResp);
 }
 
@@ -494,17 +488,19 @@ void ClientHandler::processEndSession(QVariant clientRequest)
     MapRequest::RequestError requestError = esReq.requestError();
     QString sessId = esReq.sessionId();
 
-    if (!requestError) {
-        QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+    MapResponse esResp(esReq.requestVersion());
+    if (requestError) {
+        esResp.setErrorResponse(requestError, sessId);
+    } else {
+        QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
         terminateSession(sessId, esReq.requestVersion());
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated session-id:" << sessId
                      << "for publisher-id:" << publisherId;
         }
+        esResp.setEndSessionResponse(sessId);
     }
 
-    MapResponse esResp(esReq.requestVersion());
-    esResp.setEndSessionResponse();
     sendMapResponse(esResp);
 }
 
@@ -525,7 +521,7 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
 
     MapRequest::RequestError requestError = asReq.requestError();
     QString sessId = asReq.sessionId();
-    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
         // Terminate any existing ARC sessions
@@ -556,7 +552,7 @@ void ClientHandler::processPublish(QVariant clientRequest)
 
     MapRequest::RequestError requestError = pubReq.requestError();
     QString sessId = pubReq.sessionId();
-    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     bool mapGraphChanged = false;
 
@@ -682,7 +678,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
 
     MapRequest::RequestError requestError = subReq.requestError();
     QString sessId = subReq.sessionId();
-    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Will manage subscriptions for publisher:" << publisherId;
@@ -806,7 +802,7 @@ void ClientHandler::processPurgePublisher(QVariant clientRequest)
 
     MapRequest::RequestError requestError = ppReq.requestError();
     QString sessId = ppReq.sessionId();
-    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
         QString purgePubId = ppReq.publisherId();
@@ -852,7 +848,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
 
     MapRequest::RequestError requestError = pollReq.requestError();
     QString sessId = pollReq.sessionId();
-    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessId);
+    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
         if (_mapSessions->_activeARCSessions.contains(publisherId) &&
@@ -921,7 +917,7 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
     bool hadExistingSession = false;
 
     // Remove sessionId from list of active SSRC Sessions
-    QString publisherId = _mapSessions->_activeSSRCSessions.key(sessionId);
+    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (! publisherId.isEmpty()) {
         hadExistingSession = true;
@@ -992,11 +988,9 @@ bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVe
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending endSessionResult to publisherId:"
                              << publisherId << "on client socket" << client;
                     MapResponse pollEndSessionResponse(MapRequest::IFMAPv20); // Has to be IF-MAP 2.0!
-                    pollEndSessionResponse.setEndSessionResponse();
-                    // FIXME: Need to figure out how to send this to another ClientHandler
+                    pollEndSessionResponse.setEndSessionResponse(sessionId);
+
                     emit needToSendPollResponse(client, pollEndSessionResponse.responseData(), pollEndSessionResponse.requestVersion());
-                    //sendMapResponse(pollSocket, pollEndSessionResponse);
-                    //pollSocket->disconnectFromHost();
                 }
             }
             _mapSessions->_activePolls.remove(publisherId);
