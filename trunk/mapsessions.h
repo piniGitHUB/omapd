@@ -33,7 +33,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "clienthandler.h"
 
 typedef QPair<QString, QString> VSM;
-//uint qHash(const VSM & key) { return qHash(key.first + key.second); }
 
 class MapSessions : public QObject
 {
@@ -41,10 +40,12 @@ class MapSessions : public QObject
 public:
     static MapSessions* getInstance();
 
-    void removeClientFromActivePolls(ClientHandler *clientSocket);
-    void registerClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString clientKey);
-    QString assignPublisherId(QString authToken);
-    void validateSessionId(MapRequest &clientRequest, QString authToken);
+    void removeClientConnections(ClientHandler *clientSocket);
+    QString registerClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString clientKey);
+    void checkSessionIdIsActive(MapRequest &clientRequest, QString authToken);
+    bool validateSessionId(QString sessId, QString authToken);
+
+    QString pubIdForAuthToken(QString authToken);
 
     bool validateMetadata(Meta aMeta);
 
@@ -63,8 +64,8 @@ private:
 
 
     // Registry for MAP Clients
-    QHash<QString, const ClientHandler*> _mapClientConnections;  // clientKey --> QTcpSocket
-    QHash<QString, QString> _mapClientRegistry;  // clientKey --> pubId
+    QHash<QString, const ClientHandler*> _mapClientConnections;  // authToken --> QTcpSocket
+    QHash<QString, QString> _mapClientRegistry;  // authToken --> pubId
 
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;

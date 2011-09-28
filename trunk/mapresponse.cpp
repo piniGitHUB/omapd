@@ -249,18 +249,20 @@ void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId, 
     finishEnvelope();
 }
 
-void MapResponse::setRenewSessionResponse()
+void MapResponse::setRenewSessionResponse(QString sessionId)
 {
     startResponse();
     _xmlWriter.writeEmptyElement("renewSessionResult");
+    _xmlWriter.writeAttribute("session-id", sessionId);
     endResponse();
     finishEnvelope();
 }
 
-void MapResponse::setEndSessionResponse()
+void MapResponse::setEndSessionResponse(QString sessionId)
 {
     startResponse();
     _xmlWriter.writeEmptyElement("endSessionResult");
+    _xmlWriter.writeAttribute("session-id", sessionId);
     endResponse();
     finishEnvelope();
 }
