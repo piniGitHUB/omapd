@@ -214,6 +214,8 @@ public:
     QString _deleteFilter;
     bool _clientSetDeleteFilter;
     QMap<QString, QString> _filterNamespaceDefinitions;
+
+    int _operationNumber;
 };
 
 class PublishRequest : public MapRequest
@@ -225,6 +227,7 @@ public:
 
     QString publisherId() const { return _publisherId; }
     void setPublisherId(QString pubId) { _publisherId = pubId; }
+    void setPublishOperations(QList<PublishOperation> operations) { _publishOperations = operations; }
     QList<PublishOperation> publishOperations() const { return _publishOperations; }
     void addPublishOperation(PublishOperation pubOper) { _publishOperations.append(pubOper); }
 private:

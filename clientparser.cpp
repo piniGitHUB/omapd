@@ -501,6 +501,7 @@ void ClientParser::parsePublishUpdateOrNotify(PublishOperation::PublishType publ
             pubOperation._link.first = id1;
         }
         pubOperation._filterNamespaceDefinitions = _namespaces;
+        pubOperation._operationNumber = pubReq.publishOperations().size() + 1;
         pubReq.addPublishOperation(pubOperation);
     }
 
@@ -561,6 +562,7 @@ void ClientParser::parsePublishDelete(PublishRequest &pubReq)
             pubOperation._link.first = id1;
         }
         pubOperation._filterNamespaceDefinitions = _namespaces;
+        pubOperation._operationNumber = pubReq.publishOperations().size() + 1;
         pubReq.addPublishOperation(pubOperation);
     }
 

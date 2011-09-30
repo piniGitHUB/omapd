@@ -36,6 +36,12 @@ MapSessions::MapSessions(QObject *parent)
 {
     _omapdConfig = OmapdConfig::getInstance();
 
+    // Seed RNG for session-id
+    qsrand(QDateTime::currentDateTime().toTime_t());
+
+    // Set pubId starting index
+    _pubIdIndex = 1000;
+
     // Load standard schemas
     if (_omapdConfig->isSet("ifmap_metadata_v11_schema_path")) {
         QString meta11FileName = _omapdConfig->valueFor("ifmap_metadata_v11_schema_path").toString();
@@ -56,6 +62,14 @@ MapSessions::MapSessions(QObject *parent)
 
 MapSessions::~MapSessions()
 {
+}
+
+QString MapSessions::generateSessionId()
+{
+    QString sid;
+    sid.setNum(qrand());
+    QByteArray sidhash = QCryptographicHash::hash(sid.toAscii(), QCryptographicHash::Md5);
+    return QString(sidhash.toHex());
 }
 
 void MapSessions::removeClientConnections(ClientHandler *clientSocket)
@@ -95,9 +109,7 @@ QString MapSessions::registerClient(ClientHandler *socket, MapRequest::Authentic
             }
         } else if (_omapdConfig->valueFor("create_client_configurations").toBool()) {
             // Create a new publisher-id for this client
-            pubId.setNum(qrand());
-            QByteArray pubidhash = QCryptographicHash::hash(pubId.toAscii(), QCryptographicHash::Md5);
-            pubId = QString(pubidhash.toHex());
+            pubId.setNum(_pubIdIndex++);
             _mapClientRegistry.insert(authToken,pubId);
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << fnName << "Created client configuration with pub-id:" << _mapClientRegistry.value(authToken);
