@@ -54,6 +54,8 @@ public:
     QHash<QString, QString> _activeARCSessions;  // pubId --> sessId
     QHash<QString, QString> _activeSSRCSessions; // pubId --> sessId
 
+    QString generateSessionId();
+
 private:
     MapSessions(QObject *parent = 0);
     ~MapSessions();
@@ -77,6 +79,8 @@ private:
     QXmlSchema _ifmapMeta20;
     QXmlSchemaValidator _ifmapMeta11Validator;
     QXmlSchemaValidator _ifmapMeta20Validator;
+
+    unsigned int _pubIdIndex;
 };
 
 #endif // MAPSESSIONS_H

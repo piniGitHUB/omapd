@@ -84,6 +84,10 @@ private:
     void processSearch(QVariant clientRequest);
     void processPurgePublisher(QVariant clientRequest);
     void processPoll(QVariant clientRequest);
+
+    void checkPublishAtomicity(PublishRequest &pubReq, MapRequest::RequestError &requestError);
+    QPair< QList<Meta>, QList<Meta> > applyDeleteFilterToMeta(QList<Meta> existingMetaList, PublishOperation pubOper, MapRequest::RequestError &requestError, bool *metadataDeleted = 0);
+
     bool terminateSession(QString sessionId, MapRequest::RequestVersion requestVersion);
     bool terminateARCSession(QString sessionId, MapRequest::RequestVersion requestVersion);
 

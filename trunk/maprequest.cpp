@@ -230,6 +230,7 @@ PublishOperation::PublishOperation()
     _publishType = PublishOperation::None;
     _clientSetDeleteFilter = false;
     _clientSetLifetime = false;
+    _operationNumber = 0;
 }
 
 PublishOperation::~PublishOperation()

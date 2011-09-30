@@ -436,10 +436,6 @@ void ClientHandler::processNewSession(QVariant clientRequest)
     }
 
     if (!requestError) {
-        QString sid;
-        sid.setNum(qrand());
-        QByteArray sidhash = QCryptographicHash::hash(sid.toAscii(), QCryptographicHash::Md5);
-
         QString sessId;
         // Check if we have an SSRC session already for this publisherId
         if (_mapSessions->_activeSSRCSessions.contains(publisherId)) {
@@ -452,7 +448,7 @@ void ClientHandler::processNewSession(QVariant clientRequest)
             sessId = _mapSessions->_activeSSRCSessions.value(publisherId);
             terminateSession(sessId, nsReq.requestVersion());
         }
-        sessId = QString(sidhash.toHex());
+        sessId = _mapSessions->generateSessionId();
         _mapSessions->_activeSSRCSessions.insert(publisherId, sessId);
         nsResp.setNewSessionResponse(sessId, publisherId, nsReq.clientSetMaxPollResultSize(), nsReq.maxPollResultSize());
     } else {
@@ -546,6 +542,143 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
     sendMapResponse(asResp);
 }
 
+// FIXME: This method attempts to deal with publish atomicity in a rather backhanded
+// fashion.  I believe the map graph should be used rather than flattening
+// the operations as is done in this method.  However, using the map graph would
+// require a significant re-write of some fairly complex code for collecting
+// intermediate subscription results.  Still it should be done at some point.
+// Also to consider is atomicity for publishing multiple multiValue metadata
+// items within a single publish request.
+void ClientHandler::checkPublishAtomicity(PublishRequest &pubReq, MapRequest::RequestError &requestError)
+{
+    QList<PublishOperation> publishOperations = pubReq.publishOperations();
+    QMutableListIterator<PublishOperation> pubOperIt(publishOperations);
+    while (pubOperIt.hasNext()) {
+        PublishOperation pubOperCheck = pubOperIt.next();
+
+        // Only check operations that come later in the request against the current one
+        for (int i=pubOperCheck._operationNumber; i<publishOperations.size(); i++) {
+            PublishOperation pubOperTest = publishOperations[i];
+
+            // Only examine publish operations on the same link or identifier
+            // and these aren't the same operations within the publish request
+            if (pubOperCheck._link == pubOperTest._link) {
+
+                /* Check these cases:
+                   1. If both publish operations are update
+                      --> then remove duplicate metadata from pubOperCheck and if
+                          pubOperCheck has no metadata left, remove it from request
+                   2. If pubOperCheck is update and pubOperTest is delete
+                      --> then apply delete filter to pubOperCheck's metadata
+                   3. If both publish operations are delete
+                      --> then if the delete filter is identical, remove pubOperCheck
+                          from publish request
+                   4. If both publish operations are notify
+                      --> then noop, because notify doesn't have the same atomicity rules
+                   5. If pubOperCheck is delete and pubOperTest is update
+                      --> then noop, because this will be caught when the situation is reversed
+                */
+                if (pubOperCheck._publishType == PublishOperation::Update &&
+                    pubOperTest._publishType == PublishOperation::Update) {
+                    // 1.
+                    QList<Meta> existingMetaList = pubOperCheck._metadata;
+                    QList<Meta> metaTestList = pubOperTest._metadata;
+                    QList<Meta> keepMetaList;
+
+                    // TODO: Does this apply to multi-value metadata?
+                    for (int i=0; i<existingMetaList.size(); i++) {
+                        for (int j=0; j<metaTestList.size(); j++) {
+                            if (existingMetaList[i] == metaTestList[j]) {
+                                // dont keep
+                            } else {
+                                keepMetaList << existingMetaList[i];
+                            }
+                        }
+                    }
+                    if (keepMetaList.size() == 0) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "Publish atomicity eliminates update operation with duplicate metadata on"
+                                    << (pubOperCheck._isLink ? "link:" : "id:")
+                                    << pubOperCheck._link;
+                        }
+                        pubOperIt.remove();
+                    } else if (keepMetaList.size() != existingMetaList.size()) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "Publish atomicity reduces duplicate metadata in update operation on"
+                                    << (pubOperCheck._isLink ? "link:" : "id:")
+                                    << pubOperCheck._link
+                                    << "to number of metadata elements:" << keepMetaList.size();
+                        }
+                        pubOperCheck._metadata = keepMetaList;
+                        pubOperIt.setValue(pubOperCheck);
+                    }
+
+                } else if (pubOperCheck._publishType == PublishOperation::Update &&
+                           pubOperTest._publishType == PublishOperation::Delete) {
+
+                    // 2.
+                    QList<Meta> existingMetaList = pubOperCheck._metadata;
+                    bool haveFilter = pubOperTest._clientSetDeleteFilter;
+
+                    if (!existingMetaList.isEmpty() && haveFilter) {
+                        bool metadataDeleted = false;
+                        QPair< QList<Meta>, QList<Meta> > results = applyDeleteFilterToMeta(existingMetaList, pubOperTest, requestError, &metadataDeleted);
+                        if (metadataDeleted) {
+
+                            QList<Meta> keepMetaList = results.first;
+                            if (keepMetaList.isEmpty()) {
+                                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Publish atomicity eliminates update operation on"
+                                            << (pubOperCheck._isLink ? "link:" : "id:")
+                                            << pubOperCheck._link
+                                            << "with delete filter:" << pubOperTest._deleteFilter;
+                                }
+                                pubOperIt.remove();
+                            } else {
+                                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Publish atomicity reduces update operation on"
+                                            << (pubOperCheck._isLink ? "link:" : "id:")
+                                            << pubOperCheck._link
+                                            << "with delete filter:" << pubOperTest._deleteFilter
+                                            << "to number of metadata elements:" << keepMetaList.size();
+                                }
+                                pubOperCheck._metadata = keepMetaList;
+                                pubOperIt.setValue(pubOperCheck);
+                            }
+                        }
+
+                    } else if (!existingMetaList.isEmpty()) {
+                        // No delete filter provided, so we delete all metadata, thus eliminating pubOperCheck
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "Publish atomicity eliminates update operation on"
+                                    << (pubOperCheck._isLink ? "link:" : "id:")
+                                    << pubOperCheck._link
+                                    << "with no filter:";
+                        }
+                        pubOperIt.remove();
+                    }
+
+
+                } else if (pubOperCheck._publishType == PublishOperation::Delete &&
+                           pubOperTest._publishType == PublishOperation::Delete) {
+                    // 3.
+                    if (pubOperCheck._deleteFilter.compare(pubOperTest._deleteFilter, Qt::CaseSensitive) == 0) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "Publish atomicity eliminates duplicate delete operation on"
+                                    << (pubOperCheck._isLink ? "link:" : "id:")
+                                    << pubOperCheck._link
+                                    << (pubOperCheck._clientSetDeleteFilter ? "with filter:" : "with no filter")
+                                    << (pubOperCheck._clientSetDeleteFilter ? pubOperCheck._deleteFilter : "");
+                        }
+                        pubOperIt.remove();
+                    }
+                }
+            }
+        }
+    }
+    pubReq.setPublishOperations(publishOperations);
+}
+
 void ClientHandler::processPublish(QVariant clientRequest)
 {
     PublishRequest pubReq = clientRequest.value<PublishRequest>();
@@ -553,6 +686,8 @@ void ClientHandler::processPublish(QVariant clientRequest)
     MapRequest::RequestError requestError = pubReq.requestError();
     QString sessId = pubReq.sessionId();
     QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
+
+    checkPublishAtomicity(pubReq, requestError);
 
     bool mapGraphChanged = false;
 
@@ -594,33 +729,10 @@ void ClientHandler::processPublish(QVariant clientRequest)
             bool haveFilter = pubOper._clientSetDeleteFilter;
 
             if (!existingMetaList.isEmpty() && haveFilter) {
-                QString filter = Subscription::translateFilter(pubOper._deleteFilter);
 
-                QListIterator<Meta> metaListIt(existingMetaList);
-                while (metaListIt.hasNext()) {
-                    Meta aMeta = metaListIt.next();
-                    /* First need to know if the delete filter will match anything,
-                       because if it does match, then we'll need to notify any
-                       active subscribers.
-                    */
-                    QString delMeta = filteredMetadata(aMeta, filter, pubOper._filterNamespaceDefinitions, requestError);
-                    if (! requestError) {
-                        if (delMeta.isEmpty()) {
-                            // Keep this metadata (delete filter did not match)
-                            keepMetaList.append(aMeta);
-                            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                                qDebug() << __PRETTY_FUNCTION__ << ":" << "Found Meta to keep:" << aMeta.elementName();
-                            }
-                        } else {
-                            deleteMetaList.append(aMeta);
-                            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                                qDebug() << __PRETTY_FUNCTION__ << ":" << "Meta will be deleted:" << aMeta.elementName();
-                            }
-                            // Delete matched something, so this may affect subscriptions
-                            metadataDeleted = true;
-                        }
-                    }
-                }
+                QPair< QList<Meta>, QList<Meta> > results = applyDeleteFilterToMeta(existingMetaList, pubOper, requestError, &metadataDeleted);
+                keepMetaList = results.first;
+                deleteMetaList = results.second;
 
                 if (metadataDeleted) {
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -670,6 +782,47 @@ void ClientHandler::processPublish(QVariant clientRequest)
         pubResp.setPublishResponse(sessId);
     }
     sendMapResponse(pubResp);
+}
+
+QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(QList<Meta> existingMetaList, PublishOperation pubOper, MapRequest::RequestError &requestError, bool *metadataDeleted)
+{
+    QList<Meta> keepMetaList;
+    QList<Meta> deleteMetaList;
+
+    QPair< QList<Meta>, QList<Meta> > result;
+
+    QString filter = Subscription::translateFilter(pubOper._deleteFilter);
+
+    QListIterator<Meta> metaListIt(existingMetaList);
+    while (metaListIt.hasNext()) {
+        Meta aMeta = metaListIt.next();
+        /* First need to know if the delete filter will match anything,
+           because if it does match, then we'll need to notify any
+           active subscribers.
+        */
+        QString delMeta = filteredMetadata(aMeta, filter, pubOper._filterNamespaceDefinitions, requestError);
+        if (! requestError) {
+            if (delMeta.isEmpty()) {
+                // Keep this metadata (delete filter did not match)
+                keepMetaList.append(aMeta);
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Found Meta to keep:" << aMeta.elementName();
+                }
+            } else {
+                deleteMetaList.append(aMeta);
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Meta will be deleted:" << aMeta.elementName();
+                }
+                // Delete matched something, so this may affect subscriptions
+                *metadataDeleted = true;
+            }
+        }
+    }
+
+    result.first = keepMetaList;
+    result.second = deleteMetaList;
+    return result;
+
 }
 
 void ClientHandler::processSubscribe(QVariant clientRequest)
