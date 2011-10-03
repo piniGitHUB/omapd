@@ -1008,7 +1008,24 @@ void ClientHandler::processPoll(QVariant clientRequest)
     QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
-        if (_mapSessions->haveActiveARCForClient(_authToken) &&
+        if (_mapSessions->ssrcClientForClient(_authToken) == this) {
+            if (_omapdConfig->valueFor("allow_unauthenticated_clients").toBool()) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "NON-STANDARD: Allowing ARC on SSRC for pubId:" << publisherId;
+            } else {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: Received poll request on SSRC for pubId:" << publisherId;
+                // FIXME: Need to find out what is the expected error response here.
+                //        Seems it could either be to send an endSessionResponse _or_
+                //        to send an invalid session ID error.
+                bool sendEndSessionResponse = false;
+                if (sendEndSessionResponse) {
+                    // Need to rack the TCP socket this publisher's poll is on, for terminate to follow
+                    _mapSessions->setActivePollForClient(_authToken, this);
+                } else {
+                    requestError = MapRequest::IfmapInvalidSessionID;
+                }
+                terminateSession(sessId, pollReq.requestVersion());
+            }
+        } else if (_mapSessions->haveActiveARCForClient(_authToken) &&
             (pollReq.requestVersion() == MapRequest::IFMAPv11)) {
             // Track the TCP socket this publisher's poll is on
             _mapSessions->setActivePollForClient(_authToken, this);

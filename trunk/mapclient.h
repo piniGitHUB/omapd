@@ -44,6 +44,7 @@ public:
     QList<Subscription> subscriptionList() const { return _subscriptionList; }
 
     void setSessId(QString sessId) { _sessId = sessId; }
+    void clearSessId() { _sessId = QString(); }
     void setPubId(QString pubId) { _pubId = pubId; }
     void setAuthToken(QString authToken) { _authToken = authToken; }
     void setAuthType(MapRequest::AuthenticationType authType) { _authType = authType; }
