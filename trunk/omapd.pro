@@ -16,7 +16,8 @@ SOURCES += main.cpp \
     mapresponse.cpp \
     subscription.cpp \
     clienthandler.cpp \
-    clientparser.cpp
+    clientparser.cpp \
+    mapclient.cpp
 HEADERS += server.h \
     identifier.h \
     metadata.h \
@@ -28,4 +29,5 @@ HEADERS += server.h \
     mapgraphinterface.h \
     server.h \
     clienthandler.h \
-    clientparser.h
+    clientparser.h \
+    mapclient.h

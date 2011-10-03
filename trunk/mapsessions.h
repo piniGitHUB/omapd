@@ -34,25 +34,43 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 typedef QPair<QString, QString> VSM;
 
+class MapClient;
+
 class MapSessions : public QObject
 {
     Q_OBJECT
 public:
     static MapSessions* getInstance();
 
-    void removeClientConnections(ClientHandler *clientSocket);
-    QString registerClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString clientKey);
-    void checkSessionIdIsActive(MapRequest &clientRequest, QString authToken);
+    QString registerMapClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString authToken);
+    QString sessIdForClient(QString authToken);
+    QString addActiveSSRCForClient(QString authToken);
+    void checkSessionIdInRequest(MapRequest &clientRequest, QString authToken);
+
+    bool haveActiveSSRCForClient(QString authToken);
+    void removeActiveSSRCForClient(QString authToken);
+
+    bool haveActivePollForClient(QString authToken);
+    void setActivePollForClient(QString authToken, ClientHandler *pollClientHandler);
+    void removeActivePollForClient(QString authToken);
+    ClientHandler* pollClientForClient(QString authToken);
+
+    void setActiveARCForClient(QString authToken);
+    bool haveActiveARCForClient(QString authToken);
+    void removeActiveARCForClient(QString authToken);
+
+    void removeClientConnections(ClientHandler *clientHandler);
     bool validateSessionId(QString sessId, QString authToken);
 
     QString pubIdForAuthToken(QString authToken);
+    QString pubIdForSessId(QString sessId);
+
+    QList<Subscription> subscriptionListForClient(QString authToken);
+    QList<Subscription> removeSubscriptionListForClient(QString authToken);
+    void setSubscriptionListForClient(QString authToken, QList<Subscription> subList);
+    QHash<QString, QList<Subscription> > subscriptionLists(); // authToken --> subscriptionList for authToken
 
     bool validateMetadata(Meta aMeta);
-
-    QHash<QString, ClientHandler*> _activePolls;  // pubId --> QTcpSocket
-    QHash<QString, QList<Subscription> > _subscriptionLists;  // pubId --> all subscriptions for pubId
-    QHash<QString, QString> _activeARCSessions;  // pubId --> sessId
-    QHash<QString, QString> _activeSSRCSessions; // pubId --> sessId
 
     QString generateSessionId();
 
@@ -64,10 +82,7 @@ private:
 
     OmapdConfig *_omapdConfig;
 
-
-    // Registry for MAP Clients
-    QHash<QString, const ClientHandler*> _mapClientConnections;  // authToken --> QTcpSocket
-    QHash<QString, QString> _mapClientRegistry;  // authToken --> pubId
+    QHash<QString, MapClient> _mapClients; // authToken --> MapClient
 
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;
@@ -81,6 +96,9 @@ private:
     QXmlSchemaValidator _ifmapMeta20Validator;
 
     unsigned int _pubIdIndex;
+
+    QHash<QString, ClientHandler*> _ssrcConnections; // authToken --> ClientHandler
+    QHash<QString, ClientHandler*> _arcConnections; // authToken --> ClientHandler
 };
 
 #endif // MAPSESSIONS_H

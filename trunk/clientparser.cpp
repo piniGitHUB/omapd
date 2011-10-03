@@ -153,14 +153,6 @@ void ClientParser::setSessionId(MapRequest &request)
         _sessionId = _xml.attributes().value("session-id").toString();
         _clientSetSessionId = true;
     }
-
-    // FIXME: This should move out of here
-    ClientHandler *client = (ClientHandler*)this->parent();
-    MapSessions::getInstance()->checkSessionIdIsActive(request, client->peerAddress().toString());
-    if (request.requestError()) {
-        _requestError = request.requestError();
-        _xml.raiseError("Invalid Session Id");
-    }
 }
 
 void ClientParser::parseDocument()
@@ -277,13 +269,6 @@ void ClientParser::parseAttachSession()
 
         _sessionId = sessionId;
         _clientSetSessionId = true;
-    }
-
-    // FIXME: This should move out of here
-    ClientHandler *client = (ClientHandler*)this->parent();
-    MapSessions::getInstance()->checkSessionIdIsActive(asReq, client->peerAddress().toString());
-    if (asReq.requestError()) {
-        _requestError = asReq.requestError();
     }
 
     _mapRequest.setValue(asReq);
@@ -403,8 +388,8 @@ void ClientParser::parsePublish()
     pubReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::Publish;
     setSessionId(pubReq);
-    // FIXME: should be getting publisher id from authtoken, not session id
-    pubReq.setPublisherId(MapSessions::getInstance()->_activeSSRCSessions.key(pubReq.sessionId()));
+    QString authToken = ((ClientHandler*)this->parent())->authToken();
+    pubReq.setPublisherId(MapSessions::getInstance()->pubIdForAuthToken(authToken));
 
     while (_xml.readNextStartElement() && !pubReq.requestError()) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "nextStartElement:" << _xml.name();

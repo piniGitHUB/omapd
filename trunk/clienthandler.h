@@ -38,6 +38,7 @@ public:
     explicit ClientHandler(MapGraphInterface *mapGraph, QObject *parent = 0);
     ~ClientHandler();
     void sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion);
+    QString authToken() { return _authToken; }
 
 signals:
     void needToSendPollResponse(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
