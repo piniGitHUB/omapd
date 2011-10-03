@@ -198,7 +198,7 @@ void ClientHandler::registerCert()
         _authType = MapRequest::AuthCert;
         _authToken = authToken.join("");
 
-        _mapSessions->registerClient(this, _authType, _authToken);
+        _mapSessions->registerMapClient(this, _authType, _authToken);
     }
 }
 
@@ -234,9 +234,6 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Length value:" << contentLength;
             }
 
-            // Keep track of number of bytes expected on this socket
-            // FIXME: Do I need this commented code?
-            //_headersReceived.insert(socket, contentLength);
         } else {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading Content-Length header value";
@@ -429,27 +426,25 @@ void ClientHandler::processNewSession(QVariant clientRequest)
     nsReq.setAuthType(_authType);
     nsReq.setAuthValue(_authToken);
 
-    QString publisherId = _mapSessions->registerClient(this, _authType, _authToken);
+    QString publisherId = _mapSessions->registerMapClient(this, _authType, _authToken);
     if (publisherId.isEmpty()) {
-        //FIXME: This should be an error!
         requestError = MapRequest::IfmapAccessDenied;
     }
 
     if (!requestError) {
         QString sessId;
         // Check if we have an SSRC session already for this publisherId
-        if (_mapSessions->_activeSSRCSessions.contains(publisherId)) {
+        if (_mapSessions->haveActiveSSRCForClient(_authToken)) {
             /* Per IFMAP20: 4.3: If a MAP Client sends more than one SOAP request
                containing a newSession element in the SOAP body, the MAP Server
                MUST respond by ending the previous session and starting a new
                session. The new session MAY use the same session-id or allocate a
                new one.
             */
-            sessId = _mapSessions->_activeSSRCSessions.value(publisherId);
+            sessId = _mapSessions->sessIdForClient(_authToken);
             terminateSession(sessId, nsReq.requestVersion());
         }
-        sessId = _mapSessions->generateSessionId();
-        _mapSessions->_activeSSRCSessions.insert(publisherId, sessId);
+        sessId = _mapSessions->addActiveSSRCForClient(_authToken);
         nsResp.setNewSessionResponse(sessId, publisherId, nsReq.clientSetMaxPollResultSize(), nsReq.maxPollResultSize());
     } else {
         nsResp.setErrorResponse(requestError, "");
@@ -531,7 +526,7 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
             }
-            _mapSessions->_activeARCSessions.insert(publisherId, sessId);
+            _mapSessions->setActiveARCForClient(_authToken);
 
             asResp.setAttachSessionResponse(sessId, publisherId);
         }
@@ -588,8 +583,16 @@ void ClientHandler::checkPublishAtomicity(PublishRequest &pubReq, MapRequest::Re
                     // TODO: Does this apply to multi-value metadata?
                     for (int i=0; i<existingMetaList.size(); i++) {
                         for (int j=0; j<metaTestList.size(); j++) {
+                            // Consider adding here: && existingMetaList[i].cardinality() == Meta::SingleValue
                             if (existingMetaList[i] == metaTestList[j]) {
                                 // dont keep
+                                if (existingMetaList[i].cardinality() == Meta::MultiValue) {
+                                    qDebug() << __PRETTY_FUNCTION__ << ":" << "ALERT: Publish atomicity eliminates multiValue metadata on"
+                                            << (pubOperCheck._isLink ? "link:" : "id:")
+                                            << pubOperCheck._link
+                                            << "of type:" << existingMetaList[i].elementName()
+                                            << "in namespace:" << existingMetaList[i].elementNS();
+                                }
                             } else {
                                 keepMetaList << existingMetaList[i];
                             }
@@ -855,11 +858,11 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << sub._linkList.size();
             }
 
-            QList<Subscription> subList = _mapSessions->_subscriptionLists.value(publisherId);
+            QList<Subscription> subList = _mapSessions->subscriptionListForClient(_authToken);
             if (subList.isEmpty()) {
                 subList << sub;
             } else {
-                // Replace any existing subscriptions with the same name
+                // Replace any existing subscriptions with the same name with removeOne
                 subList.removeOne(sub);
                 subList << sub;
             }
@@ -867,12 +870,12 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << subList.size();
             }
 
-            _mapSessions->_subscriptionLists.insert(publisherId, subList);
+            _mapSessions->setSubscriptionListForClient(_authToken, subList);
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding SearchGraph to _subscriptionLists with name:" << sub._name;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding SearchGraph to subscription lists with name:" << sub._name;
             }
 
-            if (_mapSessions->_activePolls.contains(publisherId)) {
+            if (_mapSessions->haveActivePollForClient(_authToken)) {
                 // signal to check subscriptions for polls
                 sendResultsOnActivePolls();
             }
@@ -881,8 +884,9 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
             Subscription delSub(subReq.requestVersion());
             delSub._name = subOper.name();
 
-            QList<Subscription> subList = _mapSessions->_subscriptionLists.take(publisherId);
+            QList<Subscription> subList = _mapSessions->removeSubscriptionListForClient(_authToken);
             if (! subList.isEmpty()) {
+                // remove delSub from list with same name
                 subList.removeOne(delSub);
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscription from subList with name:" << delSub._name;
@@ -892,7 +896,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
             }
 
             if (! subList.isEmpty()) {
-                _mapSessions->_subscriptionLists.insert(publisherId, subList);
+                _mapSessions->setSubscriptionListForClient(_authToken, subList);
             }
 
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -1004,12 +1008,12 @@ void ClientHandler::processPoll(QVariant clientRequest)
     QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
-        if (_mapSessions->_activeARCSessions.contains(publisherId) &&
+        if (_mapSessions->haveActiveARCForClient(_authToken) &&
             (pollReq.requestVersion() == MapRequest::IFMAPv11)) {
             // Track the TCP socket this publisher's poll is on
-            _mapSessions->_activePolls.insert(publisherId, this);
+            _mapSessions->setActivePollForClient(_authToken, this);
 
-            if (_mapSessions->_subscriptionLists.value(publisherId).isEmpty()) {
+            if (_mapSessions->subscriptionListForClient(_authToken).isEmpty()) {
                 // No immediate client response
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions for publisherId:" << publisherId;
@@ -1019,7 +1023,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
             }
         } else if (pollReq.requestVersion() == MapRequest::IFMAPv20) {
             // Terminate any existing ARC sessions
-            if (_mapSessions->_activePolls.contains(publisherId)) {
+            if (_mapSessions->haveActivePollForClient(_authToken)) {
                 // If we had an existing ARC session, end the session
                 terminateSession(sessId, pollReq.requestVersion());
                 requestError = MapRequest::IfmapInvalidSessionID;
@@ -1028,11 +1032,10 @@ void ClientHandler::processPoll(QVariant clientRequest)
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
                 }
-                _mapSessions->_activeARCSessions.insert(publisherId, sessId);
                 // Track the TCP socket this publisher's poll is on
-                _mapSessions->_activePolls.insert(publisherId, this);
+                _mapSessions->setActivePollForClient(_authToken, this);
 
-                if (_mapSessions->_subscriptionLists.value(publisherId).isEmpty()) {
+                if (_mapSessions->subscriptionListForClient(_authToken).isEmpty()) {
                     // No immediate client response
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions for publisherId:" << publisherId;
@@ -1054,9 +1057,10 @@ void ClientHandler::processPoll(QVariant clientRequest)
        server.
     */
     if (requestError) {
-        if (_mapSessions->_subscriptionLists.contains(publisherId)) {
-            _mapSessions->_subscriptionLists.remove(publisherId);
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << publisherId;
+        if (_mapSessions->removeSubscriptionListForClient(_authToken).size() > 0) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << publisherId;
+            }
         }
 
         MapResponse pollErrorResponse(pollReq.requestVersion());
@@ -1067,25 +1071,22 @@ void ClientHandler::processPoll(QVariant clientRequest)
 
 bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersion requestVersion)
 {
-    bool hadExistingSession = false;
+    bool hadExistingSSRCSession = _mapSessions->haveActiveSSRCForClient(_authToken);
+    if (hadExistingSSRCSession) {
 
-    // Remove sessionId from list of active SSRC Sessions
-    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
+        _mapSessions->removeActiveSSRCForClient(_authToken);
 
-    if (! publisherId.isEmpty()) {
-        hadExistingSession = true;
-
-        _mapSessions->_activeSSRCSessions.remove(sessionId);
+        QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
         /* IFMAP20: 3.7.4:
            When a MAP Client initially connects to a MAP Server, the MAP Server MUST
            delete any previous subscriptions corresponding to the MAP Client. In
            other words, subscription lists are only valid for a single MAP Client session.
         */
-        if (_mapSessions->_subscriptionLists.contains(publisherId)) {
-            _mapSessions->_subscriptionLists.remove(publisherId);
+        if (_mapSessions->removeSubscriptionListForClient(_authToken).size() > 0) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << publisherId;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:"
+                        << publisherId;
             }
         }
 
@@ -1117,27 +1118,21 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
         }
     }
 
-    return hadExistingSession;
+    return hadExistingSSRCSession;
 }
 
 bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVersion requestVersion)
 {
-    bool hadExistingARCSession = false;
+    bool hadExistingARCSession = _mapSessions->haveActiveARCForClient(_authToken);
 
-    QString publisherId = _mapSessions->_activeARCSessions.key(sessionId);
-
-    if (! publisherId.isEmpty()) {
-        hadExistingARCSession = true;
-
-        // End active ARC Session
-        _mapSessions->_activeARCSessions.remove(publisherId);
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Ending active ARC Session for publisherId:" << publisherId;
+    if (hadExistingARCSession) {
+        QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
         // Terminate polls
-        if (_mapSessions->_activePolls.contains(publisherId)) {
-            ClientHandler *client = _mapSessions->_activePolls.value(publisherId);
+        if (_mapSessions->haveActivePollForClient(_authToken)) {
+            ClientHandler *client = _mapSessions->pollClientForClient(_authToken);
             if (requestVersion == MapRequest::IFMAPv20) {
-                if (client->isValid()) {
+                if (client && client->isValid()) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending endSessionResult to publisherId:"
                              << publisherId << "on client socket" << client;
                     MapResponse pollEndSessionResponse(MapRequest::IFMAPv20); // Has to be IF-MAP 2.0!
@@ -1146,9 +1141,14 @@ bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVe
                     emit needToSendPollResponse(client, pollEndSessionResponse.responseData(), pollEndSessionResponse.requestVersion());
                 }
             }
-            _mapSessions->_activePolls.remove(publisherId);
+            _mapSessions->removeActivePollForClient(_authToken);
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated active poll for publisherId:" << publisherId;
         }
+
+        // End active ARC Session
+        _mapSessions->removeActiveARCForClient(_authToken);
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Ending active ARC Session for publisherId:"
+                << publisherId;
     }
 
     return hadExistingARCSession;
@@ -1494,10 +1494,11 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
     //        new link could link two separate sub-graphs together or a deleted link
     //        could prune a graph into two separate sub-graphs.
 
-    QMutableHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->_subscriptionLists);
+    QHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->subscriptionLists());
     while (allSubsIt.hasNext()) {
         allSubsIt.next();
-        QString pubId = allSubsIt.key();
+        QString authToken = allSubsIt.key();
+        QString pubId = _mapSessions->pubIdForAuthToken(authToken);
         QList<Subscription> subList = allSubsIt.value();
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
@@ -1613,7 +1614,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
         }
 
         if (publisherHasDirtySub) {
-            allSubsIt.setValue(subList);
+            _mapSessions->setSubscriptionListForClient(authToken, subList);
         }
     }
 }
@@ -1628,10 +1629,11 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
     // 2. metadata is publish-notify on a link in the SearchGraph
     // 3. metadata is publish-notify on a link with one identifier in the SearchGraph
 
-    QMutableHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->_subscriptionLists);
+    QHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->subscriptionLists());
     while (allSubsIt.hasNext()) {
         allSubsIt.next();
-        QString pubId = allSubsIt.key();
+        QString authToken = allSubsIt.key();
+        QString pubId = _mapSessions->pubIdForAuthToken(authToken);
         QList<Subscription> subList = allSubsIt.value();
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
@@ -1690,7 +1692,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
         }
 
         if (publisherHasDirtySub) {
-            allSubsIt.setValue(subList);
+            _mapSessions->setSubscriptionListForClient(authToken, subList);
         }
     }
 }
@@ -1700,12 +1702,13 @@ void ClientHandler::sendResultsOnActivePolls()
     // TODO: Often this slot gets signaled from a method that really only needs to
     // send results on active polls for a specific publisherId.  Could optimize
     // this slot in those cases.
-    QMutableHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->_subscriptionLists);
+    QHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->subscriptionLists());
     while (allSubsIt.hasNext()) {
         allSubsIt.next();
-        QString pubId = allSubsIt.key();
+        QString authToken = allSubsIt.key();
         // Only check subscriptions for publisher if client has an active poll
-        if (_mapSessions->_activePolls.contains(pubId)) {
+        if (_mapSessions->haveActivePollForClient(authToken)) {
+            QString pubId = _mapSessions->pubIdForAuthToken(authToken);
             QList<Subscription> subList = allSubsIt.value();
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
@@ -1731,7 +1734,7 @@ void ClientHandler::sendResultsOnActivePolls()
                 if (sub._subscriptionError) {
                     if (!pollResponse) {
                         pollResponse = new MapResponse(pollResponseVersion);
-                        pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                        pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                     }
                     pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
 
@@ -1751,7 +1754,7 @@ void ClientHandler::sendResultsOnActivePolls()
 
                         if (!pollResponse) {
                             pollResponse = new MapResponse(pollResponseVersion);
-                            pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                            pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                         }
                         pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
                         subIt.setValue(sub);
@@ -1762,7 +1765,7 @@ void ClientHandler::sendResultsOnActivePolls()
 
                         if (!pollResponse) {
                             pollResponse = new MapResponse(pollResponseVersion);
-                            pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                            pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                         }
                         pollResponse->addPollResults(sub._searchResults, sub._name);
                         sub.clearSearchResults();
@@ -1778,14 +1781,14 @@ void ClientHandler::sendResultsOnActivePolls()
 
                         if (!pollResponse) {
                             pollResponse = new MapResponse(pollResponseVersion);
-                            pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                            pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                         }
                         pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
                         subIt.setValue(sub);
                     } else {
                         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "--No results for subscription at this time";
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----_activePolls.contains(pubId):" << _mapSessions->_activePolls.contains(pubId);
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----haveActivePollForClient(authToken):" << _mapSessions->haveActivePollForClient(authToken);
                         }
                     }
                 } else if (sub._deltaResults.count() > 0) {
@@ -1796,7 +1799,7 @@ void ClientHandler::sendResultsOnActivePolls()
 
                     if (!pollResponse) {
                         pollResponse = new MapResponse(pollResponseVersion);
-                        pollResponse->startPollResponse(_mapSessions->_activeARCSessions.value(pubId));
+                        pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                     }
                     pollResponse->addPollResults(sub._deltaResults, sub._name);
 
@@ -1809,13 +1812,11 @@ void ClientHandler::sendResultsOnActivePolls()
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending pollResults";
                 pollResponse->endPollResponse();
-                // FIXME: Need to figure out how to send this to a different ClientHandler
-                emit needToSendPollResponse(_mapSessions->_activePolls.value(pubId), pollResponse->responseData(), pollResponse->requestVersion());
-                //sendMapResponse(_mapSessions->_activePolls.value(pubId), *pollResponse);
+                emit needToSendPollResponse(_mapSessions->pollClientForClient(authToken), pollResponse->responseData(), pollResponse->requestVersion());
                 delete pollResponse;
                 // Update subscription list for this publisher
-                allSubsIt.setValue(subList);
-                _mapSessions->_activePolls.remove(pubId);
+                _mapSessions->setSubscriptionListForClient(authToken, subList);
+                _mapSessions->removeActivePollForClient(authToken);
             }
 
             if (publisherHasError) {
@@ -1826,10 +1827,10 @@ void ClientHandler::sendResultsOnActivePolls()
                 */
                 if (pollResponseVersion == MapRequest::IFMAPv20) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << pubId;
-                    allSubsIt.remove();
+                    _mapSessions->removeSubscriptionListForClient(authToken);
                 }
 
-                _mapSessions->_activePolls.remove(pubId);
+                _mapSessions->removeActivePollForClient(authToken);
             }
         }
     }
