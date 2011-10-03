@@ -312,7 +312,21 @@ void ClientHandler::handleParseComplete()
         if (_parser->requestType() != MapRequest::NewSession) {
             // Validate session-id belongs to this client
             if (! _mapSessions->validateSessionId(_parser->sessionId(), _authToken)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Invalid session-id from ClientHandler:" << this;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Invalid session-id from pubId:" << _mapSessions->pubIdForAuthToken(_authToken);;
+                MapResponse errorResp(_parser->requestVersion());
+                errorResp.setErrorResponse(MapRequest::IfmapInvalidSessionID, _parser->sessionId());
+                sendMapResponse(errorResp);
+                sentError = true;
+            }
+        }
+
+        if (_parser->requestType() != MapRequest::NewSession &&
+            _parser->requestType() != MapRequest::Poll &&
+            !(_parser->requestVersion() == MapRequest::IFMAPv11 && _parser->requestType() == MapRequest::AttachSession) &&
+            !sentError) {
+            if (_mapSessions->haveActiveARCForClient(_authToken) &&
+                _mapSessions->ssrcClientForClient(_authToken) != this) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Received SSRC request on different connection for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
                 MapResponse errorResp(_parser->requestVersion());
                 errorResp.setErrorResponse(MapRequest::IfmapInvalidSessionID, _parser->sessionId());
                 sendMapResponse(errorResp);
@@ -515,8 +529,15 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
     QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
-        // Terminate any existing ARC sessions
-        if (terminateARCSession(sessId, asReq.requestVersion())) {
+        if (_mapSessions->ssrcClientForClient(_authToken) == this) {
+            if (_omapdConfig->valueFor("allow_unauthenticated_clients").toBool()) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "NON-STANDARD: Allowing ARC on SSRC for pubId:" << publisherId;
+            } else {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: Received poll request on SSRC for pubId:" << publisherId;
+                requestError = MapRequest::IfmapInvalidSessionID;
+                terminateSession(sessId, asReq.requestVersion());
+            }
+        } else if (terminateARCSession(sessId, asReq.requestVersion())) {
             // If we had an existing ARC session, end the session
             terminateSession(sessId, asReq.requestVersion());
             requestError = MapRequest::IfmapInvalidSessionID;
@@ -530,7 +551,9 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
 
             asResp.setAttachSessionResponse(sessId, publisherId);
         }
-    } else {
+    }
+
+    if (requestError) {
         asResp.setErrorResponse(requestError, sessId);
     }
 
