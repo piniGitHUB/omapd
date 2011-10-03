@@ -154,6 +154,7 @@ void MapSessions::removeActiveSSRCForClient(QString authToken)
         _mapClients.value(authToken).hasActiveSSRC()) {
         MapClient client = _mapClients.take(authToken);
         client.setHasActiveSSRC(false);
+        client.clearSessId();
         _mapClients.insert(authToken, client);
     }
 }
@@ -239,6 +240,7 @@ bool MapSessions::validateSessionId(QString sessId, QString authToken)
 {
     bool rc = false;
     if (_mapClients.contains(authToken) &&
+        _mapClients.value(authToken).hasActiveSSRC() &&
         _mapClients.value(authToken).sessId().compare(sessId, Qt::CaseSensitive) == 0) {
         rc = true;
     }
@@ -294,6 +296,16 @@ ClientHandler* MapSessions::pollClientForClient(QString authToken)
         _mapClients.value(authToken).hasActiveARC() &&
         _mapClients.value(authToken).hasActivePoll()) {
         clientHandler = _arcConnections.value(authToken, 0);
+    }
+    return clientHandler;
+}
+
+ClientHandler* MapSessions::ssrcClientForClient(QString authToken)
+{
+    ClientHandler* clientHandler = 0;
+    if (_mapClients.contains(authToken) &&
+        _mapClients.value(authToken).hasActiveSSRC()) {
+        clientHandler = _ssrcConnections.value(authToken, 0);
     }
     return clientHandler;
 }
