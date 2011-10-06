@@ -81,9 +81,9 @@ void MapSessions::removeClientConnections(ClientHandler *clientHandler)
         _ssrcConnections.remove(authToken);
     }
 
-    authToken = _arcConnections.key(clientHandler, "");
+    authToken = _activePollConnections.key(clientHandler, "");
     if (! authToken.isEmpty()) {
-        _arcConnections.remove(authToken);
+        _activePollConnections.remove(authToken);
 
         if (_mapClients.contains(authToken)) {
             MapClient client = _mapClients.take(authToken);
@@ -156,6 +156,8 @@ void MapSessions::removeActiveSSRCForClient(QString authToken)
         client.setHasActiveSSRC(false);
         client.clearSessId();
         _mapClients.insert(authToken, client);
+
+        // FIXME: Should I remove _ssrcConnection entry?
     }
 }
 
@@ -269,11 +271,10 @@ void MapSessions::setActivePollForClient(QString authToken, ClientHandler *pollC
 {
     if (_mapClients.contains(authToken)) {
         MapClient client = _mapClients.take(authToken);
-        client.setHasActiveARC(true);
         client.setHasActivePoll(true);
         _mapClients.insert(authToken, client);
 
-        _arcConnections.insert(authToken, pollClientHandler);
+        _activePollConnections.insert(authToken, pollClientHandler);
     }
 }
 
@@ -285,22 +286,22 @@ void MapSessions::removeActivePollForClient(QString authToken)
         client.setHasActivePoll(false);
         _mapClients.insert(authToken, client);
 
-        _arcConnections.remove(authToken);
+        _activePollConnections.remove(authToken);
     }
 }
 
-ClientHandler* MapSessions::pollClientForClient(QString authToken)
+ClientHandler* MapSessions::pollConnectionForClient(QString authToken)
 {
     ClientHandler* clientHandler = 0;
     if (_mapClients.contains(authToken) &&
         _mapClients.value(authToken).hasActiveARC() &&
         _mapClients.value(authToken).hasActivePoll()) {
-        clientHandler = _arcConnections.value(authToken, 0);
+        clientHandler = _activePollConnections.value(authToken, 0);
     }
     return clientHandler;
 }
 
-ClientHandler* MapSessions::ssrcClientForClient(QString authToken)
+ClientHandler* MapSessions::ssrcForClient(QString authToken)
 {
     ClientHandler* clientHandler = 0;
     if (_mapClients.contains(authToken) &&
@@ -310,13 +311,24 @@ ClientHandler* MapSessions::ssrcClientForClient(QString authToken)
     return clientHandler;
 }
 
-void MapSessions::setActiveARCForClient(QString authToken)
+void MapSessions::swapSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler)
+{
+    if (_mapClients.contains(authToken) &&
+        _mapClients.value(authToken).hasActiveSSRC()) {
+        _ssrcConnections.remove(authToken);
+        _ssrcConnections.insert(authToken, newSSRCClientHandler);
+    }
+}
+
+void MapSessions::setActiveARCForClient(QString authToken, ClientHandler *arcClientHandler)
 {
     if (_mapClients.contains(authToken) &&
         _mapClients.value(authToken).hasActiveSSRC()) {
         MapClient client = _mapClients.take(authToken);
         client.setHasActiveARC(true);
         _mapClients.insert(authToken, client);
+
+        _arcConnections.insert(authToken, arcClientHandler);
     }
 }
 
@@ -337,8 +349,19 @@ void MapSessions::removeActiveARCForClient(QString authToken)
         MapClient client = _mapClients.take(authToken);
         client.setHasActiveARC(false);
         _mapClients.insert(authToken, client);
+
+        _arcConnections.remove(authToken);
     }
 }
+
+ClientHandler* MapSessions::arcForClient(QString authToken)
+{
+    ClientHandler* clientHandler = 0;
+    if (_mapClients.contains(authToken) &&
+        _mapClients.value(authToken).hasActiveARC()) {
+        clientHandler = _arcConnections.value(authToken, 0);
+    }
+    return clientHandler;}
 
 QList<Subscription> MapSessions::subscriptionListForClient(QString authToken)
 {

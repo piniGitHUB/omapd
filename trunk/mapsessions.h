@@ -53,12 +53,14 @@ public:
     bool haveActivePollForClient(QString authToken);
     void setActivePollForClient(QString authToken, ClientHandler *pollClientHandler);
     void removeActivePollForClient(QString authToken);
-    ClientHandler* pollClientForClient(QString authToken);
-    ClientHandler* ssrcClientForClient(QString authToken);
+    ClientHandler* pollConnectionForClient(QString authToken);
+    ClientHandler* ssrcForClient(QString authToken);
+    void swapSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler);
 
-    void setActiveARCForClient(QString authToken);
+    void setActiveARCForClient(QString authToken, ClientHandler *arcClientHandler);
     bool haveActiveARCForClient(QString authToken);
     void removeActiveARCForClient(QString authToken);
+    ClientHandler* arcForClient(QString authToken);
 
     void removeClientConnections(ClientHandler *clientHandler);
     bool validateSessionId(QString sessId, QString authToken);
@@ -100,6 +102,7 @@ private:
 
     QHash<QString, ClientHandler*> _ssrcConnections; // authToken --> ClientHandler
     QHash<QString, ClientHandler*> _arcConnections; // authToken --> ClientHandler
+    QHash<QString, ClientHandler*> _activePollConnections; // authToken --> ClientHandler
 };
 
 #endif // MAPSESSIONS_H

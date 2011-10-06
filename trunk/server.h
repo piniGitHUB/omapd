@@ -41,7 +41,7 @@ public slots:
     void sendPollResponseToClient(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
 
 private slots:
-    void discardClient();
+    void discardConnection();
 
 private:
     void incomingConnection(int socketDescriptor);
