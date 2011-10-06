@@ -26,6 +26,16 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "clientparser.h"
 #include "mapsessions.h"
 
+// From qtsdk-2010.05/qt/src/network/access/qhttpnetworkreply_p.h
+static const unsigned char gz_magic[2] = {0x1f, 0x8b}; // gzip magic header
+// gzip flag byte
+#define HEAD_CRC     0x02 // bit 1 set: header CRC present
+#define EXTRA_FIELD  0x04 // bit 2 set: extra field present
+#define ORIG_NAME    0x08 // bit 3 set: original file name present
+#define COMMENT      0x10 // bit 4 set: file comment present
+#define RESERVED     0xE0 // bits 5..7: reserved
+#define CHUNK 16384
+
 ClientParser::ClientParser(QIODevice *parent) :
         QObject(parent)
 {
@@ -45,6 +55,11 @@ ClientParser::ClientParser(QIODevice *parent) :
 
     _clientSetSessionId = false;
     _sessionId = "";
+    _haveAllHeaders = false;
+
+    _setDeviceForCompression = false;
+    _initInflate = false;
+    _streamEnd = false;
 
     // Some clients (e.g. libifmap) don't send all the required namespaces
     // for Filters
@@ -60,33 +75,147 @@ ClientParser::~ClientParser()
     _mapRequest.clear();
 }
 
+// From qtsdk-2010.05/qt/src/network/access/qhttpnetworkreply.cpp
+bool ClientParser::gzipCheckHeader(QByteArray &content, int &pos)
+{
+    int method = 0; // method byte
+    int flags = 0;  // flags byte
+    bool ret = false;
+
+    // Assure two bytes in the buffer so we can peek ahead -- handle case
+    // where first byte of header is at the end of the buffer after the last
+    // gzip segment
+    pos = -1;
+    QByteArray &body = content;
+    int maxPos = body.size()-1;
+    if (maxPos < 1) {
+        return ret;
+    }
+
+    // Peek ahead to check the gzip magic header
+    if (body[0] != char(gz_magic[0]) ||
+        body[1] != char(gz_magic[1])) {
+        return ret;
+    }
+    pos += 2;
+    // Check the rest of the gzip header
+    if (++pos <= maxPos)
+        method = body[pos];
+    if (pos++ <= maxPos)
+        flags = body[pos];
+    if (method != Z_DEFLATED || (flags & RESERVED) != 0) {
+        return ret;
+    }
+
+    // Discard time, xflags and OS code:
+    pos += 6;
+    if (pos > maxPos)
+        return ret;
+    if ((flags & EXTRA_FIELD) && ((pos+2) <= maxPos)) { // skip the extra field
+        unsigned len =  (unsigned)body[++pos];
+        len += ((unsigned)body[++pos])<<8;
+        pos += len;
+        if (pos > maxPos)
+            return ret;
+    }
+    if ((flags & ORIG_NAME) != 0) { // skip the original file name
+        while(++pos <= maxPos && body[pos]) {}
+    }
+    if ((flags & COMMENT) != 0) {   // skip the .gz file comment
+        while(++pos <= maxPos && body[pos]) {}
+    }
+    if ((flags & HEAD_CRC) != 0) {  // skip the header crc
+        pos += 2;
+        if (pos > maxPos)
+            return ret;
+    }
+    ret = (pos < maxPos); // return failed, if no more bytes left
+    return ret;
+}
+
+// From qtsdk-2010.05/qt/src/network/access/qhttpnetworkreply.cpp
+int ClientParser::gunzipBodyPartially(QByteArray &compressed, QByteArray &inflated)
+{
+    int ret = Z_DATA_ERROR;
+    unsigned have;
+    unsigned char out[CHUNK];
+    int pos = -1;
+
+    if (!_initInflate) {
+        // check the header
+        if (!gzipCheckHeader(compressed, pos))
+            return ret;
+        // allocate inflate state
+        _inflateStrm.zalloc = Z_NULL;
+        _inflateStrm.zfree = Z_NULL;
+        _inflateStrm.opaque = Z_NULL;
+        _inflateStrm.avail_in = 0;
+        _inflateStrm.next_in = Z_NULL;
+        ret = inflateInit2(&_inflateStrm, -MAX_WBITS);
+        if (ret != Z_OK)
+            return ret;
+        _initInflate = true;
+        _streamEnd = false;
+    }
+
+    //remove the header.
+    compressed.remove(0, pos+1);
+
+    // expand until deflate stream ends
+    _inflateStrm.next_in = (unsigned char *)compressed.data();
+    _inflateStrm.avail_in = compressed.size();
+    do {
+        _inflateStrm.avail_out = sizeof(out);
+        _inflateStrm.next_out = out;
+        ret = inflate(&_inflateStrm, Z_NO_FLUSH);
+        switch (ret) {
+        case Z_NEED_DICT:
+            ret = Z_DATA_ERROR;
+            // and fall through
+        case Z_DATA_ERROR:
+        case Z_MEM_ERROR:
+            inflateEnd(&_inflateStrm);
+            _initInflate = false;
+            return ret;
+        }
+        have = sizeof(out) - _inflateStrm.avail_out;
+        inflated.append(QByteArray((const char *)out, have));
+     } while (_inflateStrm.avail_out == 0);
+    // clean up and return
+    if (ret <= Z_ERRNO || ret == Z_STREAM_END) {
+        inflateEnd(&_inflateStrm);
+        _initInflate = false;
+    }
+    _streamEnd = (ret == Z_STREAM_END);
+
+    return ret;
+}
+
 int ClientParser::readHeader()
 {
-    QNetworkRequest requestWithHdr;
-    bool end = false;
     QString tmp;
     QString headerStr = QLatin1String("");
 
     QIODevice *socket = (QIODevice*)this->parent();
-    while (!end && socket->canReadLine()) {
+    while (!_haveAllHeaders && socket->canReadLine()) {
         tmp = QString::fromUtf8(socket->readLine());
         if (tmp == QLatin1String("\r\n") || tmp == QLatin1String("\n") || tmp.isEmpty()) {
-            end = true;
+            _haveAllHeaders = true;
         } else {
             int hdrSepIndex = tmp.indexOf(":");
             if (hdrSepIndex != -1) {
                 QString hdrName = tmp.left(hdrSepIndex);
                 QString hdrValue = tmp.mid(hdrSepIndex+1).trimmed();
-                requestWithHdr.setRawHeader(hdrName.toUtf8(), hdrValue.toUtf8());
+                _requestHeaders.setRawHeader(hdrName.toUtf8(), hdrValue.toUtf8());
                 //qDebug() << __PRETTY_FUNCTION__ << ":" << "Got header:" << hdrName << "--->" << hdrValue;
             }
             headerStr += tmp;
         }
     }
 
-    if (end) {
+    if (_haveAllHeaders) {
         // If we get the Content-Length header, then the 0 above will get updated
-        emit headerReceived(requestWithHdr);
+        emit headerReceived(_requestHeaders);
     }
 
     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
@@ -98,37 +227,51 @@ int ClientParser::readHeader()
 void ClientParser::readData()
 {
     bool didGetCompleteRequest = false;
-    readHeader();
+    if (!_haveAllHeaders) readHeader();
 
-    while (!_xmlSocketReader.atEnd()) {
-        _xmlSocketReader.readNext();
-        if (!_xmlSocketReader.isWhitespace()) {
-            _writer->writeCurrentToken(_xmlSocketReader);
-        }
+    bool isCompressed = ((ClientHandler*)this->parent())->useCompression();
+    if (isCompressed) {
+        QByteArray compData = ((ClientHandler*)this->parent())->readAll();
+        QByteArray tempData;
+        gunzipBodyPartially(compData, tempData);
 
-        if (_xmlSocketReader.tokenType() == QXmlStreamReader::EndDocument) {
-            // We wait to parse the client XML until we've received a complete SOAP Document
-            didGetCompleteRequest = true;
+        if (!_setDeviceForCompression) {
+            _xmlSocketReader.clear();
+            _setDeviceForCompression = true;
         }
+        _xmlSocketReader.addData(tempData);
     }
 
-    if (didGetCompleteRequest && !_xmlSocketReader.error()) {
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << endl
-                    << "------ start client request XML ---------" << endl
-                    << _clientRequestXml << endl
-                    << "------ end client request XML ---------" << endl;
+    if (_haveAllHeaders) {
+        while (!_xmlSocketReader.atEnd()) {
+            _xmlSocketReader.readNext();
+            if (!_xmlSocketReader.isWhitespace()) {
+                _writer->writeCurrentToken(_xmlSocketReader);
+            }
+
+            if (_xmlSocketReader.tokenType() == QXmlStreamReader::EndDocument) {
+                // We wait to parse the client XML until we've received a complete SOAP Document
+                didGetCompleteRequest = true;
+            }
         }
-        _xml.addData(_clientRequestXml);
 
-        parseDocument();
-        emit parsingComplete();
-    } else if (_xmlSocketReader.error() != QXmlStreamReader::PrematureEndOfDocumentError){
-        _requestError = MapRequest::IfmapClientSoapFault;
-        _xml.raiseError(_xmlSocketReader.errorString());
-        emit parsingComplete();
+        if (didGetCompleteRequest && !_xmlSocketReader.error() && !_clientRequestXml.isEmpty()) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << endl
+                        << "------ start client request XML ---------" << endl
+                        << _clientRequestXml << endl
+                        << "------ end client request XML ---------" << endl;
+            }
+            _xml.addData(_clientRequestXml);
+
+            parseDocument();
+            emit parsingComplete();
+        } else if (_xmlSocketReader.error() != QXmlStreamReader::PrematureEndOfDocumentError) {
+            _requestError = MapRequest::IfmapClientSoapFault;
+            _xml.raiseError(_xmlSocketReader.errorString());
+            emit parsingComplete();
+        }
     }
-
 }
 
 void ClientParser::registerMetadataNamespaces()

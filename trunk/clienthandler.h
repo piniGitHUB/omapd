@@ -39,6 +39,7 @@ public:
     ~ClientHandler();
     void sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion);
     QString authToken() { return _authToken; }
+    bool useCompression() { return _useCompression; }
 
 signals:
     void needToSendPollResponse(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
@@ -57,6 +58,7 @@ private slots:
 private:
     void setupCrypto();
     void registerCert();
+    QByteArray compressResponse(QByteArray uncompressed);
     void sendHttpResponse(int hdrNumber, QString hdrText);
     void sendMapResponse(MapResponse &mapResponse);
     void sendResponse(QByteArray response, MapRequest::RequestVersion reqVersion);
@@ -103,7 +105,7 @@ private:
     QString _authToken;
 
     bool _disallowSSLv2;
-
+    bool _useCompression;
 };
 
 #endif // CLIENTHANDLER_H

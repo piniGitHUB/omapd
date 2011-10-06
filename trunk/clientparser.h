@@ -25,6 +25,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QXmlStreamReader>
 #include <QStringList>
 #include <QNetworkRequest>
+#include <zlib.h>
 
 #include "omapdconfig.h"
 #include "maprequest.h"
@@ -85,15 +86,23 @@ private:
     void setSessionId(MapRequest &request);
 
     int readHeader();
-    void processHeader(QNetworkRequest requestHdrs);
-
+    bool gzipCheckHeader(QByteArray &content, int &pos);
+    int gunzipBodyPartially(QByteArray &compressed, QByteArray &inflated);
 private:
     OmapdConfig* _omapdConfig;
+
+    QNetworkRequest _requestHeaders;
+    bool _haveAllHeaders;
 
     QXmlStreamReader _xmlSocketReader;
     QXmlStreamReader _xml;
     QXmlStreamWriter *_writer;
     QString _clientRequestXml;
+
+    bool _setDeviceForCompression;
+    bool _initInflate;
+    bool _streamEnd;
+    z_stream _inflateStrm;
 
     // mapping of prefix --> namespace for metadata types
     QMap<QString,QString> _namespaces;
