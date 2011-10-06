@@ -32,6 +32,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
     QSslSocket(parent), _mapGraph(mapGraph)
 {
+    _useCompression = false;
+
     _omapdConfig = OmapdConfig::getInstance();
     _mapSessions = MapSessions::getInstance();
 
@@ -256,6 +258,19 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
         }
     }
 
+    if (requestHdrs.hasRawHeader(QByteArray("Content-Encoding"))) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Encoding header";
+        QByteArray encodingValue = requestHdrs.rawHeader(QByteArray("Content-Encoding"));
+        if (! encodingValue.isEmpty() && encodingValue.contains(QByteArray("gzip"))) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Encoding gzip";
+            }
+            qDebug() << "!!!!!!!!!!!!!!!---------------- using compression -----------!!!!!!!!!!!!!!!!!!!!!!";
+            _useCompression = true;
+        }
+    }
+
 }
 
 void ClientHandler::sendHttpResponse(int hdrNumber, QString hdrText)
@@ -358,8 +373,15 @@ void ClientHandler::sendMapResponse(MapResponse &mapResponse)
 void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
 {
     qDebug() << __PRETTY_FUNCTION__ << ":" << "sending response from ClientHandler: this:" << this;
+    QByteArray compResponse;
     QHttpResponseHeader header(200,"OK");
-    header.setContentLength(response.size());
+    if (_useCompression) {
+        compResponse = compressResponse(response);
+        header.setValue("Content-Encoding", "gzip");
+        header.setContentLength(compResponse.size());
+    } else {
+        header.setContentLength(response.size());
+    }
 
     if (reqVersion == MapRequest::IFMAPv11) {
         header.setContentType("text/xml");
@@ -371,7 +393,13 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
 
     if (this->state() == QAbstractSocket::ConnectedState) {
         this->write(header.toString().toUtf8() );
-        this->write(response);
+        if (_useCompression) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending compressed response to client";
+            this->write(compResponse);
+        } else {
+            this->write(response);
+        }
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply headers to client:" << endl << header.toString();
@@ -381,6 +409,52 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
     } else {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket is not connected!  Not sending reply to client";
     }
+}
+
+QByteArray ClientHandler::compressResponse(QByteArray uncompressed)
+{
+    QByteArray deflated;
+
+    deflated = qCompress(uncompressed);
+
+    // eliminate qCompress size on first 4 bytes and 2 byte header
+    deflated = deflated.right(deflated.size() - 6);
+    // remove qCompress 4 byte footer
+    deflated = deflated.left(deflated.size() - 4);
+
+    QByteArray header;
+    header.resize(10);
+    header[0] = 0x1f; // gzip-magic[0]
+    header[1] = 0x8b; // gzip-magic[1]
+    header[2] = 0x08; // Compression method = DEFLATE
+    header[3] = 0x00; // Flags
+    header[4] = 0x00; // 4-7 is mtime
+    header[5] = 0x00;
+    header[6] = 0x00;
+    header[7] = 0x00;
+    header[8] = 0x00; // XFL
+    header[9] = 0x03; // OS=Unix
+
+    deflated.prepend(header);
+
+    QByteArray footer;
+    quint32 crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, (const uchar*)uncompressed.data(), uncompressed.size());
+    footer.resize(8);
+    footer[3] = (crc & 0xff000000) >> 24;
+    footer[2] = (crc & 0x00ff0000) >> 16;
+    footer[1] = (crc & 0x0000ff00) >> 8;
+    footer[0] = (crc & 0x000000ff);
+
+    quint32 isize = uncompressed.size();
+    footer[7] = (isize & 0xff000000) >> 24;
+    footer[6] = (isize & 0x00ff0000) >> 16;
+    footer[5] = (isize & 0x0000ff00) >> 8;
+    footer[4] = (isize & 0x000000ff);
+
+    deflated.append(footer);
+
+    return deflated;
 }
 
 void ClientHandler::processClientRequest()
