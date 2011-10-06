@@ -58,7 +58,7 @@ void Server::incomingConnection(int socketDescriptor)
     client->startServerEncryption();
 
     QObject::connect(client, SIGNAL(disconnected()),
-                     this, SLOT(discardClient()));
+                     this, SLOT(discardConnection()));
 
     connect(client,
             SIGNAL(needToSendPollResponse(ClientHandler*,QByteArray,MapRequest::RequestVersion)),
@@ -67,7 +67,7 @@ void Server::incomingConnection(int socketDescriptor)
 
 }
 
-void Server::discardClient()
+void Server::discardConnection()
 {
     ClientHandler *client = (ClientHandler*)sender();
     qDebug() << __PRETTY_FUNCTION__ << ":" << "client:" << client;

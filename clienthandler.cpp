@@ -337,15 +337,28 @@ void ClientHandler::handleParseComplete()
 
         if (_parser->requestType() != MapRequest::NewSession &&
             _parser->requestType() != MapRequest::Poll &&
-            !(_parser->requestVersion() == MapRequest::IFMAPv11 && _parser->requestType() == MapRequest::AttachSession) &&
-            !sentError) {
+            !(_parser->requestVersion() == MapRequest::IFMAPv11 && _parser->requestType() == MapRequest::AttachSession)) {
+            // Don't allow SSRC requests on ARC, other than NewSession
             if (_mapSessions->haveActiveARCForClient(_authToken) &&
-                _mapSessions->ssrcClientForClient(_authToken) != this) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Received SSRC request on different connection for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
+                _mapSessions->ssrcForClient(_authToken) != this &&
+                _mapSessions->arcForClient(_authToken) == this &&
+                !sentError) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Received SSRC request ARC for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
                 MapResponse errorResp(_parser->requestVersion());
                 errorResp.setErrorResponse(MapRequest::IfmapInvalidSessionID, _parser->sessionId());
                 sendMapResponse(errorResp);
                 sentError = true;
+            }
+
+            // If SSRC request comes in on different connection, swap connections
+            if (_mapSessions->haveActiveSSRCForClient(_authToken) &&
+                _mapSessions->ssrcForClient(_authToken) != this &&
+                !sentError) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Servicing client on new SSRC.  Old:" << _mapSessions->ssrcForClient(_authToken)
+                            << "New:" << this << "for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
+                }
+                _mapSessions->swapSSRCForClient(_authToken, this);
             }
         }
 
@@ -603,7 +616,7 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
     QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
-        if (_mapSessions->ssrcClientForClient(_authToken) == this) {
+        if (_mapSessions->ssrcForClient(_authToken) == this) {
             if (_omapdConfig->valueFor("allow_unauthenticated_clients").toBool()) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "NON-STANDARD: Allowing ARC on SSRC for pubId:" << publisherId;
             } else {
@@ -621,7 +634,7 @@ void ClientHandler::processAttachSession(QVariant clientRequest)
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
             }
-            _mapSessions->setActiveARCForClient(_authToken);
+            _mapSessions->setActiveARCForClient(_authToken, this);
 
             asResp.setAttachSessionResponse(sessId, publisherId);
         }
@@ -1105,7 +1118,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
     QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!requestError) {
-        if (_mapSessions->ssrcClientForClient(_authToken) == this) {
+        if (_mapSessions->ssrcForClient(_authToken) == this) {
             if (_omapdConfig->valueFor("allow_unauthenticated_clients").toBool()) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "NON-STANDARD: Allowing ARC on SSRC for pubId:" << publisherId;
             } else {
@@ -1115,7 +1128,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
                 //        to send an invalid session ID error.
                 bool sendEndSessionResponse = false;
                 if (sendEndSessionResponse) {
-                    // Need to rack the TCP socket this publisher's poll is on, for terminate to follow
+                    // Need to track the TCP socket this publisher's poll is on, for terminate to follow
                     _mapSessions->setActivePollForClient(_authToken, this);
                 } else {
                     requestError = MapRequest::IfmapInvalidSessionID;
@@ -1146,6 +1159,8 @@ void ClientHandler::processPoll(QVariant clientRequest)
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding ARC session for publisher:" << publisherId;
                 }
+                // We don't get an attach-session, so register ARC connection
+                _mapSessions->setActiveARCForClient(_authToken, this);
                 // Track the TCP socket this publisher's poll is on
                 _mapSessions->setActivePollForClient(_authToken, this);
 
@@ -1244,7 +1259,7 @@ bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVe
 
         // Terminate polls
         if (_mapSessions->haveActivePollForClient(_authToken)) {
-            ClientHandler *client = _mapSessions->pollClientForClient(_authToken);
+            ClientHandler *client = _mapSessions->pollConnectionForClient(_authToken);
             if (requestVersion == MapRequest::IFMAPv20) {
                 if (client && client->isValid()) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending endSessionResult to publisherId:"
@@ -1926,7 +1941,7 @@ void ClientHandler::sendResultsOnActivePolls()
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending pollResults";
                 pollResponse->endPollResponse();
-                emit needToSendPollResponse(_mapSessions->pollClientForClient(authToken), pollResponse->responseData(), pollResponse->requestVersion());
+                emit needToSendPollResponse(_mapSessions->pollConnectionForClient(authToken), pollResponse->responseData(), pollResponse->requestVersion());
                 delete pollResponse;
                 // Update subscription list for this publisher
                 _mapSessions->setSubscriptionListForClient(authToken, subList);
