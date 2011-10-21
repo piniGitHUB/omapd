@@ -1709,7 +1709,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                     // Trigger to build and send pollResults
                     sub._sentFirstResult = false;
                 } else if (sub._sentFirstResult && sub._requestVersion == MapRequest::IFMAPv20) {
-                    MapRequest::RequestError error;
+                    MapRequest::RequestError error = MapRequest::ErrorNone;
                     // Add results from publish/delete/endSession/purgePublisher (that don't modify SearchGraph)
                     if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
                         SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
@@ -1803,7 +1803,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
 
             if (subIsDirty && !sub._subscriptionError) {
                 // Construct results for the subscription
-                MapRequest::RequestError error;
+                MapRequest::RequestError error = MapRequest::ErrorNone;
                 if (isLink) {
                     addLinkResult(sub, link, notifyMetaList, SearchResult::NotifyResultType, error);
                 } else {
