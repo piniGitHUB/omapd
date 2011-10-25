@@ -32,6 +32,8 @@ QFile logStderr;
 void myMessageOutput(QtMsgType type, const char *msg)
 {
     QByteArray bmsg(msg, qstrlen(msg));
+    bmsg.prepend(": ");
+    bmsg.prepend(QDateTime::currentDateTime().toUTC().toString("yyyy-MM-ddThh:mm:ssZ").toAscii());
     bmsg.append("\n");
     switch (type) {
     case QtDebugMsg:
