@@ -67,6 +67,7 @@ public:
 
     QString pubIdForAuthToken(QString authToken);
     QString pubIdForSessId(QString sessId);
+    OmapdConfig::AuthzOptions authzForAuthToken(QString authToken);
 
     QList<Subscription> subscriptionListForClient(QString authToken);
     QList<Subscription> removeSubscriptionListForClient(QString authToken);
@@ -80,6 +81,7 @@ public:
 private:
     MapSessions(QObject *parent = 0);
     ~MapSessions();
+    void loadClientConfigurations();
 
     static MapSessions* _instance;
 

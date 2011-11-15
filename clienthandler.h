@@ -51,6 +51,7 @@ private slots:
     void processReadyRead();
     void socketReady();
     void clientSSLVerifyError(const QSslError & error);
+    void clientSslModeChanged(QSslSocket::SslMode mode);
     void clientSSLErrors(const QList<QSslError> & errors);
     void clientConnState(QAbstractSocket::SocketState sState);
     void processHeader(QNetworkRequest requestHdrs);

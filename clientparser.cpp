@@ -509,15 +509,36 @@ void ClientParser::parsePurgePublisher()
         pubIdAttrName = "ifmap-publisher-id";
     }
 
+    QString reqPubId;
+
     QXmlStreamAttributes attrs = _xml.attributes();
     if (attrs.hasAttribute(pubIdAttrName)) {
-        ppReq.setPublisherId(attrs.value(pubIdAttrName).toString());
+        reqPubId = attrs.value(pubIdAttrName).toString();
+        ppReq.setPublisherId(reqPubId);
         ppReq.setClientSetPublisherId(true);
     } else {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading publisher-id in purgePublisher request";
         _xml.raiseError("Error reading publisher-id in purgePublisher request");
         _requestError = MapRequest::IfmapAccessDenied;
         ppReq.setRequestError(MapRequest::IfmapAccessDenied);
+    }
+
+    if (_requestError == MapRequest::ErrorNone) {
+        QString authToken = ((ClientHandler*)this->parent())->authToken();
+        QString clientPubId = MapSessions::getInstance()->pubIdForAuthToken(authToken);
+        OmapdConfig::AuthzOptions authz = MapSessions::getInstance()->authzForAuthToken(authToken);
+
+        if (clientPubId.compare(reqPubId, Qt::CaseSensitive) == 0) {
+            if (!authz.testFlag(OmapdConfig::AllowPurgeSelf)) {
+                _xml.raiseError("Client not authorized to purgeSelf");
+                _requestError = MapRequest::IfmapAccessDenied;
+            }
+        } else {
+            if (!authz.testFlag(OmapdConfig::AllowPurgeOthers)) {
+                _xml.raiseError("Client not authorized to purgeOthers");
+                _requestError = MapRequest::IfmapAccessDenied;
+            }
+        }
     }
 
     _mapRequest.setValue(ppReq);
@@ -533,6 +554,13 @@ void ClientParser::parsePublish()
     setSessionId(pubReq);
     QString authToken = ((ClientHandler*)this->parent())->authToken();
     pubReq.setPublisherId(MapSessions::getInstance()->pubIdForAuthToken(authToken));
+
+    OmapdConfig::AuthzOptions authz = MapSessions::getInstance()->authzForAuthToken(authToken);
+    if (!authz.testFlag(OmapdConfig::AllowPublish)) {
+        qDebug() << "authz:" << authz;
+        _xml.raiseError("Client not authorized to publish");
+        _requestError = MapRequest::IfmapAccessDenied;
+    }
 
     while (_xml.readNextStartElement() && !pubReq.requestError()) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "nextStartElement:" << _xml.name();

@@ -21,6 +21,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "omapdconfig.h"
 #include "server.h"
+#include "mapclient.h"
+#include "clientconfiguration.h"
 
 OmapdConfig* OmapdConfig::_instance = 0;
 
@@ -51,16 +53,16 @@ OmapdConfig::IfmapDebugOptions OmapdConfig::debugOptions(unsigned int dbgValue)
 QString OmapdConfig::debugString(OmapdConfig::IfmapDebugOptions debug)
 {
     QString str("");
-    if (debug.testFlag(OmapdConfig::DebugNone)) str += "OmapdConfig::DebugNone | ";
-    if (debug.testFlag(OmapdConfig::ShowClientOps)) str += "OmapdConfig::ShowClientOps | ";
-    if (debug.testFlag(OmapdConfig::ShowXML)) str += "OmapdConfig::ShowXML | ";
-    if (debug.testFlag(OmapdConfig::ShowHTTPHeaders)) str += "OmapdConfig::ShowHTTPHeaders | ";
-    if (debug.testFlag(OmapdConfig::ShowHTTPState)) str += "OmapdConfig::ShowHTTPState | ";
-    if (debug.testFlag(OmapdConfig::ShowXMLParsing)) str += "OmapdConfig::ShowXMLParsing | ";
-    if (debug.testFlag(OmapdConfig::ShowXMLFilterResults)) str += "OmapdConfig::ShowXMLFilterResults | ";
-    if (debug.testFlag(OmapdConfig::ShowXMLFilterStatements)) str += "OmapdConfig::ShowXMLFilterStatements | ";
-    if (debug.testFlag(OmapdConfig::ShowMAPGraphAfterChange)) str += "OmapdConfig::ShowMAPGraphAfterChange | ";
-    if (debug.testFlag(OmapdConfig::ShowRawSocketData)) str += "OmapdConfig::ShowRawSocketData | ";
+    if (debug.testFlag(OmapdConfig::DebugNone)) str += "DebugNone | ";
+    if (debug.testFlag(OmapdConfig::ShowClientOps)) str += "ShowClientOps | ";
+    if (debug.testFlag(OmapdConfig::ShowXML)) str += "ShowXML | ";
+    if (debug.testFlag(OmapdConfig::ShowHTTPHeaders)) str += "ShowHTTPHeaders | ";
+    if (debug.testFlag(OmapdConfig::ShowHTTPState)) str += "ShowHTTPState | ";
+    if (debug.testFlag(OmapdConfig::ShowXMLParsing)) str += "ShowXMLParsing | ";
+    if (debug.testFlag(OmapdConfig::ShowXMLFilterResults)) str += "ShowXMLFilterResults | ";
+    if (debug.testFlag(OmapdConfig::ShowXMLFilterStatements)) str += "ShowXMLFilterStatements | ";
+    if (debug.testFlag(OmapdConfig::ShowMAPGraphAfterChange)) str += "ShowMAPGraphAfterChange | ";
+    if (debug.testFlag(OmapdConfig::ShowRawSocketData)) str += "ShowRawSocketData | ";
 
     if (! str.isEmpty()) {
         str = str.left(str.size()-3);
@@ -87,10 +89,10 @@ OmapdConfig::MapVersionSupportOptions OmapdConfig::mapVersionSupportOptions(unsi
 QString OmapdConfig::mapVersionSupportString(OmapdConfig::MapVersionSupportOptions debug)
 {
     QString str("");
-    if (debug.testFlag(OmapdConfig::SupportNone)) str += "OmapdConfig::SupportNone | ";
-    if (debug.testFlag(OmapdConfig::SupportIfmapV10)) str += "OmapdConfig::SupportIfmapV10 | ";
-    if (debug.testFlag(OmapdConfig::SupportIfmapV11)) str += "OmapdConfig::SupportIfmapV11 | ";
-    if (debug.testFlag(OmapdConfig::SupportIfmapV20)) str += "OmapdConfig::SupportIfmapV20 | ";
+    if (debug.testFlag(OmapdConfig::SupportNone)) str += "SupportNone | ";
+    if (debug.testFlag(OmapdConfig::SupportIfmapV10)) str += "SupportIfmapV10 | ";
+    if (debug.testFlag(OmapdConfig::SupportIfmapV11)) str += "SupportIfmapV11 | ";
+    if (debug.testFlag(OmapdConfig::SupportIfmapV20)) str += "SupportIfmapV20 | ";
 
     if (! str.isEmpty()) {
         str = str.left(str.size()-3);
@@ -126,16 +128,16 @@ OmapdConfig::AuthzOptions OmapdConfig::authzOptions(unsigned int authzValue)
 QString OmapdConfig::authzOptionsString(OmapdConfig::AuthzOptions option)
 {
     QString str("");
-    if (option.testFlag(OmapdConfig::DenyAll)) str += "OmapdConfig::DenyAll | ";
-    if (option.testFlag(OmapdConfig::AllowPublish)) str += "OmapdConfig::AllowPublish | ";
-    if (option.testFlag(OmapdConfig::AllowSearch)) str += "OmapdConfig::AllowSearch | ";
-    if (option.testFlag(OmapdConfig::AllowSubscribe)) str += "OmapdConfig::AllowSubscribe | ";
-    if (option.testFlag(OmapdConfig::AllowPoll)) str += "OmapdConfig::AllowPoll | ";
-    if (option.testFlag(OmapdConfig::AllowPurgeSelf)) str += "OmapdConfig::AllowPurgeSelf | ";
-    if (option.testFlag(OmapdConfig::AllowPurgeOthers)) str += "OmapdConfig::AllowPurgeOthers | ";
+    if (option.testFlag(OmapdConfig::DenyAll)) str += "DenyAll | ";
+    if (option.testFlag(OmapdConfig::AllowPublish)) str += "AllowPublish | ";
+    if (option.testFlag(OmapdConfig::AllowSearch)) str += "AllowSearch | ";
+    if (option.testFlag(OmapdConfig::AllowSubscribe)) str += "AllowSubscribe | ";
+    if (option.testFlag(OmapdConfig::AllowPoll)) str += "AllowPoll | ";
+    if (option.testFlag(OmapdConfig::AllowPurgeSelf)) str += "AllowPurgeSelf | ";
+    if (option.testFlag(OmapdConfig::AllowPurgeOthers)) str += "AllowPurgeOthers | ";
 
     // Note str replace here if we get AllowAll
-    if (option.testFlag(OmapdConfig::AllowAll)) str = "OmapdConfig::AllowAll | ";
+    if (option.testFlag(OmapdConfig::AllowAll)) str = "AllowAll | ";
 
     if (! str.isEmpty()) {
         str = str.left(str.size()-3);
@@ -155,9 +157,13 @@ OmapdConfig::OmapdConfig(QObject *parent)
     QVariant var;
     // Defaults
     _omapdConfig.insert("log_stderr", true);
-    var.setValue(OmapdConfig::mapVersionSupportOptions(3));
+
+    // Default MAP Version support is v1.0, v1.1, v2.0
+    var.setValue(OmapdConfig::mapVersionSupportOptions(7));
     _omapdConfig.insert("version_support", var);
+
     var.setValue(OmapdConfig::debugOptions(0));
+
     _omapdConfig.insert("debug_level", var);
     _omapdConfig.insert("address", "0.0.0.0");
     _omapdConfig.insert("port", 8081);
@@ -166,6 +172,10 @@ OmapdConfig::OmapdConfig(QObject *parent)
     _omapdConfig.insert("allow_invalid_session_id", false);
     _omapdConfig.insert("allow_unauthenticated_clients", false);
     _omapdConfig.insert("allow_arc_on_ssrc", false);
+
+    // Default authorization is DenyAll
+    var.setValue(OmapdConfig::authzOptions(0));
+    _omapdConfig.insert("default_authorization", var);
 }
 
 OmapdConfig::~OmapdConfig()
@@ -181,7 +191,7 @@ void OmapdConfig::addConfigItem(QString key, QVariant value)
 
 void OmapdConfig::showConfigValues()
 {
-    const char *fnName = "OmapdConfig::showConfigValues:";
+    const char *fnName = "showConfigValues:";
 
     QMapIterator<QString,QVariant> configIt(_omapdConfig);
     while (configIt.hasNext()) {
@@ -193,12 +203,16 @@ void OmapdConfig::showConfigValues()
                 value = OmapdConfig::debugString(var.value<OmapdConfig::IfmapDebugOptions>());
             else if (configIt.key() == "version_support")
                 value = OmapdConfig::mapVersionSupportString(var.value<OmapdConfig::MapVersionSupportOptions>());
+            else if (configIt.key() == "default_authorization")
+                value = OmapdConfig::authzOptionsString(var.value<OmapdConfig::AuthzOptions>());
 
             qDebug() << fnName << configIt.key() << "-->" << value;
         } else {
             qDebug() << fnName << configIt.key() << "-->" << var;
         }
     }
+
+    qDebug() << fnName << "Num client configurations loaded:" << _clientConfigurations.count();
 }
 
 bool OmapdConfig::readConfigXML(QIODevice *device)
@@ -328,11 +342,121 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                         xmlReader.readNext();
                     }  // service_configuration
                 } else if (xmlReader.name() == "client_configuration") {
-                    while (xmlReader.readNextStartElement()) {
-                        if (xmlReader.name() == "authentication") {
+                    QVariant defaultAuthzVar;
+                    defaultAuthzVar.setValue(OmapdConfig::authzOptions(0));
+                    if (xmlReader.attributes().hasAttribute("default-authorization")) {
+                        bool ok;
+                        unsigned int authzVal = xmlReader.attributes().value("default-authorization").toString().toUInt(&ok, 16);
+                        if (ok) {
+                            defaultAuthzVar.setValue(OmapdConfig::authzOptions(authzVal));
+                        }
+                    }
+                    addConfigItem("default_authorization", defaultAuthzVar);
 
-                        } else if (xmlReader.name() == "authorization") {
+                    bool clientsDone = false;
+                    while (!xmlReader.atEnd() && !clientsDone) {
+                        xmlReader.readNext();
 
+                        if (xmlReader.isStartElement() && xmlReader.name() == "client") {
+                            unsigned int clientAuthz = _omapdConfig.value("default_authorization").toUInt();
+                            QString clientName;
+                            QString authType;
+                            if (xmlReader.attributes().hasAttribute("name")) {
+                                clientName = xmlReader.attributes().value("name").toString();
+                            } else {
+                                xmlReader.raiseError(QObject::tr("name attribute not specified for client"));
+                            }
+                            if (xmlReader.attributes().hasAttribute("authorization")) {
+                                bool ok;
+                                unsigned int authzAttrVal = xmlReader.attributes().value("authorization").toString().toUInt(&ok, 16);
+                                if (ok) {
+                                    clientAuthz = authzAttrVal;
+                                }
+                            }
+                            if (xmlReader.attributes().hasAttribute("authentication")) {
+                                authType = xmlReader.attributes().value("authentication").toString();
+                            } else {
+                                xmlReader.raiseError(QObject::tr("authentication attribute not specified for client"));
+                            }
+
+                            xmlReader.readNextStartElement();
+
+                            if (authType == "basic") {
+                                QString username, password;
+                                bool haveUsername = false, havePassword = false;
+                                for (int i=0; i<2; i++) {
+                                    if (xmlReader.name() == "username") {
+                                        username = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                        haveUsername = true;
+                                    } else if (xmlReader.name() == "password") {
+                                        password = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                        havePassword = true;
+                                    } else {
+                                        xmlReader.raiseError(QObject::tr("invalid basic auth element"));
+                                    }
+                                    xmlReader.readNextStartElement();
+                                }
+                                if (haveUsername && havePassword) {
+                                    // Create client
+                                    qDebug() << "name, username, password:" << clientName << username << password;
+                                    ClientConfiguration *clientConfig = new ClientConfiguration();
+                                    clientConfig->createBasicAuthClient(clientName, username, password, OmapdConfig::authzOptions(clientAuthz));
+                                    _clientConfigurations.append(clientConfig);
+                                }
+                            } else if (authType == "certificate") {
+                                bool haveClientCertFile = false, haveCACertFile = false;
+                                QString certFileName;
+                                QString caCertFileName;
+
+                                for (int i=0; i<2; i++) {
+                                    if (xmlReader.name() == "certificate_file") {
+                                        // TODO: Deal with certificate type {pem|der}
+                                        certFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                        haveClientCertFile = true;
+                                        qDebug() << "certFileName:" << certFileName;
+                                    } else if (xmlReader.name() == "ca_certificates_file") {
+                                        // TODO: Deal with certificate type {pem|der}
+                                        caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                        haveCACertFile = true;
+                                        qDebug() << "caCertFileName:" << caCertFileName;
+                                    } else {
+                                        xmlReader.raiseError(QObject::tr("invalid cert auth element"));
+                                    }
+                                    xmlReader.readNextStartElement();
+                                }
+                                if (haveCACertFile && haveClientCertFile) {
+                                    qDebug() << "name, cert, cacert:" << clientName << certFileName << caCertFileName;
+                                    // Create client
+                                    ClientConfiguration *clientConfig = new ClientConfiguration();
+                                    clientConfig->createCertAuthClient(clientName, certFileName, caCertFileName, OmapdConfig::authzOptions(clientAuthz));
+                                    _clientConfigurations.append(clientConfig);
+                                }
+
+                            } else if (authType == "ca-certificate") {
+                                bool haveCACertFile = false;
+                                QString caCertFileName;
+
+                                if (xmlReader.name() == "ca_certificates_file") {
+                                    // TODO: Deal with certificate type {pem|der}
+                                    caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                    haveCACertFile = true;
+                                } else {
+                                    xmlReader.raiseError(QObject::tr("invalid cert auth element"));
+                                }
+                                if (haveCACertFile) {
+                                    // Create client
+                                    ClientConfiguration *clientConfig = new ClientConfiguration();
+                                    clientConfig->createCAAuthClient(clientName, caCertFileName, OmapdConfig::authzOptions(clientAuthz));
+                                    _clientConfigurations.append(clientConfig);
+                                }
+                            } else {
+                                xmlReader.raiseError(QObject::tr("invalid authentication type specified for client"));
+                            }
+                        }
+
+                        if (xmlReader.tokenType() == QXmlStreamReader::EndElement &&
+                            xmlReader.name() == "client_configuration") {
+                            clientsDone = true;
                         }
                     }
                 } else {
