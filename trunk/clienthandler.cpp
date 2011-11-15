@@ -274,7 +274,6 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got Content-Encoding gzip";
             }
-            qDebug() << "!!!!!!!!!!!!!!!---------------- using compression -----------!!!!!!!!!!!!!!!!!!!!!!";
             _useCompression = true;
         }
     }
