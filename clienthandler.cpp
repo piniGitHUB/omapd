@@ -338,7 +338,9 @@ void ClientHandler::handleParseComplete()
         if (_parser->requestType() != MapRequest::NewSession) {
             // Validate session-id belongs to this client
             if (! _mapSessions->validateSessionId(_parser->sessionId(), _authToken)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Invalid session-id from pubId:" << _mapSessions->pubIdForAuthToken(_authToken);;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Invalid session-id from pubId:"
+                        << _mapSessions->pubIdForAuthToken(_authToken)
+                        << "with session-id:" << _parser->sessionId();
                 MapResponse errorResp(_parser->requestVersion());
                 errorResp.setErrorResponse(MapRequest::IfmapInvalidSessionID, _parser->sessionId());
                 sendMapResponse(errorResp);
