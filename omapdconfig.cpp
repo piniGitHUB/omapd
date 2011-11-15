@@ -398,7 +398,6 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                 }
                                 if (haveUsername && havePassword) {
                                     // Create client
-                                    qDebug() << "name, username, password:" << clientName << username << password;
                                     ClientConfiguration *clientConfig = new ClientConfiguration();
                                     clientConfig->createBasicAuthClient(clientName, username, password, OmapdConfig::authzOptions(clientAuthz));
                                     _clientConfigurations.append(clientConfig);
@@ -413,19 +412,16 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                         // TODO: Deal with certificate type {pem|der}
                                         certFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
                                         haveClientCertFile = true;
-                                        qDebug() << "certFileName:" << certFileName;
                                     } else if (xmlReader.name() == "ca_certificates_file") {
                                         // TODO: Deal with certificate type {pem|der}
                                         caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
                                         haveCACertFile = true;
-                                        qDebug() << "caCertFileName:" << caCertFileName;
                                     } else {
                                         xmlReader.raiseError(QObject::tr("invalid cert auth element"));
                                     }
                                     xmlReader.readNextStartElement();
                                 }
                                 if (haveCACertFile && haveClientCertFile) {
-                                    qDebug() << "name, cert, cacert:" << clientName << certFileName << caCertFileName;
                                     // Create client
                                     ClientConfiguration *clientConfig = new ClientConfiguration();
                                     clientConfig->createCertAuthClient(clientName, certFileName, caCertFileName, OmapdConfig::authzOptions(clientAuthz));
