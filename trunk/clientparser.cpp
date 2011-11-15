@@ -318,32 +318,40 @@ void ClientParser::parseDocument()
 
 void ClientParser::parseEnvelope()
 {
-    while (_xml.readNextStartElement()) {
+    bool done = false;
+    while (!_xml.atEnd() && !done) {
+        _xml.readNext();
 
-        if (_xml.name().compare("Header", Qt::CaseSensitive) == 0) {
+        if (_xml.isStartElement() && _xml.name() == "Header") {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Header"
                         << "in namespace:" << _xml.namespaceUri();
             }
             registerMetadataNamespaces();
             parseHeader();
-        } else if (_xml.name().compare("Body", Qt::CaseSensitive) == 0) {
+        } else if (_xml.isStartElement() && _xml.name() == "Body") {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got SOAP Body"
                         << "in namespace:" << _xml.namespaceUri();
             }
             registerMetadataNamespaces();
             parseBody();
-        } else {
+        } else if (_xml.isStartElement()) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Error reading SOAP Header or Body:" << _xml.name() << _xml.tokenString();
             _xml.raiseError("Error reading SOAP Header or Body");
             _requestError = MapRequest::IfmapClientSoapFault;
+        }
+
+        if (_xml.tokenType() == QXmlStreamReader::EndElement &&
+            _xml.name().compare("Envelope", Qt::CaseSensitive) == 0) {
+            done = true;
         }
     }
 }
 
 void ClientParser::parseHeader()
 {
+    _xml.readNextStartElement();
     if (_xml.name() == "new-session" && _xml.namespaceUri() == IFMAP_NS_1 &&
         _omapdConfig->valueFor("version_support").value<OmapdConfig::MapVersionSupportOptions>().testFlag(OmapdConfig::SupportIfmapV10)) {
         // Support for IF-MAP 1.0 client new-session, but this is still IF-MAP 1.1 operations
