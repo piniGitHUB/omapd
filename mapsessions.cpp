@@ -311,12 +311,13 @@ ClientHandler* MapSessions::ssrcForClient(QString authToken)
     return clientHandler;
 }
 
-void MapSessions::swapSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler)
+void MapSessions::migrateSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler)
 {
     if (_mapClients.contains(authToken) &&
         _mapClients.value(authToken).hasActiveSSRC()) {
-        _ssrcConnections.remove(authToken);
+        ClientHandler *oldConnection = _ssrcConnections.take(authToken);
         _ssrcConnections.insert(authToken, newSSRCClientHandler);
+        oldConnection->deleteLater();
     }
 }
 
