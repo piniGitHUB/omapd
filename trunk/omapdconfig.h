@@ -24,6 +24,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <QtCore>
 
+class ClientConfiguration;
+
 class OmapdConfig : public QObject
 {
     Q_OBJECT
@@ -62,7 +64,7 @@ public:
         AllowPoll = 0x08,
         AllowPurgeSelf = 0x10,
         AllowPurgeOthers = 0x20,
-        AllowAll = 0xFF
+        AllowAll = 0x80
     };
     Q_DECLARE_FLAGS(AuthzOptions, Authz);
     static AuthzOptions authzOptions(unsigned int authzValue);
@@ -73,6 +75,8 @@ public:
     bool isSet(QString key) { return _omapdConfig.contains(key); }
     QVariant valueFor(QString key);
     void showConfigValues();
+
+    QList<ClientConfiguration *> clientConfigurations() { return _clientConfigurations; }
 
     int readConfigFile(QString configFileName = "omapd.conf");
 
@@ -87,6 +91,7 @@ private:
     static OmapdConfig *_instance;
 
     QMap<QString,QVariant> _omapdConfig;
+    QList<ClientConfiguration *> _clientConfigurations;
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::IfmapDebugOptions)
 Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::MapVersionSupportOptions)

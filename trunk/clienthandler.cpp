@@ -46,6 +46,8 @@ ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
     connect(this, SIGNAL(sslErrors(QList<QSslError>)),
             this, SLOT(clientSSLErrors(QList<QSslError>)));
     connect(this, SIGNAL(encrypted()), this, SLOT(socketReady()));
+    connect(this, SIGNAL(modeChanged(QSslSocket::SslMode)),
+            this, SLOT(clientSslModeChanged(QSslSocket::SslMode)));
 
     _parser = new ClientParser(this);
     connect(_parser, SIGNAL(parsingComplete()),this, SLOT(handleParseComplete()));
@@ -161,6 +163,11 @@ void ClientHandler::socketReady()
             this, SLOT(clientConnState(QAbstractSocket::SocketState)));
 }
 
+void ClientHandler::clientSslModeChanged(QSslSocket::SslMode mode)
+{
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "************************************************** SSL Socket mode changed to:" << mode;
+}
+
 void ClientHandler::clientSSLVerifyError(const QSslError &error)
 {
     qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
@@ -194,8 +201,8 @@ void ClientHandler::registerCert()
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Cert chain for client at:" << this->peerAddress().toString();
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << dnElements.join("/");
             }
+            authToken << dnElements.join("/") << ":";
         }
-        authToken << dnElements.join("/") << ":";
 
         _authType = MapRequest::AuthCert;
         _authToken = authToken.join("");
@@ -254,6 +261,7 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
             }
             // TODO: This will over write any AuthCert value since that happened earlier
             _authType = MapRequest::AuthBasic;
+            // TODO: Don't use password as part of authToken
             _authToken = basicAuthValue;
         }
     }
@@ -288,7 +296,11 @@ void ClientHandler::processReadyRead()
 {
     qDebug() << __PRETTY_FUNCTION__ << ":" << "bytesAvailable:" << this->bytesAvailable() << "on ClientHandler:" << this;
 
-    _parser->readData();
+    if (this->isEncrypted()) {
+        _parser->readData();
+    } else {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "NOT ENCRYPTED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+    }
 }
 
 void ClientHandler::handleParseComplete()
@@ -391,6 +403,7 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
     if (_useCompression) {
         compResponse = compressResponse(response);
         header.setValue("Content-Encoding", "gzip");
+        header.setValue("Transfer-Encoding","chunked");
         header.setContentLength(compResponse.size());
     } else {
         header.setContentLength(response.size());

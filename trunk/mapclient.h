@@ -32,12 +32,14 @@ public:
     // that return a default constructed value
     MapClient();
 
-    MapClient(QString authToken, MapRequest::AuthenticationType authType, QString pubId);
+    MapClient(QString authToken, MapRequest::AuthenticationType authType, OmapdConfig::AuthzOptions authz, QString pubId);
 
-    QString sessId() const { return _sessId; }
     QString pubId()  const { return _pubId; }
     QString authToken() const { return _authToken; }
     MapRequest::AuthenticationType authType() const { return _authType; }
+    OmapdConfig::AuthzOptions authz() const { return _authz; }
+
+    QString sessId() const { return _sessId; }
     bool hasActiveSSRC() const { return _hasActiveSSRC; }
     bool hasActiveARC() const { return _hasActiveARC; }
     bool hasActivePoll() const { return _hasActivePoll; }
@@ -45,9 +47,6 @@ public:
 
     void setSessId(QString sessId) { _sessId = sessId; }
     void clearSessId() { _sessId = QString(); }
-    void setPubId(QString pubId) { _pubId = pubId; }
-    void setAuthToken(QString authToken) { _authToken = authToken; }
-    void setAuthType(MapRequest::AuthenticationType authType) { _authType = authType; }
     void setHasActiveSSRC(bool hasActiveSSRC) { _hasActiveSSRC = hasActiveSSRC; }
     void setHasActiveARC(bool hasActiveARC) { _hasActiveARC = hasActiveARC; }
     void setHasActivePoll(bool hasActivePoll) { _hasActivePoll = hasActivePoll; }
@@ -55,10 +54,12 @@ public:
     void emptySubscriptionList() { _subscriptionList.clear(); }
 
 private:
-    QString _sessId;
     QString _pubId;
     QString _authToken;
     MapRequest::AuthenticationType _authType;
+    OmapdConfig::AuthzOptions _authz;
+
+    QString _sessId;
     bool _hasActiveSSRC;
     bool _hasActiveARC;
     bool _hasActivePoll;

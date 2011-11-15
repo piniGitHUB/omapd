@@ -17,7 +17,8 @@ SOURCES += main.cpp \
     subscription.cpp \
     clienthandler.cpp \
     clientparser.cpp \
-    mapclient.cpp
+    mapclient.cpp \
+    clientconfiguration.cpp
 HEADERS += server.h \
     identifier.h \
     metadata.h \
@@ -30,4 +31,5 @@ HEADERS += server.h \
     server.h \
     clienthandler.h \
     clientparser.h \
-    mapclient.h
+    mapclient.h \
+    clientconfiguration.h

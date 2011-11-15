@@ -24,17 +24,19 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 MapClient::MapClient()
 {
     _authType = MapRequest::AuthNone;
+    _authz = OmapdConfig::DenyAll;
     _hasActiveSSRC = false;
     _hasActiveARC = false;
     _hasActivePoll = false;
 }
 
-MapClient::MapClient(QString authToken, MapRequest::AuthenticationType authType, QString pubId)
+MapClient::MapClient(QString authToken, MapRequest::AuthenticationType authType, OmapdConfig::AuthzOptions authz, QString pubId)
 {
     _hasActiveSSRC = false;
     _hasActiveARC = false;
     _hasActivePoll = false;
     _authToken = authToken;
     _authType = authType;
+    _authz = authz;
     _pubId = pubId;
 }

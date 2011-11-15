@@ -48,6 +48,9 @@ bool Server::startListening()
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Error setting server address";
     }
 
+    // Load up MapSessions, which will create configured clients
+    MapSessions::getInstance();
+
     return rc;
 }
 
@@ -70,7 +73,8 @@ void Server::incomingConnection(int socketDescriptor)
 void Server::discardConnection()
 {
     ClientHandler *client = (ClientHandler*)sender();
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "client:" << client;
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "client:" << client;
 
     MapSessions::getInstance()->removeClientConnections(client);
 
@@ -80,10 +84,12 @@ void Server::discardConnection()
 void Server::sendPollResponseToClient(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion)
 {
     if (client) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Client:" << client;
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client:" << client;
+
         client->sendPollResponse(response, reqVersion);
     } else {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Client is null!";
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Client is null!";
     }
 
 }
