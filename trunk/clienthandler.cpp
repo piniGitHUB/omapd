@@ -358,7 +358,7 @@ void ClientHandler::handleParseComplete()
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Servicing client on new SSRC.  Old:" << _mapSessions->ssrcForClient(_authToken)
                             << "New:" << this << "for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
                 }
-                _mapSessions->swapSSRCForClient(_authToken, this);
+                _mapSessions->migrateSSRCForClient(_authToken, this);
             }
         }
 

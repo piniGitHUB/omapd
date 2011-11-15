@@ -55,7 +55,7 @@ public:
     void removeActivePollForClient(QString authToken);
     ClientHandler* pollConnectionForClient(QString authToken);
     ClientHandler* ssrcForClient(QString authToken);
-    void swapSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler);
+    void migrateSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler);
 
     void setActiveARCForClient(QString authToken, ClientHandler *arcClientHandler);
     bool haveActiveARCForClient(QString authToken);
