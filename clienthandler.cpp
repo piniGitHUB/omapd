@@ -1493,7 +1493,9 @@ void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
         }
-        addIdentifierResult(sub, id, idMetaList, resultType, operationError);
+        // Add the identifier only if there are metadata.
+        if (idMetaList.size() > 0)
+          addIdentifierResult(sub, id, idMetaList, resultType, operationError);
     }
 
     QSetIterator<Link> linkIt(linkList);
@@ -1503,7 +1505,9 @@ void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
         }
-        addLinkResult(sub, link, linkMetaList, resultType, operationError);
+        // Add the link only if there are metadata.
+        if (linkMetaList.size() > 0)
+          addLinkResult(sub, link, linkMetaList, resultType, operationError);
     }
 
     if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT) { // TODO: Replace with client setting
