@@ -110,11 +110,6 @@ OmapdConfig::AuthzOptions OmapdConfig::authzOptions(unsigned int authzValue)
 {
     OmapdConfig::AuthzOptions value = OmapdConfig::DenyAll;
 
-    if (authzValue & OmapdConfig::AllowAll) {
-        value |= OmapdConfig::AllowAll;
-        return value;
-    }
-
     if (authzValue & OmapdConfig::AllowPublish) value |= OmapdConfig::AllowPublish;
     if (authzValue & OmapdConfig::AllowSearch) value |= OmapdConfig::AllowSearch;
     if (authzValue & OmapdConfig::AllowSubscribe) value |= OmapdConfig::AllowSubscribe;
@@ -343,15 +338,14 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                     }  // service_configuration
                 } else if (xmlReader.name() == "client_configuration") {
                     QVariant defaultAuthzVar;
-                    defaultAuthzVar.setValue(OmapdConfig::authzOptions(0));
                     if (xmlReader.attributes().hasAttribute("default-authorization")) {
                         bool ok;
                         unsigned int authzVal = xmlReader.attributes().value("default-authorization").toString().toUInt(&ok, 16);
                         if (ok) {
-                            defaultAuthzVar.setValue(OmapdConfig::authzOptions(authzVal));
+                            defaultAuthzVar.setValue(authzVal);
+			    addConfigItem("default_authorization", defaultAuthzVar);
                         }
                     }
-                    addConfigItem("default_authorization", defaultAuthzVar);
 
                     bool clientsDone = false;
                     while (!xmlReader.atEnd() && !clientsDone) {
