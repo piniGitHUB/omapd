@@ -6,10 +6,7 @@ If you are interested in participating in the development of omapd please consid
 Major missing features in omapd (in rough order of importance)
   # Persistent data store
   # Flesh out the Configuration, Management, and Logging (CML) interface
-  # Test suite to validate specification conformance
-  # Metadata XML Validation
   # Translating filters from IF-MAP Filter syntax to XPath 2.0 syntax
-  # MAP Client authorization
   # Running as a daemon
   # MAP Graph visualization
   # More -- see [https://code.google.com/p/omapd/issues/list Issues]
