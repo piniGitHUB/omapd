@@ -35,8 +35,16 @@ class ClientHandler : public QSslSocket
 {
     Q_OBJECT
 public:
+    enum CertInfoTarget {
+        Subject = 1,
+        Issuer
+    };
+
     explicit ClientHandler(MapGraphInterface *mapGraph, QObject *parent = 0);
     ~ClientHandler();
+
+    static QString buildDN(QSslCertificate cert, ClientHandler::CertInfoTarget target);
+
     void sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion);
     QString authToken() { return _authToken; }
     bool useCompression() { return _useCompression; }

@@ -64,7 +64,7 @@ public:
         AllowPoll = 0x08,
         AllowPurgeSelf = 0x10,
         AllowPurgeOthers = 0x20,
-        AllowAll = 0x80
+        AllowAll = 0x3F // Convenience enum "or" of all allow options
     };
     Q_DECLARE_FLAGS(AuthzOptions, Authz);
     static AuthzOptions authzOptions(unsigned int authzValue);

@@ -94,6 +94,8 @@ QString Subscription::translateFilter(QString ifmapFilter)
 
        meta:role[@publisher-id = "myPubId" or name="myRole"] or meta:ip-mac
        --> (meta:role[@publisher-id = "myPubId" or name="myRole"] | meta:ip-mac)
+
+       standard XPath does not support predicate expressions that begin with [; need to add *
     */
 
     // TODO: Do this with QRegExp

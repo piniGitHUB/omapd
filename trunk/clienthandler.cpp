@@ -28,6 +28,32 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "clienthandler.h"
 #include "clientparser.h"
 #include "mapsessions.h"
+#include "clientconfiguration.h"
+
+QString ClientHandler::buildDN(QSslCertificate cert, ClientHandler::CertInfoTarget target)
+{
+    QStringList dnElements;
+    QString certDN;
+
+    if (target == ClientHandler::Subject) {
+        dnElements << cert.subjectInfo(QSslCertificate::Organization)
+                << cert.subjectInfo(QSslCertificate::CountryName)
+                << cert.subjectInfo(QSslCertificate::StateOrProvinceName)
+                << cert.subjectInfo(QSslCertificate::LocalityName)
+                << cert.subjectInfo(QSslCertificate::OrganizationalUnitName)
+                << cert.subjectInfo(QSslCertificate::CommonName);
+    } else if (target == ClientHandler::Issuer) {
+        dnElements << cert.subjectInfo(QSslCertificate::Organization)
+                << cert.issuerInfo(QSslCertificate::CountryName)
+                << cert.issuerInfo(QSslCertificate::StateOrProvinceName)
+                << cert.issuerInfo(QSslCertificate::LocalityName)
+                << cert.issuerInfo(QSslCertificate::OrganizationalUnitName)
+                << cert.issuerInfo(QSslCertificate::CommonName);
+    }
+
+    certDN = dnElements.join("/") + ":";
+    return certDN;
+}
 
 ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
     QSslSocket(parent), _mapGraph(mapGraph)
@@ -107,11 +133,11 @@ void ClientHandler::setupCrypto()
         qDebug() << __PRETTY_FUNCTION__ << ":" << "No private key file:" << keyFile.fileName();
     } else {
         this->setPrivateKey(keyFileName, QSsl::Rsa, QSsl::Pem, keyPassword);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded private key";
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server private key";
     }
 
-    QString certFileName = "server.cert";
+    QString certFileName = "server.pem";
     // TODO: Add QSsl::Der format support from _omapdConfig
     if (_omapdConfig->isSet("certificate_file")) {
         certFileName = _omapdConfig->valueFor("certificate_file").toString();
@@ -128,8 +154,8 @@ void ClientHandler::setupCrypto()
             serverCert = QSslCertificate(&certFile, QSsl::Der);
 
         this->setLocalCertificate(serverCert);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
     }
 
     // Load server CAs
@@ -138,9 +164,30 @@ void ClientHandler::setupCrypto()
         if (!caFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not find CA certificates file" << caFile.fileName();
         } else {
-            this->setCaCertificates(QSslCertificate::fromDevice(&caFile, QSsl::Pem));
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded CA certs in:" << caFile.fileName();
+            QList<QSslCertificate> serverCAList = QSslCertificate::fromDevice(&caFile, QSsl::Pem);
+            this->setCaCertificates(serverCAList);
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded" << serverCAList.size() << "CA certs in:" << caFile.fileName();
+        }
+    }
+
+    // Load client CAs
+    QList<ClientConfiguration *> clientConfigurations = _omapdConfig->clientConfigurations();
+    QListIterator<ClientConfiguration *> clientIt(clientConfigurations);
+    while (clientIt.hasNext()) {
+        ClientConfiguration *client = clientIt.next();
+        if (client->authType() == MapRequest::AuthCert) {
+            QFile clientCaFile(client->caCertFileName());
+            if (!clientCaFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Client:" << client->name()
+                        << "has no CA certificates file" << clientCaFile.fileName();
+            } else {
+                QList<QSslCertificate> caList = QSslCertificate::fromDevice(&clientCaFile, QSsl::Pem);
+                this->addCaCertificates(caList);
+
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded " << caList.size() << "CA certs in:" << clientCaFile.fileName();
+            }
         }
     }
 
@@ -155,7 +202,8 @@ void ClientHandler::socketReady()
     }
     qDebug() << __PRETTY_FUNCTION__ << ":" << "Successful SSL handshake with peer:" << this->peerAddress().toString();
 
-    registerCert();
+    if (!this->sslConfiguration().peerCertificate().isNull())
+        registerCert();
 
     connect(this, SIGNAL(readyRead()), this, SLOT(processReadyRead()));
 
@@ -179,36 +227,96 @@ void ClientHandler::clientSSLErrors(const QList<QSslError> &errors)
         qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
     }
 
+    QSslCertificate clientCert = this->peerCertificate();
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "$$$$$$$$$$$$$$$$$$$$$  client Cert CN:" << clientCert.subjectInfo(QSslCertificate::CommonName);
+
+    QList<QSslCertificate> caCerts = this->peerCertificateChain();
+    for (int i=0; i<caCerts.size(); i++) {
+        QStringList dnElements;
+        dnElements << caCerts.at(i).subjectInfo(QSslCertificate::Organization)
+                << caCerts.at(i).subjectInfo(QSslCertificate::CountryName)
+                << caCerts.at(i).subjectInfo(QSslCertificate::StateOrProvinceName)
+                << caCerts.at(i).subjectInfo(QSslCertificate::LocalityName)
+                << caCerts.at(i).subjectInfo(QSslCertificate::OrganizationalUnitName)
+                << caCerts.at(i).subjectInfo(QSslCertificate::CommonName);
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "-------------------- DN:" << dnElements.join("/");
+        }
+    }
+
     qDebug() << __PRETTY_FUNCTION__ << ":" << "ALERT!!!!!!!! Calling ignoreSslErrors";
     this->ignoreSslErrors();
 }
 
 void ClientHandler::registerCert()
 {
-    QList<QSslCertificate> clientCerts = this->peerCertificateChain();
-    if (clientCerts.size() > 0) {
-        QStringList authToken;
-        QStringList dnElements;
 
-        for (int i=0; i<clientCerts.size(); i++) {
-            dnElements << clientCerts.at(i).subjectInfo(QSslCertificate::Organization)
-                    << clientCerts.at(i).subjectInfo(QSslCertificate::CountryName)
-                    << clientCerts.at(i).subjectInfo(QSslCertificate::StateOrProvinceName)
-                    << clientCerts.at(i).subjectInfo(QSslCertificate::LocalityName)
-                    << clientCerts.at(i).subjectInfo(QSslCertificate::OrganizationalUnitName)
-                    << clientCerts.at(i).subjectInfo(QSslCertificate::CommonName);
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Cert chain for client at:" << this->peerAddress().toString();
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << dnElements.join("/");
-            }
-            authToken << dnElements.join("/") << ":";
-        }
-
-        _authType = MapRequest::AuthCert;
-        _authToken = authToken.join("");
-
-        _mapSessions->registerMapClient(this, _authType, _authToken);
+    QSslCertificate clientCert = this->sslConfiguration().peerCertificate();
+    QString clientSubjectDN = buildDN(clientCert, ClientHandler::Subject);
+    QString clientIssuerDN = buildDN(clientCert, ClientHandler::Issuer);
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "registering client with DN:" << clientSubjectDN;
     }
+
+    QList<QSslCertificate> caCerts = this->sslConfiguration().caCertificates();
+
+    bool done = false;
+    bool gotMatch = false;
+    int certIndex = 0;
+    QString issuerSearch = clientIssuerDN;
+    while (!done) {
+        if (certIndex < caCerts.size()) {
+            QSslCertificate candidateCA = caCerts.at(certIndex);
+            QString candidateSubject = buildDN(candidateCA, ClientHandler::Subject);
+            if (issuerSearch.compare(candidateSubject, Qt::CaseSensitive) == 0) {
+                gotMatch = true;
+                issuerSearch = buildDN(candidateCA, ClientHandler::Issuer);
+                certIndex = 0;
+            } else {
+                certIndex++;
+            }
+        }
+    }
+
+    QStringList dnElements;
+    dnElements << clientCert.subjectInfo(QSslCertificate::Organization)
+            << clientCert.subjectInfo(QSslCertificate::CountryName)
+            << clientCert.subjectInfo(QSslCertificate::StateOrProvinceName)
+            << clientCert.subjectInfo(QSslCertificate::LocalityName)
+            << clientCert.subjectInfo(QSslCertificate::OrganizationalUnitName)
+            << clientCert.subjectInfo(QSslCertificate::CommonName);
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Cert chain for client at:" << this->peerAddress().toString();
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << dnElements.join("/");
+    }
+    _authToken = dnElements.join("/") + ":";
+    _authType = MapRequest::AuthCert;
+    _mapSessions->registerMapClient(this, _authType, _authToken);
+
+
+//    if (clientCerts.size() > 0) {
+//        QStringList authToken;
+//        QStringList dnElements;
+
+//        for (int i=0; i<clientCerts.size(); i++) {
+//            dnElements << clientCerts.at(i).subjectInfo(QSslCertificate::Organization)
+//                    << clientCerts.at(i).subjectInfo(QSslCertificate::CountryName)
+//                    << clientCerts.at(i).subjectInfo(QSslCertificate::StateOrProvinceName)
+//                    << clientCerts.at(i).subjectInfo(QSslCertificate::LocalityName)
+//                    << clientCerts.at(i).subjectInfo(QSslCertificate::OrganizationalUnitName)
+//                    << clientCerts.at(i).subjectInfo(QSslCertificate::CommonName);
+//            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+//                qDebug() << __PRETTY_FUNCTION__ << ":" << "Cert chain for client at:" << this->peerAddress().toString();
+//                qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << dnElements.join("/");
+//            }
+//            authToken << dnElements.join("/") << ":";
+//        }
+
+//        _authType = MapRequest::AuthCert;
+//        _authToken = authToken.join("");
+
+//        _mapSessions->registerMapClient(this, _authType, _authToken);
+//    }
 }
 
 void ClientHandler::clientConnState(QAbstractSocket::SocketState sState)
@@ -293,7 +401,7 @@ void ClientHandler::sendHttpResponse(int hdrNumber, QString hdrText)
 
 void ClientHandler::processReadyRead()
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "bytesAvailable:" << this->bytesAvailable() << "on ClientHandler:" << this;
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "bytesAvailable:" << this->bytesAvailable() << "from peer:" << this->peerAddress().toString();
 
     if (this->isEncrypted()) {
         _parser->readData();
