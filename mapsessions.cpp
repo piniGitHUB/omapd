@@ -90,7 +90,6 @@ void MapSessions::loadClientConfigurations()
 
         } else if (client->authType() == MapRequest::AuthCert) {
             QStringList tempToken;
-            QStringList dnElements;
             QList<QSslCertificate> clientCerts;
 
             if (client->haveClientCert()) {
@@ -110,30 +109,13 @@ void MapSessions::loadClientConfigurations()
 
                     clientCerts.append(clientCert);
 
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded client certificate with CN:" << clientCert.subjectInfo(QSslCertificate::CommonName);
                 }
             }
 
-            QFile caFile(client->caCertFileName());
-            if (!caFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Client:" << client->name()
-                        << "has no CA certificates file" << caFile.fileName();
-            } else {
-                QList<QSslCertificate> caList = QSslCertificate::fromDevice(&caFile, QSsl::Pem);
-                if ( (client->haveClientCert() && clientConfigOk == true) || !client->haveClientCert()) {
-                    // if we require a client cert, then the client cert must have been valid (configOk == true)
-                    // by this point
-                    if (!caList.isEmpty()) clientConfigOk = true;
-                }
-
-                clientCerts.append(caList);
-
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded CA certs in:" << caFile.fileName();
-            }
-
             for (int i=0; i<clientCerts.size(); i++) {
+                QStringList dnElements;
                 dnElements << clientCerts.at(i).subjectInfo(QSslCertificate::Organization)
                         << clientCerts.at(i).subjectInfo(QSslCertificate::CountryName)
                         << clientCerts.at(i).subjectInfo(QSslCertificate::StateOrProvinceName)

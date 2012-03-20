@@ -368,7 +368,7 @@ void ClientParser::parseHeader()
         _sessionId = _xml.readElementText();
         _clientSetSessionId = true;
     } else {
-        _xml.skipCurrentElement();
+        //_xml.skipCurrentElement();
     }
 }
 
