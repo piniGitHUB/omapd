@@ -260,21 +260,19 @@ void ClientHandler::registerCert()
 
     QList<QSslCertificate> caCerts = this->sslConfiguration().caCertificates();
 
-    bool done = false;
+    // Need to build up the entire trust chain
     bool gotMatch = false;
     int certIndex = 0;
     QString issuerSearch = clientIssuerDN;
-    while (!done) {
-        if (certIndex < caCerts.size()) {
-            QSslCertificate candidateCA = caCerts.at(certIndex);
-            QString candidateSubject = buildDN(candidateCA, ClientHandler::Subject);
-            if (issuerSearch.compare(candidateSubject, Qt::CaseSensitive) == 0) {
-                gotMatch = true;
-                issuerSearch = buildDN(candidateCA, ClientHandler::Issuer);
-                certIndex = 0;
-            } else {
-                certIndex++;
-            }
+    while (certIndex < caCerts.size()) {
+        QSslCertificate candidateCA = caCerts.at(certIndex);
+        QString candidateSubject = buildDN(candidateCA, ClientHandler::Subject);
+        if (issuerSearch.compare(candidateSubject, Qt::CaseSensitive) == 0) {
+            gotMatch = true;
+            issuerSearch = buildDN(candidateCA, ClientHandler::Issuer);
+            certIndex = 0;
+        } else {
+            certIndex++;
         }
     }
 
