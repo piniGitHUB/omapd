@@ -45,7 +45,6 @@ public:
     QString registerMapClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString authToken);
     QString sessIdForClient(QString authToken);
     QString addActiveSSRCForClient(QString authToken);
-    void checkSessionIdInRequest(MapRequest &clientRequest, QString authToken);
 
     bool haveActiveSSRCForClient(QString authToken);
     void removeActiveSSRCForClient(QString authToken);

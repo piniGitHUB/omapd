@@ -290,42 +290,6 @@ QString MapSessions::addActiveSSRCForClient(QString authToken)
     return sessId;
 }
 
-void MapSessions::checkSessionIdInRequest(MapRequest &clientRequest, QString authToken)
-{
-    /* IFMAP20: 4.4: If the session-id is valid, the server MUST respond with
-       a renewSessionResult element.  Otherwise, the server MUST respond with
-       an errorResult element, specifying an InvalidSessionID errorCode.
-    */
-    if (clientRequest.clientSetSessionId()) {
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using session-id in client request:" << clientRequest.sessionId();
-        }
-    } else if (_omapdConfig->valueFor("allow_invalid_session_id").toBool()) {
-        // NON-STANDARD BEHAVIOR!!!
-        // This let's someone curl in a bunch of messages without worrying about
-        // maintaining SSRC state.
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "NON-STANDARD: Ignoring invalid or missing session-id";
-        if (_mapClients.contains(authToken)) {
-            clientRequest.setSessionId(_mapClients.value(authToken).sessId());
-        }
-    }
-
-    // Do we have a corresponding publisherId for this session-id?
-    if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveSSRC() &&
-        _mapClients.value(authToken).sessId().compare(clientRequest.sessionId(), Qt::CaseSensitive) == 0) {
-        // We do have an active SSRC session
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got session-id:" << clientRequest.sessionId()
-                     << "and publisherId:" << _mapClients.value(authToken).pubId();
-        }
-    } else {
-        // We do NOT have a valid SSRC session
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Invalid Session Id for client with authToken:" << authToken;
-        clientRequest.setRequestError(MapRequest::IfmapInvalidSessionID);
-    }
-}
-
 bool MapSessions::validateSessionId(QString sessId, QString authToken)
 {
     bool rc = false;
