@@ -25,6 +25,10 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QTcpServer>
 #include "mapgraphinterface.h"
 
+#if defined(Q_CC_MSVC)
+    #define __PRETTY_FUNCTION__  __FUNCSIG__
+#endif
+
 class ClientHandler;
 class MapResponse;
 

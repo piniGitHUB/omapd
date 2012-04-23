@@ -33,3 +33,4 @@ HEADERS += server.h \
     clientparser.h \
     mapclient.h \
     clientconfiguration.h
+INCLUDEPATH += $$[QT_INSTALL_PREFIX]/src/3rdparty/zlib
