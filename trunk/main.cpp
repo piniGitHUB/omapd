@@ -26,6 +26,12 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "omapdconfig.h"
 #include "mapgraphinterface.h"
 
+#if defined(Q_OS_WIN)
+    #define _MAPGRAPH_PLUGIN_FILENAME "RAMHashTables.dll"
+#else
+    #define _MAPGRAPH_PLUGIN_FILENAME "libRAMHashTables.so"
+#endif
+
 QFile logFile;
 QFile logStderr;
 
@@ -113,7 +119,7 @@ int main(int argc, char *argv[])
      }
  #endif
      pluginsDir.cd("plugins");
-     QPluginLoader pluginLoader(pluginsDir.absoluteFilePath("libRAMHashTables.so"));
+     QPluginLoader pluginLoader(pluginsDir.absoluteFilePath(_MAPGRAPH_PLUGIN_FILENAME));
      QObject *plugin = pluginLoader.instance();
      if (plugin) {
          mapGraph = qobject_cast<MapGraphInterface *>(plugin);
