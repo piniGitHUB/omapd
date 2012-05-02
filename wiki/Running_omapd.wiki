@@ -2,7 +2,7 @@
 #labels Featured,Phase-Implementation
 
 = Configuration =
-Out of the box, omapd runs on port 8081 and accepts connections on https://host:8081.  You may need to open tcp port 8081 on your firewall.  To change configuration options, edit the 
+Out of the box, omapd runs on port 8096 and accepts connections on https://host:8096.  You may need to open tcp port 8081 on your firewall.  To change configuration options, edit the 
 omapd.conf file.
 
 = SSL =
