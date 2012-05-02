@@ -12,9 +12,18 @@ You will need to download a [http://qt.nokia.com/downloads Qt SDK development en
 
 Once you have the Qt SDK installed, get a version of omapd to play with.
 
-Now you have a couple options:
-  # Use `QtCreator`  to open the omapd.pro file in the omapd source tree.  Build and run.
-  # Run qmake (part of the Qt SDK) on the omapd.pro file
+To build with QtCreator:
+  # Use `QtCreator`  to open the RAMHashTables.pro file in the plugins/RAMHashTables directory and build
+  # Use `QtCreator`  to open the omapd.pro file in the omapd source tree.  Build and run
+
+To build manually:
+  # Go into the appropriate plugins subdirectory (at this point only RAMHashTables)
+   * Run qmake on the RAMHashTables.pro file
+   * This creates a Makefile
+   * Then type make  
+  # At the top level omapd source directory:
+   * Run qmake (part of the Qt SDK) on the omapd.pro file
    * This creates a Makefile
    * Then type make
+  # With the plugin shared library and omapd executable
    * Then execute omapd: ./omapd
