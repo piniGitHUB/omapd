@@ -229,10 +229,10 @@ void ClientParser::readData()
     bool didGetCompleteRequest = false;
     if (!_haveAllHeaders) readHeader();
 
+    QByteArray tempData;
     bool isCompressed = ((ClientHandler*)this->parent())->useCompression();
     if (isCompressed) {
         QByteArray compData = ((ClientHandler*)this->parent())->readAll();
-        QByteArray tempData;
         gunzipBodyPartially(compData, tempData);
 
         if (!_setDeviceForCompression) {
@@ -240,6 +240,17 @@ void ClientParser::readData()
             _setDeviceForCompression = true;
         }
         _xmlSocketReader.addData(tempData);
+    }
+
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData)) {
+        if (!_setDeviceForCompression) {
+            tempData = ((ClientHandler*)this->parent())->readAll();
+            _xmlSocketReader.clear();
+            _xmlSocketReader.addData(tempData);
+        }
+        qDebug() << __PRETTY_FUNCTION__ << ": Raw Socket Data" << endl
+                 << tempData
+                 << endl;
     }
 
     if (_haveAllHeaders) {
