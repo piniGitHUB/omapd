@@ -221,8 +221,9 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
     // Delete publisher's metadata on links
     QList<Link> linksWithPub = _publisherLinks.values(pubId);
     qDebug() << fnName << "have publisherId on num links:" << linksWithPub.size();
+    bool linkDeleted = false;
     QListIterator<Link> linkIt(linksWithPub);
-    while (linkIt.hasNext()) {
+    while (linkIt.hasNext() && !linkDeleted) {
         Link linkPub = linkIt.next();
         QList<Meta> deletedMetaList;
         bool publisherHasMetaOnLink = false;
@@ -255,6 +256,7 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
         if (! deletedMetaList.isEmpty()) {
             linkMetaDeleted->insert(linkPub, deletedMetaList);
             somethingDeleted = true;
+            linkDeleted = true;
         }
 
         if (metaOnLink.isEmpty()) {
