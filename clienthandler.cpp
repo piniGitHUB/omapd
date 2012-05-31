@@ -1358,13 +1358,16 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
         QHash<Link, QList<Meta> > linkMetaDeleted;
         bool haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
         // Check subscriptions for changes to Map Graph
-        if (haveChange) {
+        while (haveChange) {
             updateSubscriptions(idMetaDeleted, linkMetaDeleted);
-            sendResultsOnActivePolls();
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
                 _mapGraph->dumpMap();
             }
+            idMetaDeleted.clear();
+            linkMetaDeleted.clear();
+            haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
         }
+        sendResultsOnActivePolls();
     }
 
     return hadExistingSSRCSession;
