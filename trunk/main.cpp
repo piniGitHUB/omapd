@@ -27,9 +27,9 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "mapgraphinterface.h"
 
 #if defined(Q_OS_WIN)
-    #define _MAPGRAPH_PLUGIN_FILENAME "RAMHashTables.dll"
+#define _MAPGRAPH_PLUGIN_FILENAME "RAMHashTables.dll"
 #else
-    #define _MAPGRAPH_PLUGIN_FILENAME "libRAMHashTables.so"
+#define _MAPGRAPH_PLUGIN_FILENAME "libRAMHashTables.so"
 #endif
 
 QFile logFile;
@@ -127,23 +127,23 @@ int main(int argc, char *argv[])
 
     qDebug() << "Will load plugin from:" << pluginPath;
     MapGraphInterface *mapGraph = 0;
-     QPluginLoader pluginLoader(pluginPath);
-     QObject *plugin = pluginLoader.instance();
-     if (plugin) {
-         mapGraph = qobject_cast<MapGraphInterface *>(plugin);
-         if (!mapGraph) {
-             qDebug() << "main: could not load MapGraph Plugin";
-             exit(1);
-         }
-         if (omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-             mapGraph->setDebug(true);
-         else
-             mapGraph->setDebug(false);
+    QPluginLoader pluginLoader(pluginPath);
+    QObject *plugin = pluginLoader.instance();
+    if (plugin) {
+        mapGraph = qobject_cast<MapGraphInterface *>(plugin);
+        if (!mapGraph) {
+            qDebug() << "main: could not load MapGraph Plugin";
+            exit(1);
+        }
+        if (omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            mapGraph->setDebug(true);
+        else
+            mapGraph->setDebug(false);
 
-     } else {
-         qDebug() << "main: could not get plugin instance";
-         exit(1);
-     }
+    } else {
+        qDebug() << "main: could not get plugin instance";
+        exit(1);
+    }
 
     // Start a server with this MAP graph
     Server *server = new Server(mapGraph);
