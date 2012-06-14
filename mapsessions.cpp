@@ -473,7 +473,9 @@ bool MapSessions::validateMetadata(Meta aMeta)
 {
     bool isValid = false;
 
-    if (aMeta.elementNS().compare(IFMAP_META_NS_1, Qt::CaseSensitive) == 0) {
+    if (_omapdConfig->isSet("ifmap_metadata_v11_schema_path") &&
+            aMeta.elementNS().compare(IFMAP_META_NS_1, Qt::CaseSensitive) == 0) {
+
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Validating standard IF-MAP v1.1 Metadata";
         }
@@ -491,7 +493,9 @@ bool MapSessions::validateMetadata(Meta aMeta)
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Error with IF-MAP v1.1 Metadata Schema: unable to use schema for validation";
         }
 
-    } else if (aMeta.elementNS().compare(IFMAP_META_NS_2, Qt::CaseSensitive) == 0) {
+    } else if (_omapdConfig->isSet("ifmap_metadata_v11_schema_path") &&
+               aMeta.elementNS().compare(IFMAP_META_NS_2, Qt::CaseSensitive) == 0) {
+
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Validating standard IF-MAP v2.0 Metadata";
         }
@@ -510,6 +514,7 @@ bool MapSessions::validateMetadata(Meta aMeta)
         }
 
     } else {
+        // If we are not validating IF-MAP standard metadata, consider it VSM
         VSM metaNSName;
         metaNSName.first = aMeta.elementName();
         metaNSName.second = aMeta.elementNS();
