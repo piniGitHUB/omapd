@@ -22,6 +22,8 @@ public:
 
     virtual QList<Meta> metaForLink(Link link) = 0;
     virtual QList<Meta> metaForId(Id id) = 0;
+
+    virtual void setDebug(bool debug) = 0;
 };
 
 Q_DECLARE_INTERFACE(MapGraphInterface, "org.omapd.Plugin.MapGraphInterface/1.0");
