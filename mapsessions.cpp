@@ -280,7 +280,8 @@ QString MapSessions::addActiveSSRCForClient(QString authToken)
     QString sessId;
     if (_mapClients.contains(authToken)) {
         sessId = generateSessionId();
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Got session-id to use:" << sessId;
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got session-id to use:" << sessId;
 
         MapClient client = _mapClients.take(authToken);
         client.setSessId(sessId);
