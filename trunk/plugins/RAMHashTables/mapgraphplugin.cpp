@@ -25,12 +25,15 @@ void MapGraphPlugin::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, 
 {
     const char *fnName = "MapGraphPlugin::addMeta:";
 
-    qDebug() << fnName << "number of metadata objects:" << publisherMeta.size();
+    if (_debug)
+        qDebug() << fnName << "number of metadata objects:" << publisherMeta.size();
 
     if (isLink) {
-        qDebug() << fnName << "link:" << link;
+        if (_debug)
+            qDebug() << fnName << "link:" << link;
     } else  {
-        qDebug() << fnName << "id:" << link.first;
+        if (_debug)
+            qDebug() << fnName << "id:" << link.first;
     }
 
     while (! publisherMeta.isEmpty()) {
@@ -48,16 +51,19 @@ void MapGraphPlugin::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, 
         if (existingMetaIndex != -1) {
             if (newMeta.cardinality() == Meta::SingleValue) {
                 // replace
-                qDebug() << fnName << "Replacing singleValue meta:" << newMeta.elementName();
+                if (_debug)
+                    qDebug() << fnName << "Replacing singleValue meta:" << newMeta.elementName();
                 existingMetaList.replace(existingMetaIndex, newMeta);
             } else {
                 // add to list
-                qDebug() << fnName << "Appending multiValue meta:" << newMeta.elementName();
+                if (_debug)
+                    qDebug() << fnName << "Appending multiValue meta:" << newMeta.elementName();
                 existingMetaList << newMeta;
             }
         } else {
             // no existing metadata of this type so add to list regardless of cardinality
-            qDebug() << fnName << "Adding meta:" << newMeta.elementName();
+            if (_debug)
+                qDebug() << fnName << "Adding meta:" << newMeta.elementName();
             existingMetaList << newMeta;
         }
 
@@ -82,14 +88,16 @@ void MapGraphPlugin::addMeta(Link link, bool isLink, QList<Meta> publisherMeta, 
             _publisherLinks.insert(publisherId, link);
         }
 
-        qDebug() << fnName << "_linkMeta has size:" << _linkMeta.size();
+        if (_debug)
+            qDebug() << fnName << "_linkMeta has size:" << _linkMeta.size();
     } else {
         // Track identifiers published by this publisherId
         if (! _publisherIds.contains(publisherId, link.first)) {
             _publisherIds.insert(publisherId, link.first);
         }
 
-        qDebug() << fnName << "_idMeta has size:" << _idMeta.size();
+        if (_debug)
+            qDebug() << fnName << "_idMeta has size:" << _idMeta.size();
     }
 }
 
@@ -170,7 +178,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
 
     // Delete publisher's metadata on identifiers
     QList<Id> idsWithPub = _publisherIds.values(pubId);
-    qDebug() << fnName << "have publisherId on num ids:" << idsWithPub.size();
+    if (_debug)
+        qDebug() << fnName << "have publisherId on num ids:" << idsWithPub.size();
     QListIterator<Id> idIt(idsWithPub);
     while (idIt.hasNext()) {
         Id idPub = idIt.next();
@@ -179,7 +188,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
 
         // Remove metadata on this identifier -- by definition this list in non-empty
         QList<Meta> metaOnId = _idMeta.take(idPub);
-        qDebug() << fnName << "Examining metadata (" << metaOnId.size() << ") on id:" << idPub;
+        if (_debug)
+            qDebug() << fnName << "Examining metadata (" << metaOnId.size() << ") on id:" << idPub;
         for (int metaIndex = metaOnId.size()-1; metaIndex >= 0; metaIndex--) {
             QString testPubId = metaOnId.at(metaIndex).publisherId();
 
@@ -187,7 +197,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
                 if (sessionMetaOnly) {
                     // Only delete session-level metadata
                     if (metaOnId.at(metaIndex).lifetime() == Meta::LifetimeSession) {
-                        qDebug() << fnName << "Removed session identifier Meta:" << metaOnId.at(metaIndex).elementName();
+                        if (_debug)
+                            qDebug() << fnName << "Removed session identifier Meta:" << metaOnId.at(metaIndex).elementName();
                         deletedMetaList << metaOnId.takeAt(metaIndex);
                     } else {
                         // Not removing metadata for this publisher with lifetime=forever
@@ -195,7 +206,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
                     }
                 } else {
                     // Delete metadata regardless of lifetime
-                    qDebug() << fnName << "Removed identifier Meta:" << metaOnId.at(metaIndex).elementName();
+                    if (_debug)
+                        qDebug() << fnName << "Removed identifier Meta:" << metaOnId.at(metaIndex).elementName();
                     deletedMetaList << metaOnId.takeAt(metaIndex);
                 }
             }
@@ -220,7 +232,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
 
     // Delete publisher's metadata on links
     QList<Link> linksWithPub = _publisherLinks.values(pubId);
-    qDebug() << fnName << "have publisherId on num links:" << linksWithPub.size();
+    if (_debug)
+        qDebug() << fnName << "have publisherId on num links:" << linksWithPub.size();
     bool linkDeleted = false;
     QListIterator<Link> linkIt(linksWithPub);
     while (linkIt.hasNext() && !linkDeleted) {
@@ -230,7 +243,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
 
         // Remove metadata on this link -- by definition this list is non-empty
         QList<Meta> metaOnLink = _linkMeta.take(linkPub);
-        qDebug() << fnName << "Examining publisher metadata (" << metaOnLink.size() << ") on link:" << linkPub;
+        if (_debug)
+            qDebug() << fnName << "Examining publisher metadata (" << metaOnLink.size() << ") on link:" << linkPub;
         for (int metaIndex = metaOnLink.size()-1; metaIndex >= 0; metaIndex--) {
             QString testPubId = metaOnLink.at(metaIndex).publisherId();
 
@@ -238,7 +252,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
                 if (sessionMetaOnly) {
                     // Only delete session-level metadata
                     if (metaOnLink.at(metaIndex).lifetime() == Meta::LifetimeSession) {
-                        qDebug() << fnName << "Removed session link Meta:" << metaOnLink.at(metaIndex).elementName();
+                        if (_debug)
+                            qDebug() << fnName << "Removed session link Meta:" << metaOnLink.at(metaIndex).elementName();
                         deletedMetaList << metaOnLink.takeAt(metaIndex);
                     } else {
                         // Not removing metadata for this publisher with lifetime=forever
@@ -246,7 +261,8 @@ bool MapGraphPlugin::deleteMetaWithPublisherId(QString pubId, QHash<Id, QList<Me
                     }
                 } else {
                     // Delete metadata regardless of lifetime
-                    qDebug() << fnName << "Removed link Meta:" << metaOnLink.at(metaIndex).elementName();
+                    if (_debug)
+                        qDebug() << fnName << "Removed link Meta:" << metaOnLink.at(metaIndex).elementName();
                     deletedMetaList << metaOnLink.takeAt(metaIndex);
                 }
             }

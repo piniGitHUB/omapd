@@ -127,6 +127,11 @@ int main(int argc, char *argv[])
              qDebug() << "main: could not load MapGraph Plugin";
              exit(1);
          }
+         if (omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+             mapGraph->setDebug(true);
+         else
+             mapGraph->setDebug(false);
+
      } else {
          qDebug() << "main: could not get plugin instance";
          exit(1);

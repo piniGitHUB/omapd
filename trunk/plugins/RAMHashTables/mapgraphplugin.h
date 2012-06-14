@@ -44,6 +44,8 @@ public:
     QList<Meta> metaForLink(Link link);
     QList<Meta> metaForId(Id id);
 
+    void setDebug(bool debug) { _debug = debug; }
+
 private:
     QHash<Id, QList<Meta> > _idMeta; // Id --> all metadata on Id
     QHash<Link, QList<Meta> > _linkMeta;  // Link --> all metadata on Link
@@ -51,6 +53,7 @@ private:
     QMultiHash<QString, Id> _publisherIds;  // publisherId --> Id (useful for purgePublisher)
     QMultiHash<QString, Link> _publisherLinks;  // publisherId --> Link (useful for purgePublisher)
 
+    bool _debug;
 };
 
 #endif // MAPGRAPHPLUGIN_H
