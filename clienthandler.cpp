@@ -158,19 +158,6 @@ void ClientHandler::setupCrypto()
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
     }
 
-    // Load server CAs
-    if (_omapdConfig->isSet("ca_certificates_file")) {
-        QFile caFile(_omapdConfig->valueFor("ca_certificates_file").toString());
-        if (!caFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not find CA certificates file" << caFile.fileName();
-        } else {
-            QList<QSslCertificate> serverCAList = QSslCertificate::fromDevice(&caFile, QSsl::Pem);
-            this->setCaCertificates(serverCAList);
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded" << serverCAList.size() << "CA certs in:" << caFile.fileName();
-        }
-    }
-
     // Load client CAs
     QList<ClientConfiguration *> clientConfigurations = _omapdConfig->clientConfigurations();
     QListIterator<ClientConfiguration *> clientIt(clientConfigurations);
