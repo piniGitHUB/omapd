@@ -106,20 +106,28 @@ int main(int argc, char *argv[])
 
     //TODO: Threadpool the server objects and synchronize access to the MAP Graph
 
-    MapGraphInterface *mapGraph = 0;
-    QDir pluginsDir(qApp->applicationDirPath());
+    QString pluginPath;
+    if (omapdConfig->isSet("map_graph_plugin_path")) {
+        pluginPath = omapdConfig->valueFor("map_graph_plugin_path").toString();
+    } else {
+        QDir pluginsDir(qApp->applicationDirPath());
 #if defined(Q_OS_WIN)
-     if (pluginsDir.dirName().toLower() == "debug" || pluginsDir.dirName().toLower() == "release")
-         pluginsDir.cdUp();
- #elif defined(Q_OS_MAC)
-     if (pluginsDir.dirName() == "MacOS") {
-         pluginsDir.cdUp();
-         pluginsDir.cdUp();
-         pluginsDir.cdUp();
-     }
- #endif
-     pluginsDir.cd("plugins");
-     QPluginLoader pluginLoader(pluginsDir.absoluteFilePath(_MAPGRAPH_PLUGIN_FILENAME));
+        if (pluginsDir.dirName().toLower() == "debug" || pluginsDir.dirName().toLower() == "release")
+            pluginsDir.cdUp();
+#elif defined(Q_OS_MAC)
+        if (pluginsDir.dirName() == "MacOS") {
+            pluginsDir.cdUp();
+            pluginsDir.cdUp();
+            pluginsDir.cdUp();
+        }
+#endif
+        pluginsDir.cd("plugins");
+        pluginPath = pluginsDir.absoluteFilePath(_MAPGRAPH_PLUGIN_FILENAME);
+    }
+
+    qDebug() << "Will load plugin from:" << pluginPath;
+    MapGraphInterface *mapGraph = 0;
+     QPluginLoader pluginLoader(pluginPath);
      QObject *plugin = pluginLoader.instance();
      if (plugin) {
          mapGraph = qobject_cast<MapGraphInterface *>(plugin);

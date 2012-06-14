@@ -246,6 +246,9 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                     }
                     addConfigItem(xmlReader.name().toString(), dbgVar);
 
+                } else if (xmlReader.name() == "map_graph_plugin_path") {
+                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
+
                 } else if (xmlReader.name() == "ifmap_metadata_v11_schema_path") {
                     addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
 
