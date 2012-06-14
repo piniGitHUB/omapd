@@ -200,7 +200,8 @@ void ClientHandler::socketReady()
         this->disconnectFromHost();
         return;
     }
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "Successful SSL handshake with peer:" << this->peerAddress().toString();
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Successful SSL handshake with peer:" << this->peerAddress().toString();
 
     if (!this->sslConfiguration().peerCertificate().isNull())
         registerCert();
@@ -213,7 +214,6 @@ void ClientHandler::socketReady()
 
 void ClientHandler::clientSslModeChanged(QSslSocket::SslMode mode)
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "************************************************** SSL Socket mode changed to:" << mode;
 }
 
 void ClientHandler::clientSSLVerifyError(const QSslError &error)
@@ -399,7 +399,8 @@ void ClientHandler::sendHttpResponse(int hdrNumber, QString hdrText)
 
 void ClientHandler::processReadyRead()
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "bytesAvailable:" << this->bytesAvailable() << "from peer:" << this->peerAddress().toString();
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "bytesAvailable:" << this->bytesAvailable() << "from peer:" << this->peerAddress().toString();
 
     if (this->isEncrypted()) {
         _parser->readData();
@@ -493,7 +494,6 @@ void ClientHandler::handleParseComplete()
 
 void ClientHandler::sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "in public method: this:" << this;
     this->sendResponse(response, reqVersion);
 }
 
@@ -504,7 +504,6 @@ void ClientHandler::sendMapResponse(MapResponse &mapResponse)
 
 void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "sending response from ClientHandler: this:" << this;
     QByteArray compResponse;
     QHttpResponseHeader header(200,"OK");
     if (_useCompression) {
@@ -1385,8 +1384,9 @@ bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVe
             ClientHandler *client = _mapSessions->pollConnectionForClient(_authToken);
             if (requestVersion == MapRequest::IFMAPv20) {
                 if (client && client->isValid()) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending endSessionResult to publisherId:"
-                             << publisherId << "on client socket" << client;
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending endSessionResult to publisherId:"
+                                 << publisherId << "on client socket" << client;
                     MapResponse pollEndSessionResponse(MapRequest::IFMAPv20); // Has to be IF-MAP 2.0!
                     pollEndSessionResponse.setEndSessionResponse(sessionId);
 
@@ -1394,13 +1394,15 @@ bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVe
                 }
             }
             _mapSessions->removeActivePollForClient(_authToken);
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated active poll for publisherId:" << publisherId;
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated active poll for publisherId:" << publisherId;
         }
 
         // End active ARC Session
         _mapSessions->removeActiveARCForClient(_authToken);
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Ending active ARC Session for publisherId:"
-                << publisherId;
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Ending active ARC Session for publisherId:"
+                     << publisherId;
     }
 
     return hadExistingARCSession;
@@ -1436,7 +1438,8 @@ QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMa
     */
 
     if (filter.isEmpty()) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Empty filter string matches nothing";
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Empty filter string matches nothing";
         return resultString;
     } else if (filter == "*") {
         matchAll = true;
@@ -1517,7 +1520,7 @@ void ClientHandler::addIdentifierResult(Subscription &sub, Identifier id, QList<
             searchResult->_metadata = metaString;
             sub._curSize += metaString.size();
             if (sub._curSize > sub._search.maxSize()) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize;" << sub._curSize;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize:" << sub._curSize;
                 operationError = MapRequest::IfmapSearchResultsTooBig;
                 sub._subscriptionError = MapRequest::IfmapSearchResultsTooBig;
             }
@@ -1548,7 +1551,7 @@ void ClientHandler::addLinkResult(Subscription &sub, Link link, QList<Meta> meta
             searchResult->_metadata = metaString;
             sub._curSize += metaString.size();
             if (sub._curSize > sub._search.maxSize()) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize;" << sub._curSize;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize:" << sub._curSize;
                 operationError = MapRequest::IfmapSearchResultsTooBig;
                 sub._subscriptionError = MapRequest::IfmapSearchResultsTooBig;
             }

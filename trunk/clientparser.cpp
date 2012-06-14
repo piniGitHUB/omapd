@@ -565,8 +565,6 @@ void ClientParser::parsePurgePublisher()
 
 void ClientParser::parsePublish()
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "Start:" << _xml.name();
-
     PublishRequest pubReq;
     pubReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::Publish;
@@ -576,14 +574,11 @@ void ClientParser::parsePublish()
 
     OmapdConfig::AuthzOptions authz = MapSessions::getInstance()->authzForAuthToken(authToken);
     if (!authz.testFlag(OmapdConfig::AllowPublish)) {
-        qDebug() << "authz:" << authz;
         _xml.raiseError("Client not authorized to publish");
         _requestError = MapRequest::IfmapAccessDenied;
     }
 
     while (_xml.readNextStartElement() && !pubReq.requestError()) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "nextStartElement:" << _xml.name();
-
         if (_xml.name().compare("update", Qt::CaseSensitive) == 0) {
             parsePublishUpdateOrNotify(PublishOperation::Update, pubReq);
         } else if (_xml.name().compare("delete", Qt::CaseSensitive) == 0) {
@@ -598,8 +593,6 @@ void ClientParser::parsePublish()
         }
     }
     _mapRequest.setValue(pubReq);
-
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "End:" << _xml.tokenString() << _xml.name();
 }
 
 void ClientParser::parsePublishUpdateOrNotify(PublishOperation::PublishType publishType, PublishRequest &pubReq)
@@ -745,8 +738,6 @@ void ClientParser::parsePublishDelete(PublishRequest &pubReq)
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Have publish delete on"
                 << (numIds == 2 ? "link" : "identifier");
     }
-
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "End:" << _xml.name();
 }
 
 void ClientParser::parseSearch()
@@ -1173,8 +1164,6 @@ Id ClientParser::parseIdentifier(MapRequest &request)
 
 QList<Meta> ClientParser::parseMetadata(PublishRequest &pubReq, Meta::Lifetime lifetime)
 {
-    qDebug() << __PRETTY_FUNCTION__ << ":" << _xml.name();
-
     QList<Meta> metaList;
 
     QString cardinalityAttrName = "cardinality", pubIdAttrName = "publisher-id", timestampAttrName = "timestamp";
@@ -1190,7 +1179,8 @@ QList<Meta> ClientParser::parseMetadata(PublishRequest &pubReq, Meta::Lifetime l
         QString metaNS = _xml.namespaceUri().toString();
         QString metaName = _xml.name().toString();
         QString metaQName = _xml.qualifiedName().toString();
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Got metadata element:" << metaQName << "in ns:" << metaNS;
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got metadata element:" << metaQName << "in ns:" << metaNS;
 
         if (metaNS.isEmpty()) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: metadata element has no associated namespace:" << metaName;
