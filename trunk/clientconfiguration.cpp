@@ -47,11 +47,13 @@ void ClientConfiguration::createCertAuthClient(QString clientName, QString certF
     _haveClientCert = true;
 }
 
-void ClientConfiguration::createCAAuthClient(QString clientPrefix, QString caCertFile, OmapdConfig::AuthzOptions authz)
+void ClientConfiguration::createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz)
 {
-    _authType = MapRequest::AuthCert;
+    _authType = MapRequest::AuthCACert;
     _authz = authz;
     _name = clientPrefix;
     _caCertFileName = caCertFile;
-    _haveClientCert = false;
+    // In this case, _certFileName and _haveClientCert refer to the issuingCACertFile
+    _certFileName = issuingCACertFile;
+    _haveClientCert = true;
 }

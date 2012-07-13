@@ -86,11 +86,11 @@ void MapSessions::loadClientConfigurations()
             QString up = client->username() + ":" + client->password();
             authToken = QByteArray(up.toAscii()).toBase64();
 
-            if (!authToken.isEmpty()) clientConfigOk = true;
+            if (!authToken.isEmpty())
+                clientConfigOk = true;
 
-        } else if (client->authType() == MapRequest::AuthCert) {
-            QStringList tempToken;
-            QList<QSslCertificate> clientCerts;
+        } else if (client->authType() == MapRequest::AuthCert ||
+                   client->authType() == MapRequest::AuthCACert) {
 
             if (client->haveClientCert()) {
                 QFile certFile(client->certFileName());
@@ -107,43 +107,54 @@ void MapSessions::loadClientConfigurations()
 
                     if (!clientCert.isNull()) clientConfigOk = true;
 
-                    clientCerts.append(clientCert);
+                    authToken = ClientHandler::buildDN(clientCert, ClientHandler::Subject);
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded cert for client named:" << client->name();
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << authToken;
+                    }
 
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded client certificate with CN:" << clientCert.subjectInfo(QSslCertificate::CommonName);
+                    if (authToken.isEmpty())
+                        clientConfigOk = false;
+
                 }
             }
 
-            for (int i=0; i<clientCerts.size(); i++) {
-                QStringList dnElements;
-                dnElements << clientCerts.at(i).subjectInfo(QSslCertificate::Organization)
-                        << clientCerts.at(i).subjectInfo(QSslCertificate::CountryName)
-                        << clientCerts.at(i).subjectInfo(QSslCertificate::StateOrProvinceName)
-                        << clientCerts.at(i).subjectInfo(QSslCertificate::LocalityName)
-                        << clientCerts.at(i).subjectInfo(QSslCertificate::OrganizationalUnitName)
-                        << clientCerts.at(i).subjectInfo(QSslCertificate::CommonName);
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Cert chain for client named:" << client->name();
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << dnElements.join("/");
+            // Add CA Certs to default Configuration
+            QList<QSslCertificate> caCerts = QSslCertificate::fromPath(client->caCertFileName());
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                foreach(QSslCertificate cert, caCerts) {
+                    QString issuerDN = ClientHandler::buildDN(cert, ClientHandler::Subject);
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding CA Cert to SSL Configuration for client:" << client->name();
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << issuerDN;
                 }
-                tempToken << dnElements.join("/") << ":";
             }
-
-            authToken = tempToken.join("");
+            QSslConfiguration defaultConfig = QSslConfiguration::defaultConfiguration();
+            defaultConfig.setCaCertificates(defaultConfig.caCertificates()+caCerts);
+            QSslConfiguration::setDefaultConfiguration(defaultConfig);
         }
 
         if (clientConfigOk) {
-            // Create a new publisher-id for this client
-            QString pubId;
-            pubId.setNum(_pubIdIndex++);
+            if (client->authType() == MapRequest::AuthCACert) {
+                MapClient mapClient(authToken, client->authType(), client->authz(), "");
+                _mapClientCAs.insert(authToken, mapClient);
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Created CA Authentication MapClient for configuration named:" << client->name()
+                             << "authToken:" << authToken
+                             << "authz:" << client->authz();
+                }
+            } else {
+                // Create a new publisher-id for this client
+                QString pubId;
+                pubId.setNum(_pubIdIndex++);
 
-            MapClient mapClient(authToken, client->authType(), client->authz(), pubId);
-            _mapClients.insert(authToken, mapClient);
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Created MapClient for client configuration named:" << client->name()
-                        << "with publisher-id:" << pubId
-                        << "authToken:" << authToken
-                        << "authz:" << client->authz();
+                MapClient mapClient(authToken, client->authType(), client->authz(), pubId);
+                _mapClients.insert(authToken, mapClient);
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Created MapClient for client configuration named:" << client->name()
+                             << "with publisher-id:" << pubId
+                             << "authToken:" << authToken
+                             << "authz:" << client->authz();
+                }
             }
         } else {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Error creating MapClient for client configuration named:" << client->name();
@@ -197,6 +208,20 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
             _ssrcConnections.insert(authToken, clientHandler);
 
             registered = true;
+        } else if (authType == MapRequest::AuthCACert && _mapClientCAs.contains(authToken)) {
+            // Create a new publisher-id for this client
+            pubId.setNum(_pubIdIndex++);
+            // Set the client authorization as determined by CA Cert setting
+            OmapdConfig::AuthzOptions authz = _mapClientCAs.value(authToken).authz();
+            MapClient client(authToken, authType, authz, pubId);
+            _mapClients.insert(authToken, client);
+
+            _ssrcConnections.insert(authToken, clientHandler);
+
+            registered = true;
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Created client configuration with pub-id:" << pubId;
+            }
         } else if (_omapdConfig->valueFor("create_client_configurations").toBool()) {
             // Create a new publisher-id for this client
             pubId.setNum(_pubIdIndex++);
