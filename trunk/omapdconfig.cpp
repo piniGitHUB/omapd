@@ -247,13 +247,22 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                     addConfigItem(xmlReader.name().toString(), dbgVar);
 
                 } else if (xmlReader.name() == "map_graph_plugin_path") {
-                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
+                    QString pluginFile = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                    if (! QFile::exists(pluginFile))
+                        xmlReader.raiseError(QObject::tr("map_graph_plugin_path file not found"));
+                    addConfigItem(xmlReader.name().toString(), pluginFile);
 
                 } else if (xmlReader.name() == "ifmap_metadata_v11_schema_path") {
-                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
+                    QString ifmap11SchemaFile = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                    if (! QFile::exists(ifmap11SchemaFile))
+                        xmlReader.raiseError(QObject::tr("ifmap_metadata_v11_schema_path file not found"));
+                    addConfigItem(xmlReader.name().toString(), ifmap11SchemaFile);
 
                 } else if (xmlReader.name() == "ifmap_metadata_v20_schema_path") {
-                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
+                    QString ifmap20SchemaFile = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                    if (! QFile::exists(ifmap20SchemaFile))
+                        xmlReader.raiseError(QObject::tr("ifmap_metadata_v20_schema_path file not found"));
+                    addConfigItem(xmlReader.name().toString(), ifmap20SchemaFile);
 
                 } else if (xmlReader.name() == "service_configuration") {
 
@@ -312,22 +321,20 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                     addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
                                 }
                                 else if (xmlReader.name() == "certificate_file") {
-                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
-
-                                } else if (xmlReader.name() == "ca_certificates_file") {
-                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
+                                    QString certFile = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                    if (! QFile::exists(certFile))
+                                        xmlReader.raiseError(QObject::tr("certificate_file not found"));
+                                    addConfigItem(xmlReader.name().toString(), certFile);
 
                                 } else if (xmlReader.name() == "private_key_file") {
-                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
+                                    QString keyFile = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                    if (! QFile::exists(keyFile))
+                                        xmlReader.raiseError(QObject::tr("private_key_file not found"));
+                                    addConfigItem(xmlReader.name().toString(), keyFile);
+
                                     if (xmlReader.attributes().hasAttribute("password")) {
                                         addConfigItem("private_key_password", xmlReader.attributes().value("password").toString());
                                     }
-
-                                } else if (xmlReader.name() == "require_client_certificates") {
-                                    bool enable = true;
-                                    if (xmlReader.attributes().value("enable") == "no")
-                                        enable = false;
-                                    addConfigItem(xmlReader.name().toString(), enable);
 
                                 } else {
                                     xmlReader.skipCurrentElement();
@@ -408,11 +415,11 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                     if (xmlReader.name() == "certificate_file") {
                                         // TODO: Deal with certificate type {pem|der}
                                         certFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
-                                        haveClientCertFile = true;
+                                        haveClientCertFile = QFile::exists(certFileName);
                                     } else if (xmlReader.name() == "ca_certificates_file") {
                                         // TODO: Deal with certificate type {pem|der}
                                         caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
-                                        haveCACertFile = true;
+                                        haveCACertFile = QFile::exists(caCertFileName);
                                     } else {
                                         xmlReader.raiseError(QObject::tr("invalid cert auth element"));
                                     }
@@ -434,11 +441,11 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                     if (xmlReader.name() == "issuing_ca_certificate_file") {
                                         // TODO: Deal with certificate type {pem|der}
                                         issuingCaCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
-                                        haveIssuingCACertFile = true;
+                                        haveIssuingCACertFile = QFile::exists(issuingCaCertFileName);
                                     } else if (xmlReader.name() == "ca_certificates_file") {
                                         // TODO: Deal with certificate type {pem|der}
                                         caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
-                                        haveCACertFile = true;
+                                        haveCACertFile = QFile::exists(caCertFileName);
                                     } else {
                                         xmlReader.raiseError(QObject::tr("invalid cert auth element"));
                                     }
