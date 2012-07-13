@@ -89,7 +89,8 @@ public:
         AuthNone = 0,
         AuthAllowNone,
         AuthBasic,
-        AuthCert
+        AuthCert,
+        AuthCACert
     };
     
     MapRequest(MapRequest::RequestType requestType = MapRequest::RequestNone);

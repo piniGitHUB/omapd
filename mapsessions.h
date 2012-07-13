@@ -87,6 +87,7 @@ private:
     OmapdConfig *_omapdConfig;
 
     QHash<QString, MapClient> _mapClients; // authToken --> MapClient
+    QHash<QString, MapClient> _mapClientCAs; // CA AuthToken --> MapClient
 
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;

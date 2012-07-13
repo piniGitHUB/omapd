@@ -31,7 +31,7 @@ public:
     ClientConfiguration();
     void createBasicAuthClient(QString clientName, QString username, QString password, OmapdConfig::AuthzOptions authz);
     void createCertAuthClient(QString clientName, QString certFile, QString caCertFile, OmapdConfig::AuthzOptions authz);
-    void createCAAuthClient(QString clientPrefix, QString caCertFile, OmapdConfig::AuthzOptions authz);
+    void createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz);
 
     QString name() { return _name; }
     QString username() { return _username; }

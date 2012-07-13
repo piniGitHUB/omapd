@@ -426,22 +426,31 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                 }
 
                             } else if (authType == "ca-certificate") {
-                                bool haveCACertFile = false;
+                                bool haveIssuingCACertFile = false, haveCACertFile = false;
+                                QString issuingCaCertFileName;
                                 QString caCertFileName;
 
-                                if (xmlReader.name() == "ca_certificates_file") {
-                                    // TODO: Deal with certificate type {pem|der}
-                                    caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
-                                    haveCACertFile = true;
-                                } else {
-                                    xmlReader.raiseError(QObject::tr("invalid cert auth element"));
+                                for (int i=0; i<2; i++) {
+                                    if (xmlReader.name() == "issuing_ca_certificate_file") {
+                                        // TODO: Deal with certificate type {pem|der}
+                                        issuingCaCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                        haveIssuingCACertFile = true;
+                                    } else if (xmlReader.name() == "ca_certificates_file") {
+                                        // TODO: Deal with certificate type {pem|der}
+                                        caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
+                                        haveCACertFile = true;
+                                    } else {
+                                        xmlReader.raiseError(QObject::tr("invalid cert auth element"));
+                                    }
+                                    xmlReader.readNextStartElement();
                                 }
-                                if (haveCACertFile) {
+                                if (haveCACertFile && haveIssuingCACertFile) {
                                     // Create client
                                     ClientConfiguration *clientConfig = new ClientConfiguration();
-                                    clientConfig->createCAAuthClient(clientName, caCertFileName, OmapdConfig::authzOptions(clientAuthz));
+                                    clientConfig->createCAAuthClient(clientName, issuingCaCertFileName, caCertFileName, OmapdConfig::authzOptions(clientAuthz));
                                     _clientConfigurations.append(clientConfig);
                                 }
+
                             } else {
                                 xmlReader.raiseError(QObject::tr("invalid authentication type specified for client"));
                             }
