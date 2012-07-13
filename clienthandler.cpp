@@ -67,13 +67,9 @@ ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
 
     this->setupCrypto();
     // Connect SSL error signals to local slots
-    connect(this, SIGNAL(peerVerifyError(QSslError)),
-            this, SLOT(clientSSLVerifyError(QSslError)));
     connect(this, SIGNAL(sslErrors(QList<QSslError>)),
             this, SLOT(clientSSLErrors(QList<QSslError>)));
     connect(this, SIGNAL(encrypted()), this, SLOT(socketReady()));
-    connect(this, SIGNAL(modeChanged(QSslSocket::SslMode)),
-            this, SLOT(clientSslModeChanged(QSslSocket::SslMode)));
 
     _parser = new ClientParser(this);
     connect(_parser, SIGNAL(parsingComplete()),this, SLOT(handleParseComplete()));
@@ -179,40 +175,18 @@ void ClientHandler::socketReady()
             this, SLOT(clientConnState(QAbstractSocket::SocketState)));
 }
 
-void ClientHandler::clientSslModeChanged(QSslSocket::SslMode mode)
-{
-}
-
-void ClientHandler::clientSSLVerifyError(const QSslError &error)
-{
-    qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
-}
-
 void ClientHandler::clientSSLErrors(const QList<QSslError> &errors)
 {
     foreach (const QSslError &error, errors) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
     }
 
-    QSslCertificate clientCert = this->peerCertificate();
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "$$$$$$$$$$$$$$$$$$$$$  client Cert CN:" << clientCert.subjectInfo(QSslCertificate::CommonName);
-
-    QList<QSslCertificate> caCerts = this->peerCertificateChain();
-    for (int i=0; i<caCerts.size(); i++) {
-        QStringList dnElements;
-        dnElements << caCerts.at(i).subjectInfo(QSslCertificate::Organization)
-                << caCerts.at(i).subjectInfo(QSslCertificate::CountryName)
-                << caCerts.at(i).subjectInfo(QSslCertificate::StateOrProvinceName)
-                << caCerts.at(i).subjectInfo(QSslCertificate::LocalityName)
-                << caCerts.at(i).subjectInfo(QSslCertificate::OrganizationalUnitName)
-                << caCerts.at(i).subjectInfo(QSslCertificate::CommonName);
+    if (errors.size() == 1 && errors.first().error() == QSslError::NoPeerCertificate) {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "-------------------- DN:" << dnElements.join("/");
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Ignoring SSL Errors for No Peer Certificate";
         }
+        this->ignoreSslErrors();
     }
-
-    qDebug() << __PRETTY_FUNCTION__ << ":" << "ALERT!!!!!!!! Calling ignoreSslErrors";
-    this->ignoreSslErrors();
 }
 
 void ClientHandler::registerCert()
