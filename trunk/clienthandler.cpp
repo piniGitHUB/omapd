@@ -99,7 +99,8 @@ void ClientHandler::socketReady()
 void ClientHandler::clientSSLErrors(const QList<QSslError> &errors)
 {
     foreach (const QSslError &error, errors) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
+        if (error != QSslError::NoPeerCertificate)
+            qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
     }
 
     if (errors.size() == 1 && errors.first().error() == QSslError::NoPeerCertificate) {

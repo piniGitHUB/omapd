@@ -155,10 +155,6 @@ int main(int argc, char *argv[])
     // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
     defaultConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
 
-    // Clear CA Cert List
-    QList<QSslCertificate> EmptyCACertList;
-    defaultConfig.setCaCertificates(EmptyCACertList);
-
     QString keyFileName = "server.key";
     QByteArray keyPassword = "";
     if (omapdConfig->isSet("private_key_file")) {
@@ -179,6 +175,7 @@ int main(int argc, char *argv[])
         defaultConfig.setPrivateKey(serverKey);
     }
 
+    QSslCertificate serverCert;
     QString certFileName = "server.pem";
     // TODO: Add QSsl::Der format support from omapdConfig
     if (omapdConfig->isSet("certificate_file")) {
@@ -188,7 +185,6 @@ int main(int argc, char *argv[])
     if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "No certificate file:" << certFile.fileName();
     } else {
-        QSslCertificate serverCert;
         // Try PEM format fail over to DER; since they are the only 2
         // supported by the QSsl Certificate classes
         serverCert = QSslCertificate(&certFile, QSsl::Pem);
@@ -199,6 +195,11 @@ int main(int argc, char *argv[])
         if (omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
     }
+
+    // Clear CA Cert List
+    QList<QSslCertificate> emptyCACertList;
+    emptyCACertList.append(serverCert);
+    defaultConfig.setCaCertificates(emptyCACertList);
 
     QSslConfiguration::setDefaultConfiguration(defaultConfig);
 
