@@ -63,7 +63,6 @@ private slots:
     void processHeader(QNetworkRequest requestHdrs);
 
 private:
-    void setupCrypto();
     void registerCert();
     QByteArray compressResponse(QByteArray uncompressed);
     void sendHttpResponse(int hdrNumber, QString hdrText);
@@ -111,7 +110,6 @@ private:
     MapRequest::AuthenticationType _authType;
     QString _authToken;
 
-    bool _disallowSSLv2;
     bool _useCompression;
 };
 

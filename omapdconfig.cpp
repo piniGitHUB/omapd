@@ -316,11 +316,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             addConfigItem(xmlReader.name().toString(), enable);
 
                             while (xmlReader.readNextStartElement()) {
-                                if ( xmlReader.name() == "ssl_protocol") {
-                                    /// TODO: Insert string validator for protocol type
-                                    addConfigItem(xmlReader.name().toString(), xmlReader.readElementText());
-                                }
-                                else if (xmlReader.name() == "certificate_file") {
+                                if (xmlReader.name() == "certificate_file") {
                                     QString certFile = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
                                     if (! QFile::exists(certFile))
                                         xmlReader.raiseError(QObject::tr("certificate_file not found"));

@@ -65,7 +65,6 @@ ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
 
     _authType = MapRequest::AuthNone;
 
-    this->setupCrypto();
     // Connect SSL error signals to local slots
     connect(this, SIGNAL(sslErrors(QList<QSslError>)),
             this, SLOT(clientSSLErrors(QList<QSslError>)));
@@ -83,86 +82,8 @@ ClientHandler::~ClientHandler()
     delete _parser;
 }
 
-void ClientHandler::setupCrypto()
-{
-    this->setCiphers(QSslSocket::supportedCiphers());
-
-    QString ssl_proto = "AnyProtocol";
-    _disallowSSLv2 = false;
-    if (_omapdConfig->isSet("ssl_protocol")) {
-        ssl_proto = _omapdConfig->valueFor("ssl_protocol").toString();
-        if (ssl_proto == "NoSslV2") _disallowSSLv2 = true;
-    }
-    if ( ( ssl_proto == "AnyProtocol") || ( ssl_proto == "NoSslV2" ) )
-        this->setProtocol(QSsl::AnyProtocol);
-    else if (ssl_proto == "SslV2")
-        this->setProtocol(QSsl::SslV2);
-    else if (ssl_proto == "SslV3")
-        this->setProtocol(QSsl::SslV3);
-    else if (ssl_proto == "TlsV1")
-        this->setProtocol(QSsl::TlsV1);
-    else {
-        // If this else is reached - an invalid protocol was in the xml file
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "ssl_protocol -- type invalid -- trying to continue "
-                << "using AnyProtocol";
-        this->setProtocol(QSsl::AnyProtocol);
-    }
-
-    // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
-    this->setPeerVerifyMode(QSslSocket::VerifyPeer);
-    // QueryPeer just asks for the client cert, but does not verify it
-    //this->setPeerVerifyMode(QSslSocket::QueryPeer);
-
-    // Set server cert, private key, CRLs, etc.
-    QString keyFileName = "server.key";
-    QByteArray keyPassword = "";
-    if (_omapdConfig->isSet("private_key_file")) {
-        keyFileName = _omapdConfig->valueFor("private_key_file").toString();
-        if (_omapdConfig->isSet("private_key_password")) {
-            keyPassword = _omapdConfig->valueFor("private_key_password").toByteArray();
-        }
-    }
-    QFile keyFile(keyFileName);
-    // TODO: Add QSsl::Der format support from _omapdConfig
-    // TODO: Add QSsl::Dsa support from _omapdConfig
-    if (!keyFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "No private key file:" << keyFile.fileName();
-    } else {
-        this->setPrivateKey(keyFileName, QSsl::Rsa, QSsl::Pem, keyPassword);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server private key";
-    }
-
-    QString certFileName = "server.pem";
-    // TODO: Add QSsl::Der format support from _omapdConfig
-    if (_omapdConfig->isSet("certificate_file")) {
-        certFileName = _omapdConfig->valueFor("certificate_file").toString();
-    }
-    QFile certFile(certFileName);
-    if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "No certificate file:" << certFile.fileName();
-    } else {
-        QSslCertificate serverCert;
-        // Try PEM format fail over to DER; since they are the only 2
-        // supported by the QSsl Certificate classes
-        serverCert = QSslCertificate(&certFile, QSsl::Pem);
-        if ( serverCert.isNull() )
-            serverCert = QSslCertificate(&certFile, QSsl::Der);
-
-        this->setLocalCertificate(serverCert);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
-    }
-
-}
-
 void ClientHandler::socketReady()
 {
-    if (this->protocol() == QSsl::SslV2 && _disallowSSLv2) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Disconnecting client - client is using SslV2 - NoSslV2 was requested in config ";
-        this->disconnectFromHost();
-        return;
-    }
     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Successful SSL handshake with peer:" << this->peerAddress().toString();
 

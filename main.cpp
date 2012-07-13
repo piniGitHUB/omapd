@@ -20,6 +20,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include <QtCore/QCoreApplication>
+#include <QtNetwork>
 #include <stdio.h>
 
 #include "server.h"
@@ -144,6 +145,62 @@ int main(int argc, char *argv[])
         qDebug() << "main: could not get plugin instance";
         exit(1);
     }
+
+    // Set default SSL Configuration
+    QSslConfiguration defaultConfig = QSslConfiguration::defaultConfiguration();
+
+    // Don't allow SSLv2
+    defaultConfig.setProtocol(QSsl::SecureProtocols);
+
+    // TODO: Have an option to set QSslSocket::setPeerVerifyDepth
+    defaultConfig.setPeerVerifyMode(QSslSocket::VerifyPeer);
+
+    // Clear CA Cert List
+    QList<QSslCertificate> EmptyCACertList;
+    defaultConfig.setCaCertificates(EmptyCACertList);
+
+    QString keyFileName = "server.key";
+    QByteArray keyPassword = "";
+    if (omapdConfig->isSet("private_key_file")) {
+        keyFileName = omapdConfig->valueFor("private_key_file").toString();
+        if (omapdConfig->isSet("private_key_password")) {
+            keyPassword = omapdConfig->valueFor("private_key_password").toByteArray();
+        }
+    }
+    QFile keyFile(keyFileName);
+    // TODO: Add QSsl::Der format support from omapdConfig
+    // TODO: Add QSsl::Dsa support from omapdConfig
+    if (!keyFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "No private key file:" << keyFile.fileName();
+    } else {
+        QSslKey serverKey(&keyFile, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey, keyPassword);
+        if (omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server private key";
+        defaultConfig.setPrivateKey(serverKey);
+    }
+
+    QString certFileName = "server.pem";
+    // TODO: Add QSsl::Der format support from omapdConfig
+    if (omapdConfig->isSet("certificate_file")) {
+        certFileName = omapdConfig->valueFor("certificate_file").toString();
+    }
+    QFile certFile(certFileName);
+    if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "No certificate file:" << certFile.fileName();
+    } else {
+        QSslCertificate serverCert;
+        // Try PEM format fail over to DER; since they are the only 2
+        // supported by the QSsl Certificate classes
+        serverCert = QSslCertificate(&certFile, QSsl::Pem);
+        if ( serverCert.isNull() )
+            serverCert = QSslCertificate(&certFile, QSsl::Der);
+
+        defaultConfig.setLocalCertificate(serverCert);
+        if (omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded omapd server certificate with CN:" << serverCert.subjectInfo(QSslCertificate::CommonName);
+    }
+
+    QSslConfiguration::setDefaultConfiguration(defaultConfig);
 
     // Start a server with this MAP graph
     Server *server = new Server(mapGraph);
