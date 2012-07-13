@@ -1066,6 +1066,10 @@ Id ClientParser::parseIdentifier(MapRequest &request)
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
+            } else if (test == QHostAddress::AnyIPv6) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got IPv6 special address as HIT:" << value;
+                }
             } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Got different hip-hit address back to string:" << test.toString();
