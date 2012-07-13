@@ -737,8 +737,6 @@ void ClientHandler::processPublish(QVariant clientRequest)
 
     checkPublishAtomicity(pubReq, requestError);
 
-    bool mapGraphChanged = false;
-
     /* IFMAP20: 3.7.1:
        A successful metadata publish MUST result in a publishReceived message. Otherwise,
        the entire publish request MUST fail without effect and the response MUST contain
@@ -755,7 +753,6 @@ void ClientHandler::processPublish(QVariant clientRequest)
 
             if (pubOper._publishType == PublishOperation::Update) {
                 _mapGraph->addMeta(pubOper._link, pubOper._isLink, pubOper._metadata, publisherId);
-                mapGraphChanged = true;
                 // TODO: Move this outside of while loop for major performance boost!
                 // update subscriptions
                 updateSubscriptions(pubOper._link, pubOper._isLink, pubOper._metadata, Meta::PublishUpdate);
@@ -802,7 +799,6 @@ void ClientHandler::processPublish(QVariant clientRequest)
             }
 
             if (metadataDeleted && !requestError) {
-                mapGraphChanged = true;
                 updateSubscriptions(pubOper._link, pubOper._isLink, deleteMetaList, Meta::PublishDelete);
             }
 
