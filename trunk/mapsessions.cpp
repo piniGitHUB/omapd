@@ -208,19 +208,22 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
             _ssrcConnections.insert(authToken, clientHandler);
 
             registered = true;
-        } else if (authType == MapRequest::AuthCACert && _mapClientCAs.contains(authToken)) {
-            // Create a new publisher-id for this client
-            pubId.setNum(_pubIdIndex++);
-            // Set the client authorization as determined by CA Cert setting
-            OmapdConfig::AuthzOptions authz = _mapClientCAs.value(authToken).authz();
-            MapClient client(authToken, authType, authz, pubId);
-            _mapClients.insert(authToken, client);
+        } else if (authType == MapRequest::AuthCACert) {
+            QStringList compToken = authToken.split("::SEPARATOR::");
+            if (!compToken.isEmpty() && _mapClientCAs.contains(compToken.last())) {
+                // Create a new publisher-id for this client
+                pubId.setNum(_pubIdIndex++);
+                // Set the client authorization as determined by CA Cert setting
+                OmapdConfig::AuthzOptions authz = _mapClientCAs.value(authToken).authz();
+                MapClient client(authToken, authType, authz, pubId);
+                _mapClients.insert(authToken, client);
 
-            _ssrcConnections.insert(authToken, clientHandler);
+                _ssrcConnections.insert(authToken, clientHandler);
 
-            registered = true;
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Created client configuration with pub-id:" << pubId;
+                registered = true;
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Created client configuration with pub-id:" << pubId;
+                }
             }
         } else if (_omapdConfig->valueFor("create_client_configurations").toBool()) {
             // Create a new publisher-id for this client
