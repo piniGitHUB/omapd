@@ -214,7 +214,7 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
                 // Create a new publisher-id for this client
                 pubId.setNum(_pubIdIndex++);
                 // Set the client authorization as determined by CA Cert setting
-                OmapdConfig::AuthzOptions authz = _mapClientCAs.value(authToken).authz();
+                OmapdConfig::AuthzOptions authz = _mapClientCAs.value(compToken.last()).authz();
                 MapClient client(authToken, authType, authz, pubId);
                 _mapClients.insert(authToken, client);
 
