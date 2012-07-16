@@ -51,7 +51,7 @@ QString ClientHandler::buildDN(QSslCertificate cert, ClientHandler::CertInfoTarg
                 << cert.issuerInfo(QSslCertificate::CommonName);
     }
 
-    certDN = dnElements.join("/") + ":";
+    certDN = dnElements.join("/");
     return certDN;
 }
 
@@ -126,10 +126,13 @@ void ClientHandler::registerCert()
     // CA-Cert umbrella clients
     if (_mapSessions->pubIdForAuthToken(_authToken).isEmpty()) {
         _authType = MapRequest::AuthCACert;
-        _authToken = ClientHandler::buildDN(clientCert, ClientHandler::Issuer);
+        // FIXME: This is a bit of a hack, should probably use a StringList to separate the authToken parts
+        _authToken += "::SEPARATOR::";
+        _authToken += ClientHandler::buildDN(clientCert, ClientHandler::Issuer);
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Issuing Authority for client at:" << this->peerAddress().toString();
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << _authToken;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << ClientHandler::buildDN(clientCert, ClientHandler::Issuer);
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "-- authToken:" << _authToken;
         }
     }
 }
