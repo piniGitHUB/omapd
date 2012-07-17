@@ -484,7 +484,7 @@ void ClientHandler::processNewSession(QVariant clientRequest)
             sessId = _mapSessions->sessIdForClient(_authToken);
             terminateSession(sessId, nsReq.requestVersion());
         }
-        sessId = _mapSessions->addActiveSSRCForClient(_authToken);
+        sessId = _mapSessions->addActiveSSRCForClient(this, _authToken);
         nsResp.setNewSessionResponse(sessId, publisherId, nsReq.clientSetMaxPollResultSize(), nsReq.maxPollResultSize());
     } else {
         nsResp.setErrorResponse(requestError, "");

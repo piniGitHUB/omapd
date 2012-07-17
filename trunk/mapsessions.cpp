@@ -205,8 +205,6 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Already have client configuration with pub-id:" << pubId;
             }
 
-            _ssrcConnections.insert(authToken, clientHandler);
-
             registered = true;
         } else if (authType == MapRequest::AuthCACert) {
             QStringList compToken = authToken.split("::SEPARATOR::");
@@ -217,8 +215,6 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
                 OmapdConfig::AuthzOptions authz = _mapClientCAs.value(compToken.last()).authz();
                 MapClient client(authToken, authType, authz, pubId);
                 _mapClients.insert(authToken, client);
-
-                _ssrcConnections.insert(authToken, clientHandler);
 
                 registered = true;
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -231,8 +227,6 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
             OmapdConfig::AuthzOptions authz = _omapdConfig->valueFor("default_authorization").value<OmapdConfig::AuthzOptions>();
             MapClient client(authToken, authType, authz, pubId);
             _mapClients.insert(authToken, client);
-
-            _ssrcConnections.insert(authToken, clientHandler);
 
             registered = true;
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -273,7 +267,7 @@ void MapSessions::removeActiveSSRCForClient(QString authToken)
         client.clearSessId();
         _mapClients.insert(authToken, client);
 
-        // FIXME: Should I remove _ssrcConnection entry?
+        _ssrcConnections.remove(authToken);
     }
 }
 
@@ -303,7 +297,7 @@ QString MapSessions::pubIdForSessId(QString sessId)
     return pubId;
 }
 
-QString MapSessions::addActiveSSRCForClient(QString authToken)
+QString MapSessions::addActiveSSRCForClient(ClientHandler *clientHandler, QString authToken)
 {
     QString sessId;
     if (_mapClients.contains(authToken)) {
@@ -315,6 +309,8 @@ QString MapSessions::addActiveSSRCForClient(QString authToken)
         client.setSessId(sessId);
         client.setHasActiveSSRC(true);
         _mapClients.insert(authToken, client);
+
+        _ssrcConnections.insert(authToken, clientHandler);
     }
     return sessId;
 }
