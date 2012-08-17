@@ -3,7 +3,7 @@
 
 = Introduction =
 
-omapd was written in C++ using the Qt Framework from Nokia.  Current omapd development is using Qt v4.6.2, and v4.6.0 is a minimum version because of some of the QXmlStreamReader methods.  Note that Qt is a multi-platform product, and it hides the details of the underlying operating system from the programmer.  omapd was initially written on a Linux platform, but, using the Qt SDK, it should build and run on any other platform Qt supports.
+omapd was written in C++ using the Qt Framework from Nokia.  Current omapd development is using Qt v4.8.1, and v4.8.0 is a minimum version because of new flags to limit allowed SSL Protocols.  Note that Qt is a multi-platform product, and it hides the details of the underlying operating system from the programmer.  omapd was initially written on a Linux platform, but, using the Qt SDK, it should build and run on any other platform Qt supports.
 
 
 = Details =
