@@ -275,11 +275,10 @@ void ClientHandler::handleParseComplete()
             }
         }
 
-        if (_parser->requestType() != MapRequest::NewSession &&
-            _parser->requestType() != MapRequest::Poll &&
+        if (_parser->requestType() != MapRequest::Poll &&
             !(_parser->requestVersion() == MapRequest::IFMAPv11 && _parser->requestType() == MapRequest::AttachSession)) {
             // Don't allow SSRC requests on ARC, other than NewSession
-            if (_mapSessions->haveActiveARCForClient(_authToken) &&
+            if (_parser->requestType() != MapRequest::NewSession && _mapSessions->haveActiveARCForClient(_authToken) &&
                 _mapSessions->ssrcForClient(_authToken) != this &&
                 _mapSessions->arcForClient(_authToken) == this &&
                 !sentError) {
