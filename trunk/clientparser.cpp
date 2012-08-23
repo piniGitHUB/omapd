@@ -1109,12 +1109,17 @@ Id ClientParser::parseIdentifier(MapRequest &request)
                 }
                 parseError = true;
                 request.setRequestError(MapRequest::IfmapInvalidIdentifier);
-            } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0) {
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Got different ip-address address back to string:" << test.toString();
+            } else if (test.toString().toLower().compare(value, Qt::CaseSensitive) != 0 ||
+                       test.toString().contains("::")) {
+                // Allow non-RFC5952 formatting per TCG Compliance test
+                if (!(value.compare("0:0:0:0:0:0:0:0") == 0 &&
+                      test.toString().compare("::") == 0)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Got different ip-address address back to string:" << test.toString();
+                    }
+                    parseError = true;
+                    request.setRequestError(MapRequest::IfmapInvalidIdentifier);
                 }
-                parseError = true;
-                request.setRequestError(MapRequest::IfmapInvalidIdentifier);
             }
         } else {
             // Error - did not specify ip-address value attribute
