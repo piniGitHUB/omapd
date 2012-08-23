@@ -256,7 +256,7 @@ void ClientParser::readData()
     if (_haveAllHeaders) {
         while (!_xmlSocketReader.atEnd()) {
             _xmlSocketReader.readNext();
-            if (!_xmlSocketReader.isWhitespace()) {
+            if (!_xmlSocketReader.isWhitespace() && _xmlSocketReader.tokenType() != QXmlStreamReader::Invalid) {
                 _writer->writeCurrentToken(_xmlSocketReader);
             }
 
