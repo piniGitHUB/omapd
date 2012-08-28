@@ -102,12 +102,12 @@ QString Subscription::translateFilter(QString ifmapFilter)
 
     QString qtFilter = ifmapFilter;
     if (ifmapFilter.contains(" or ", Qt::CaseInsensitive)) {
-        qDebug() << fnName << "WARNING! filter translation is woefully incomplete!";
-        qDebug() << fnName << "filter before translation:" << ifmapFilter;
+        //qDebug() << fnName << "WARNING! filter translation is woefully incomplete!";
+        //qDebug() << fnName << "filter before translation:" << ifmapFilter;
         qtFilter = ifmapFilter.replace(" or "," | ");
         qtFilter.prepend("(");
         qtFilter.append(")");
-        qDebug() << fnName << "filter after translation:" << qtFilter;
+        //qDebug() << fnName << "filter after translation:" << qtFilter;
     }
 
     return qtFilter;
