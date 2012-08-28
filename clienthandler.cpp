@@ -936,7 +936,9 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscription from subList with name:" << delSub._name;
                 }
             } else {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions to delete for publisher:" << publisherId;
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions to delete for publisher:" << publisherId;
+                }
             }
 
             if (! subList.isEmpty()) {
