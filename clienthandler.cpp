@@ -1308,7 +1308,7 @@ QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMa
     resultString = resultString.trimmed();
 
     if (! qrc) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Error running query!";
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Error running query with filter:" << filter;
         error = MapRequest::IfmapSystemError;
     } else {
         // If there are no query results, we won't add <metadata> enclosing element
