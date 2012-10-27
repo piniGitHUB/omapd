@@ -28,6 +28,7 @@ Server::Server(MapGraphInterface *mapGraph, QObject *parent)
         : QTcpServer(parent), _mapGraph(mapGraph)
 {
     _omapdConfig = OmapdConfig::getInstance();
+    _metadataTimeout = _omapdConfig->valueFor("session_metadata_timeout").toUInt() * 1000;
 }
 
 bool Server::startListening()
@@ -64,6 +65,19 @@ void Server::incomingConnection(int socketDescriptor)
                      this, SLOT(discardConnection()));
 
     connect(client,
+            SIGNAL(receivedNewSession(QString)),
+            this,
+            SLOT(addClientToTimeout(QString)));
+    connect(client,
+            SIGNAL(receivedRenewSession(QString)),
+            this,
+            SLOT(addClientToTimeout(QString)));
+    connect(client,
+            SIGNAL(receivedEndSession()),
+            this,
+            SLOT(removeClientFromTimeout()));
+
+    connect(client,
             SIGNAL(needToSendPollResponse(ClientHandler*,QByteArray,MapRequest::RequestVersion)),
             this,
             SLOT(sendPollResponseToClient(ClientHandler*,QByteArray,MapRequest::RequestVersion)));
@@ -76,9 +90,63 @@ void Server::discardConnection()
     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
         qDebug() << __PRETTY_FUNCTION__ << ":" << "client:" << client;
 
-    MapSessions::getInstance()->removeClientConnections(client);
+    QString authToken=_clientAuthTokens.take(client);
+    if (!authToken.isEmpty()) {
+        removeTimerForClient(authToken);
+        if (_metadataTimeout > 0) {
+            QTimer *timer = new QTimer(this);
+            connect(timer, SIGNAL(timeout()), this, SLOT(deleteClientMetadata()));
+            timer->start(_metadataTimeout);
 
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Created session metadata timeout for authToken:" << authToken;
+
+            _clientTimeouts.insert(authToken, timer);
+        }
+    }
+
+    MapSessions::getInstance()->removeClientConnections(client);
     client->deleteLater();
+}
+
+void Server::addClientToTimeout(QString authToken)
+{
+    ClientHandler *client = (ClientHandler*)sender();
+    _clientAuthTokens.insert(client, authToken);
+    removeTimerForClient(authToken);
+}
+
+void Server::removeClientFromTimeout()
+{
+    ClientHandler *client = (ClientHandler*)sender();
+    _clientAuthTokens.remove(client);
+}
+
+void Server::removeTimerForClient(QString authToken)
+{
+    if (_clientTimeouts.contains(authToken)) {
+        QTimer *timer = _clientTimeouts.take(authToken);
+        timer->stop();
+        delete timer;
+    }
+}
+
+void Server::deleteClientMetadata()
+{
+    QTimer *timer = (QTimer*)sender();
+    timer->stop();
+
+    QString authToken = _clientTimeouts.key(timer);
+
+    if (!authToken.isEmpty()) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+             qDebug() << __PRETTY_FUNCTION__ << ":" << "Time to remove session metadata for client with authToken:" << authToken;
+        ClientHandler client(_mapGraph, authToken, this);
+        removeTimerForClient(authToken);
+    } else {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Error: Missing authToken for metadata expiration timer";
+    }
+
 }
 
 void Server::sendPollResponseToClient(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion)

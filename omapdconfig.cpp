@@ -167,6 +167,7 @@ OmapdConfig::OmapdConfig(QObject *parent)
     _omapdConfig.insert("allow_invalid_session_id", false);
     _omapdConfig.insert("allow_unauthenticated_clients", false);
     _omapdConfig.insert("allow_arc_on_ssrc", false);
+    _omapdConfig.insert("session_metadata_timeout", 180);
 
     // Default authorization is DenyAll
     var.setValue(OmapdConfig::authzOptions(0));
@@ -308,6 +309,10 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             if (xmlReader.attributes().value("allow") == "yes")
                                 allow = true;
                             addConfigItem(xmlReader.name().toString(), allow);
+
+                        } else if (xmlReader.name() == "session_metadata_timeout") {
+                            QString value = xmlReader.readElementText();
+                            addConfigItem(xmlReader.name().toString(), QVariant(value.toUInt()));
 
                         } else if (xmlReader.name() == "ssl_configuration") {
                             bool enable = false;

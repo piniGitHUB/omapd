@@ -41,6 +41,7 @@ public:
     };
 
     explicit ClientHandler(MapGraphInterface *mapGraph, QObject *parent = 0);
+    explicit ClientHandler(MapGraphInterface *mapGraph, QString authToken, QObject *parent = 0);
     ~ClientHandler();
 
     static QString buildDN(QSslCertificate cert, ClientHandler::CertInfoTarget target);
@@ -51,6 +52,9 @@ public:
 
 signals:
     void needToSendPollResponse(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
+    void receivedNewSession(QString authToken);
+    void receivedRenewSession(QString authToken);
+    void receivedEndSession();
 
 public slots:
     void handleParseComplete();

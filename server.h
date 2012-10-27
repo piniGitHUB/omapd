@@ -22,6 +22,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef SERVER_H
 #define SERVER_H
 
+#include <QtCore>
 #include <QTcpServer>
 #include "mapgraphinterface.h"
 
@@ -43,17 +44,23 @@ signals:
 
 public slots:
     void sendPollResponseToClient(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
+    void addClientToTimeout(QString authToken);
+    void removeClientFromTimeout();
 
 private slots:
     void discardConnection();
+    void deleteClientMetadata();
 
 private:
     void incomingConnection(int socketDescriptor);
+    void removeTimerForClient(QString authToken);
 
 private:
     OmapdConfig* _omapdConfig;
+    unsigned int _metadataTimeout;
     MapGraphInterface* _mapGraph;
-
+    QHash<QString, QTimer*> _clientTimeouts;
+    QHash<ClientHandler*, QString> _clientAuthTokens;
 };
 
 #endif // SERVER_H

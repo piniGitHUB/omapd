@@ -77,9 +77,37 @@ ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
 
 }
 
+ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QString authToken, QObject *parent) :
+    QSslSocket(parent), _mapGraph(mapGraph)
+{
+    _omapdConfig = OmapdConfig::getInstance();
+    _mapSessions = MapSessions::getInstance();
+    _parser = NULL;
+
+    QString publisherId = _mapSessions->pubIdForAuthToken(authToken);
+
+    if (!publisherId.isEmpty()) {
+        // Delete all session-level metadata for this publisher
+        QHash<Id, QList<Meta> > idMetaDeleted;
+        QHash<Link, QList<Meta> > linkMetaDeleted;
+        bool haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
+        // Check subscriptions for changes to Map Graph
+        while (haveChange) {
+            updateSubscriptions(idMetaDeleted, linkMetaDeleted);
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+                _mapGraph->dumpMap();
+            }
+            idMetaDeleted.clear();
+            linkMetaDeleted.clear();
+            haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
+        }
+        sendResultsOnActivePolls();
+    }
+}
+
 ClientHandler::~ClientHandler()
 {
-    delete _parser;
+    if (_parser) delete _parser;
 }
 
 void ClientHandler::socketReady()
@@ -484,6 +512,7 @@ void ClientHandler::processNewSession(QVariant clientRequest)
             terminateSession(sessId, nsReq.requestVersion());
         }
         sessId = _mapSessions->addActiveSSRCForClient(this, _authToken);
+        emit receivedNewSession(_authToken);
         nsResp.setNewSessionResponse(sessId, publisherId, nsReq.clientSetMaxPollResultSize(), nsReq.maxPollResultSize());
     } else {
         nsResp.setErrorResponse(requestError, "");
@@ -506,6 +535,7 @@ void ClientHandler::processRenewSession(QVariant clientRequest)
     if (requestError) {
         rsResp.setErrorResponse(requestError, sessId);
     } else {
+        emit receivedRenewSession(_authToken);
         rsResp.setRenewSessionResponse(sessId);
     }
     sendMapResponse(rsResp);
@@ -528,6 +558,7 @@ void ClientHandler::processEndSession(QVariant clientRequest)
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Terminated session-id:" << sessId
                      << "for publisher-id:" << publisherId;
         }
+        emit receivedEndSession();
         esResp.setEndSessionResponse(sessId);
     }
 
