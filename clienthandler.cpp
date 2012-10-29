@@ -1429,7 +1429,7 @@ void ClientHandler::collectSearchGraphMetadata(Subscription &sub, SearchResult::
     while (idIt.hasNext() && !operationError) {
         Id id = idIt.next();
         QList<Meta> idMetaList = _mapGraph->metaForId(id);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
         }
         // TODO: Should the identifier be added if there is no metadata at all?
@@ -1440,7 +1440,7 @@ void ClientHandler::collectSearchGraphMetadata(Subscription &sub, SearchResult::
     while (linkIt.hasNext() && !operationError) {
         Link link = linkIt.next();
         QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
         }
         addLinkResult(sub, link, linkMetaList, resultType, operationError);
@@ -1485,7 +1485,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
     /* IFMAP20: 3.7.2.8: Recursive Algorithm is from spec */
     // 1. Current id, current results, current depth
     currentDepth++;
-    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Starting identifier:" << startId;
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Current depth:" << currentDepth;
     }
@@ -1501,7 +1501,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
         QStringList terminalIdList = sub._search.terminalId().split(",");
 
         if (terminalIdList.contains(curIdTypeStr)) {
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Reached terminal identifier:" << curIdTypeStr;
             }
             return;
@@ -1510,7 +1510,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
 
     // 4. Check max depth reached
     if (currentDepth >= sub._search.maxDepth()) {
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "max depth reached:" << sub._search.maxDepth();
         }
         return;
@@ -1533,7 +1533,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
         MapRequest::RequestError error = MapRequest::ErrorNone;
         QString matchLinkMeta = filteredMetadata(curLinkMeta, sub._search.matchLinks(), sub._search.filterNamespaceDefinitions(), error);
         if (! matchLinkMeta.isEmpty()) {
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding link:" << link;
             }
             linksWithCurId.insert(link);
@@ -1544,7 +1544,7 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
     linksWithCurId.subtract(sub._linkList);
 
     if (linksWithCurId.isEmpty()) {
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "linksWithCurId is empty!!!";
         }
         return;
@@ -1610,7 +1610,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
         QString authToken = allSubsIt.key();
         QString pubId = _mapSessions->pubIdForAuthToken(authToken);
         QList<Subscription> subList = allSubsIt.value();
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
         }
 
@@ -1618,7 +1618,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
         QMutableListIterator<Subscription> subIt(subList);
         while (subIt.hasNext()) {
             Subscription sub = subIt.next();
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
             }
 
@@ -1631,7 +1631,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                 if (sub._idList.contains(link.first)) {
                     // Case 1.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
                     }
                 }
@@ -1639,7 +1639,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                 if (sub._linkList.contains(link) && publishType == Meta::PublishDelete) {
                     // Case 3.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
                     }
                 }
@@ -1664,7 +1664,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                         // Metadata on these ids are in deleteResults
                         idsWithConnectedGraphDeletes = existingIdList - sub._idList;
 
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newIdList.size:" << sub._idList.size();
                         }
                     }
@@ -1677,7 +1677,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                         // Metadata on these links are in deleteResults
                         linksWithConnectedGraphDeletes = existingLinkList - sub._linkList;
 
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newLinkList.size:" << sub._linkList.size();
                         }
                     }
@@ -1694,7 +1694,7 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                     // Add results from publish/delete/endSession/purgePublisher (that don't modify SearchGraph)
                     if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
                         SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding update/delete results from un-changed SearchGraph";
                         }
                         if (isLink) {
@@ -1705,14 +1705,14 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
                     }
                     // Add results from extending SearchGraph for this subscription
                     if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding updateResults from changed SearchGraph";
                         }
                         addUpdateAndDeleteMetadata(sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
                     }
                     // Add results from pruning SearchGraph for this subscription
                     if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding deleteResults from changed SearchGraph";
                         }
                         addUpdateAndDeleteMetadata(sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
@@ -1745,7 +1745,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
         QString authToken = allSubsIt.key();
         QString pubId = _mapSessions->pubIdForAuthToken(authToken);
         QList<Subscription> subList = allSubsIt.value();
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
         }
 
@@ -1753,7 +1753,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
         QMutableListIterator<Subscription> subIt(subList);
         while (subIt.hasNext()) {
             Subscription sub = subIt.next();
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
             }
             bool subIsDirty = false;
@@ -1762,7 +1762,7 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
                 // Case 1.
                 if (sub._idList.contains(link.first)) {
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
                     }
                 }
@@ -1770,13 +1770,13 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
                 if (sub._linkList.contains(link)) {
                     // Case 2.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
                     }
                 } else if (sub._idList.contains(link.first) || sub._idList.contains(link.second)) {
                     // Case 3.
                     subIsDirty = true;
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with one end of the link in SearchGraph:" << link;
                     }
                 }
@@ -1820,7 +1820,7 @@ void ClientHandler::sendResultsOnActivePolls()
         if (_mapSessions->haveActivePollForClient(authToken)) {
             QString pubId = _mapSessions->pubIdForAuthToken(authToken);
             QList<Subscription> subList = allSubsIt.value();
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
             }
 
@@ -1833,7 +1833,7 @@ void ClientHandler::sendResultsOnActivePolls()
                 Subscription sub = subIt.next();
 
                 MapRequest::RequestError subError = MapRequest::ErrorNone;
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "--Checking subscription named:" << sub._name;
                 }
 
@@ -1896,7 +1896,7 @@ void ClientHandler::sendResultsOnActivePolls()
                         pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
                         subIt.setValue(sub);
                     } else {
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "--No results for subscription at this time";
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----haveActivePollForClient(authToken):" << _mapSessions->haveActivePollForClient(authToken);
                         }
