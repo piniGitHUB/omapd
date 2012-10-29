@@ -166,6 +166,7 @@ OmapdConfig::OmapdConfig(QObject *parent)
     _omapdConfig.insert("port", 8081);
     _omapdConfig.insert("ssl_configuration", false);
     _omapdConfig.insert("create_client_configurations", true);
+    _omapdConfig.insert("allow_basic_auth_clients", true);
     _omapdConfig.insert("allow_invalid_session_id", false);
     _omapdConfig.insert("allow_unauthenticated_clients", false);
     _omapdConfig.insert("allow_arc_on_ssrc", false);
@@ -293,6 +294,12 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             if (xmlReader.attributes().value("enable") == "yes")
                                 enable = true;
                             addConfigItem(xmlReader.name().toString(), enable);
+
+                        } else if (xmlReader.name() == "allow_basic_auth_clients") {
+                            bool allow = false;
+                            if (xmlReader.attributes().value("allow") == "yes")
+                                allow = true;
+                            addConfigItem(xmlReader.name().toString(), allow);
 
                         } else if (xmlReader.name() == "allow_unauthenticated_clients") {
                             bool allow = false;
