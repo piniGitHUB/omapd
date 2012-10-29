@@ -131,11 +131,14 @@ void ClientHandler::clientSSLErrors(const QList<QSslError> &errors)
             qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
     }
 
-    if (errors.size() == 1 && errors.first().error() == QSslError::NoPeerCertificate) {
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Ignoring SSL Errors for No Peer Certificate";
+    // Only allow QSslError::NoPeerCertificate if basic auth clients are allowed
+    if (_omapdConfig->valueFor("allow_basic_auth_clients").toBool()) {
+        if (errors.size() == 1 && errors.first().error() == QSslError::NoPeerCertificate) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Ignoring SSL Errors for NoPeerCertificate";
+            }
+            this->ignoreSslErrors();
         }
-        this->ignoreSslErrors();
     }
 }
 
