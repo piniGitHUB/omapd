@@ -247,8 +247,10 @@ void ClientHandler::sendHttpResponse(int hdrNumber, QString hdrText)
 
 void ClientHandler::processReadyRead()
 {
-    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "bytesAvailable:" << this->bytesAvailable() << "from peer:" << this->peerAddress().toString();
+    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
+        qDebug() << __PRETTY_FUNCTION__ << ":" << this
+                 << "bytesAvailable:" << this->bytesAvailable()
+                 << "from peer:" << this->peerAddress().toString();
 
     if (this->isEncrypted()) {
         _parser->readData();
