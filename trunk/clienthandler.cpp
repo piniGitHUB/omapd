@@ -935,7 +935,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
             int currentDepth = -1;
             buildSearchGraph(sub, sub._search.startId(), currentDepth);
 
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Subscription:" << subOper.name();
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << sub._idList.size();
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << sub._linkList.size();
