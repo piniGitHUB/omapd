@@ -50,3 +50,9 @@ bool Meta::operator ==(const Meta &other) const
     else
         return false;
 }
+
+QDebug operator<<(QDebug dbg, const Meta & meta)
+{
+    dbg.nospace() << "Metadata XML:" << meta.metaXML();
+    return dbg.space();
+}
