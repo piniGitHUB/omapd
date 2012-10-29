@@ -74,4 +74,6 @@ private:
     QString _metaXML;
 };
 
+QDebug operator<<(QDebug dbg, const Meta & meta);
+
 #endif // METADATA_H

@@ -381,10 +381,13 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
         }
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply headers to client:" << endl << header.toString();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply headers to client:" << this->peerAddress().toString()
+                     << endl << header.toString();
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply to client:" << endl << response << endl;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply to client:" << this->peerAddress().toString()
+                     << _authToken
+                     << endl << response << endl;
     } else {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket is not connected!  Not sending reply to client";
     }
