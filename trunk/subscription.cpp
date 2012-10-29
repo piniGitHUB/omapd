@@ -83,7 +83,7 @@ bool Subscription::operator==(const Subscription &other) const
 
 QString Subscription::translateFilter(QString ifmapFilter)
 {
-    const char *fnName = "SearchGraph::translateFilter:";
+    //const char *fnName = "SearchGraph::translateFilter:";
 
     /* non-predicate expressions joined by "or" need to be translated
        into a parenthesized expression separated by "|".
