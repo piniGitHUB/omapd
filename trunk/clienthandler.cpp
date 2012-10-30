@@ -1472,7 +1472,7 @@ void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::
     while (idIt.hasNext() && !operationError) {
         Id id = idIt.next();
         QList<Meta> idMetaList = _mapGraph->metaForId(id);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
         }
         // Add the identifier only if there are metadata.
@@ -1484,7 +1484,7 @@ void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::
     while (linkIt.hasNext() && !operationError) {
         Link link = linkIt.next();
         QList<Meta> linkMetaList = _mapGraph->metaForLink(link);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "linkMetaList size for link:" << link << "-->" << linkMetaList.size();
         }
         // Add the link only if there are metadata.
