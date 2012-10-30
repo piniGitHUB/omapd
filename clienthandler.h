@@ -46,6 +46,7 @@ public:
 
     static QString buildDN(QSslCertificate cert, ClientHandler::CertInfoTarget target);
 
+    void sessionMetadataTimeout();
     void sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion);
     QString authToken() { return _authToken; }
     bool useCompression() { return _useCompression; }
@@ -55,6 +56,7 @@ signals:
     void receivedNewSession(QString authToken);
     void receivedRenewSession(QString authToken);
     void receivedEndSession();
+    void receivedMigratedSession(ClientHandler *client);
 
 public slots:
     void handleParseComplete();

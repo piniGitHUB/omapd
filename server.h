@@ -46,6 +46,7 @@ public slots:
     void sendPollResponseToClient(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
     void addClientToTimeout(QString authToken);
     void removeClientFromTimeout();
+    void removeClientConnectionFromTimeout(ClientHandler *client);
 
 private slots:
     void discardConnection();
