@@ -78,15 +78,28 @@ ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
 }
 
 ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QString authToken, QObject *parent) :
-    QSslSocket(parent), _mapGraph(mapGraph)
+    QSslSocket(parent), _mapGraph(mapGraph), _authToken(authToken)
 {
     _omapdConfig = OmapdConfig::getInstance();
     _mapSessions = MapSessions::getInstance();
     _parser = NULL;
+}
 
-    QString publisherId = _mapSessions->pubIdForAuthToken(authToken);
+void ClientHandler::sessionMetadataTimeout()
+{
+    // TODO: This method and the constructor:
+    // ClientHandler(MapGraphInterface *mapGraph, QString authToken, QObject *parent)
+    // should probably be subclassed from ClientHandler just to perform this task.
+    QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!publisherId.isEmpty()) {
+        if (_mapSessions->removeSubscriptionListForClient(_authToken).size() > 0) {
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:"
+                        << publisherId;
+            }
+        }
+
         // Delete all session-level metadata for this publisher
         QHash<Id, QList<Meta> > idMetaDeleted;
         QHash<Link, QList<Meta> > linkMetaDeleted;
@@ -330,6 +343,7 @@ void ClientHandler::handleParseComplete()
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Servicing client on new SSRC.  Old:" << _mapSessions->ssrcForClient(_authToken)
                             << "New:" << this << "for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
                 }
+                emit receivedMigratedSession(_mapSessions->ssrcForClient(_authToken));
                 _mapSessions->migrateSSRCForClient(_authToken, this);
             }
         }
