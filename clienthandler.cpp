@@ -141,7 +141,11 @@ void ClientHandler::clientSSLErrors(const QList<QSslError> &errors)
 {
     foreach (const QSslError &error, errors) {
         if (error != QSslError::NoPeerCertificate)
-            qDebug() << __PRETTY_FUNCTION__ << ":" << error.errorString();
+            qDebug() << __PRETTY_FUNCTION__ << ":"
+                     << "peer:" << this->peerAddress().toString()
+                     << "DN:" << ClientHandler::buildDN(this->sslConfiguration().peerCertificate(),
+                                                        ClientHandler::Subject)
+                     << error.errorString();
     }
 
     // Only allow QSslError::NoPeerCertificate if basic auth clients are allowed
