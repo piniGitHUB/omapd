@@ -403,7 +403,7 @@ void MapSessions::migrateSSRCForClient(QString authToken, ClientHandler *newSSRC
         _mapClients.value(authToken).hasActiveSSRC()) {
         ClientHandler *oldConnection = _ssrcConnections.take(authToken);
         _ssrcConnections.insert(authToken, newSSRCClientHandler);
-        oldConnection->deleteLater();
+        oldConnection->disconnectFromHost();
     }
 }
 
