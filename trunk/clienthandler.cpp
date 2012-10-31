@@ -344,8 +344,9 @@ void ClientHandler::handleParseComplete()
                 _mapSessions->ssrcForClient(_authToken) != this &&
                 !sentError) {
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Servicing client on new SSRC.  Old:" << _mapSessions->ssrcForClient(_authToken)
-                            << "New:" << this << "for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
+                    qDebug() << __PRETTY_FUNCTION__ << ":"
+                             << "Servicing client on new SSRC.  Old:" << _mapSessions->ssrcForClient(_authToken)
+                             << "New:" << this << "for pubId:" << _mapSessions->pubIdForAuthToken(_authToken);
                 }
                 emit receivedMigratedSession(_mapSessions->ssrcForClient(_authToken));
                 _mapSessions->migrateSSRCForClient(_authToken, this);
