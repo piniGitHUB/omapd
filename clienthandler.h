@@ -62,6 +62,7 @@ public slots:
     void handleParseComplete();
 
 private slots:
+    void clientSocketError(QAbstractSocket::SocketError socketError);
     void processReadyRead();
     void socketReady();
     void clientSSLErrors(const QList<QSslError> & errors);
