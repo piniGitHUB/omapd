@@ -69,6 +69,8 @@ ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
     connect(this, SIGNAL(sslErrors(QList<QSslError>)),
             this, SLOT(clientSSLErrors(QList<QSslError>)));
     connect(this, SIGNAL(encrypted()), this, SLOT(socketReady()));
+    connect(this, SIGNAL(error(QAbstractSocket::SocketError)),
+            this, SLOT(clientSocketError(QAbstractSocket::SocketError)));
 
     _parser = new ClientParser(this);
     connect(_parser, SIGNAL(parsingComplete()),this, SLOT(handleParseComplete()));
@@ -121,6 +123,14 @@ void ClientHandler::sessionMetadataTimeout()
 ClientHandler::~ClientHandler()
 {
     if (_parser) delete _parser;
+}
+
+void ClientHandler::clientSocketError(QAbstractSocket::SocketError socketError)
+{
+    qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket error:" << socketError
+             << errorString()
+             << "with peer:" << this->peerAddress().toString();
+
 }
 
 void ClientHandler::socketReady()
