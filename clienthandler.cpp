@@ -136,7 +136,8 @@ void ClientHandler::clientSocketError(QAbstractSocket::SocketError socketError)
 void ClientHandler::socketReady()
 {
     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Successful SSL handshake with peer:" << this->peerAddress().toString();
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Client:" << this
+                 << ": successful SSL handshake with peer:" << this->peerAddress().toString();
 
     if (!this->sslConfiguration().peerCertificate().isNull())
         registerCert();
@@ -414,14 +415,17 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
             this->write(response);
         }
 
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending reply to client:" << this->peerAddress().toString()
+                     << _authToken;
+
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply headers to client:" << this->peerAddress().toString()
                      << endl << header.toString();
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply to client:" << this->peerAddress().toString()
-                     << _authToken
-                     << endl << response << endl;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply XML to client:" << this->peerAddress().toString()
+                     << response << endl;
     } else {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket is not connected!  Not sending reply to client";
     }
