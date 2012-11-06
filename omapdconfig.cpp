@@ -47,6 +47,7 @@ OmapdConfig::IfmapDebugOptions OmapdConfig::debugOptions(unsigned int dbgValue)
     if (dbgValue & OmapdConfig::ShowMAPGraphAfterChange) debug |= OmapdConfig::ShowMAPGraphAfterChange;
     if (dbgValue & OmapdConfig::ShowRawSocketData) debug |= OmapdConfig::ShowRawSocketData;
     if (dbgValue & OmapdConfig::ShowSearchAlgorithm) debug |= OmapdConfig::ShowSearchAlgorithm;
+    if (dbgValue & OmapdConfig::ShowPluginOperations) debug |= OmapdConfig::ShowPluginOperations;
 
     return debug;
 }
@@ -65,6 +66,7 @@ QString OmapdConfig::debugString(OmapdConfig::IfmapDebugOptions debug)
     if (debug.testFlag(OmapdConfig::ShowMAPGraphAfterChange)) str += "ShowMAPGraphAfterChange | ";
     if (debug.testFlag(OmapdConfig::ShowRawSocketData)) str += "ShowRawSocketData | ";
     if (debug.testFlag(OmapdConfig::ShowSearchAlgorithm)) str += "ShowSearchAlgorithm | ";
+    if (debug.testFlag(OmapdConfig::ShowPluginOperations)) str += "ShowPluginOperations | ";
 
     if (! str.isEmpty()) {
         str = str.left(str.size()-3);

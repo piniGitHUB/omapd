@@ -41,7 +41,8 @@ public:
                 ShowXMLFilterStatements = 0x0040,
                 ShowMAPGraphAfterChange = 0x0080,
                 ShowRawSocketData = 0x0100,
-                ShowSearchAlgorithm = 0x0200
+                ShowSearchAlgorithm = 0x0200,
+                ShowPluginOperations = 0x0400
                };
     Q_DECLARE_FLAGS(IfmapDebugOptions, IfmapDebug);
     static IfmapDebugOptions debugOptions(unsigned int dbgValue);
