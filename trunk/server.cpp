@@ -59,6 +59,11 @@ void Server::incomingConnection(int socketDescriptor)
 {
     ClientHandler *client = new ClientHandler(_mapGraph, this);
     client->setSocketDescriptor(socketDescriptor);
+
+    if (_omapdConfig->valueFor("send_tcp_keepalives").toBool()) {
+        client->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
+    }
+
     client->startServerEncryption();
 
     QObject::connect(client, SIGNAL(disconnected()),
