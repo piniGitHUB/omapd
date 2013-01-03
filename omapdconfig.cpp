@@ -165,7 +165,7 @@ OmapdConfig::OmapdConfig(QObject *parent)
 
     _omapdConfig.insert("debug_level", var);
     _omapdConfig.insert("address", "0.0.0.0");
-    _omapdConfig.insert("port", 8081);
+    _omapdConfig.insert("port", 8096);
     _omapdConfig.insert("ssl_configuration", false);
     _omapdConfig.insert("create_client_configurations", true);
     _omapdConfig.insert("allow_basic_auth_clients", true);
