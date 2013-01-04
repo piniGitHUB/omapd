@@ -48,6 +48,7 @@ OmapdConfig::IfmapDebugOptions OmapdConfig::debugOptions(unsigned int dbgValue)
     if (dbgValue & OmapdConfig::ShowRawSocketData) debug |= OmapdConfig::ShowRawSocketData;
     if (dbgValue & OmapdConfig::ShowSearchAlgorithm) debug |= OmapdConfig::ShowSearchAlgorithm;
     if (dbgValue & OmapdConfig::ShowPluginOperations) debug |= OmapdConfig::ShowPluginOperations;
+    if (dbgValue & OmapdConfig::ShowManagementRequests) debug |= OmapdConfig::ShowManagementRequests;
 
     return debug;
 }
@@ -67,6 +68,7 @@ QString OmapdConfig::debugString(OmapdConfig::IfmapDebugOptions debug)
     if (debug.testFlag(OmapdConfig::ShowRawSocketData)) str += "ShowRawSocketData | ";
     if (debug.testFlag(OmapdConfig::ShowSearchAlgorithm)) str += "ShowSearchAlgorithm | ";
     if (debug.testFlag(OmapdConfig::ShowPluginOperations)) str += "ShowPluginOperations | ";
+    if (debug.testFlag(OmapdConfig::ShowManagementRequests)) str += "ShowManagementRequests | ";
 
     if (! str.isEmpty()) {
         str = str.left(str.size()-3);
@@ -174,6 +176,9 @@ OmapdConfig::OmapdConfig(QObject *parent)
     _omapdConfig.insert("allow_arc_on_ssrc", false);
     _omapdConfig.insert("session_metadata_timeout", 180);
     _omapdConfig.insert("send_tcp_keepalives", false);
+    _omapdConfig.insert("management_configuration", true);
+    _omapdConfig.insert("mgmt_address", "127.0.0.1");
+    _omapdConfig.insert("mgmt_port", 8097);
 
     // Default authorization is DenyAll
     var.setValue(OmapdConfig::authzOptions(0));
@@ -270,6 +275,26 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                     if (! QFile::exists(ifmap20SchemaFile))
                         xmlReader.raiseError(QObject::tr("ifmap_metadata_v20_schema_path file not found"));
                     addConfigItem(xmlReader.name().toString(), ifmap20SchemaFile);
+
+                } else if (xmlReader.name() == "management_configuration") {
+                    bool enable = false;
+                    if (xmlReader.attributes().value("enable") == "yes")
+                        enable = true;
+                    addConfigItem(xmlReader.name().toString(), enable);
+
+                    while (xmlReader.readNextStartElement()) {
+                        if (xmlReader.name() == "address") {
+                            addConfigItem("mgmt_" + xmlReader.name().toString(), xmlReader.readElementText());
+
+                        } else if (xmlReader.name() == "port") {
+                            QString value = xmlReader.readElementText();
+                            addConfigItem("mgmt_" + xmlReader.name().toString(), QVariant(value.toUInt()));
+
+                        } else {
+                            xmlReader.skipCurrentElement();
+                        }
+                        xmlReader.readNext();
+                    }
 
                 } else if (xmlReader.name() == "service_configuration") {
 

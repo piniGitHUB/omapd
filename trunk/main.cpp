@@ -26,6 +26,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "server.h"
 #include "omapdconfig.h"
 #include "mapgraphinterface.h"
+#include "managementserver.h"
 
 #if defined(Q_OS_WIN)
 #define _MAPGRAPH_PLUGIN_FILENAME "RAMHashTables.dll"
@@ -210,6 +211,15 @@ int main(int argc, char *argv[])
         exit(2);
     }
     qDebug() << "Started server:" << server;
+
+    if (omapdConfig->valueFor("management_configuration").toBool()) {
+        ManagementServer *mgmtServer = new ManagementServer(mapGraph);
+        if (!mgmtServer->startListening()) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not start management server";
+            exit(3);
+        }
+        qDebug() << "Started management server:" << mgmtServer;
+    }
 
     return a.exec();
 }

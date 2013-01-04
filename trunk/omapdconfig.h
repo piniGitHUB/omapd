@@ -42,7 +42,8 @@ public:
                 ShowMAPGraphAfterChange = 0x0080,
                 ShowRawSocketData = 0x0100,
                 ShowSearchAlgorithm = 0x0200,
-                ShowPluginOperations = 0x0400
+                ShowPluginOperations = 0x0400,
+                ShowManagementRequests = 0x0800
                };
     Q_DECLARE_FLAGS(IfmapDebugOptions, IfmapDebug);
     static IfmapDebugOptions debugOptions(unsigned int dbgValue);
