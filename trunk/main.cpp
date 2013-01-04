@@ -210,7 +210,7 @@ int main(int argc, char *argv[])
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not start server";
         exit(2);
     }
-    qDebug() << "Started server:" << server;
+    qDebug() << "Started MAP server";
 
     if (omapdConfig->valueFor("management_configuration").toBool()) {
         ManagementServer *mgmtServer = new ManagementServer(mapGraph);
@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Could not start management server";
             exit(3);
         }
-        qDebug() << "Started management server:" << mgmtServer;
+        qDebug() << "Started management server";
     }
 
     return a.exec();
