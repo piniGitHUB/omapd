@@ -18,7 +18,8 @@ SOURCES += main.cpp \
     clienthandler.cpp \
     clientparser.cpp \
     mapclient.cpp \
-    clientconfiguration.cpp
+    clientconfiguration.cpp \
+    managementserver.cpp
 HEADERS += server.h \
     identifier.h \
     metadata.h \
@@ -32,5 +33,6 @@ HEADERS += server.h \
     clienthandler.h \
     clientparser.h \
     mapclient.h \
-    clientconfiguration.h
+    clientconfiguration.h \
+    managementserver.h
 INCLUDEPATH += $$[QT_INSTALL_PREFIX]/src/3rdparty/zlib
