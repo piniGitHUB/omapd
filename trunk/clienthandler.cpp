@@ -319,8 +319,8 @@ void ClientHandler::handleParseComplete()
         sendMapResponse(errorResp);
     } else {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got request type:" << MapRequest::requestTypeString(_parser->requestType())
-                     << "and IF-MAP version:" << MapRequest::requestVersionString(_parser->requestVersion());
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Got request:" << MapRequest::requestTypeString(_parser->requestType())
+                     << "from client:" << _authToken << "from address:" << this->peerAddress().toString();
 
         bool sentError = false;
         if (_parser->requestType() != MapRequest::NewSession) {
@@ -416,15 +416,15 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
         }
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending reply to client:" << this->peerAddress().toString()
-                     << _authToken;
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending reply to client:" << _authToken
+                     << "at address:" << this->peerAddress().toString();
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowHTTPHeaders))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply headers to client:" << this->peerAddress().toString()
                      << endl << header.toString();
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXML))
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply XML to client:" << this->peerAddress().toString()
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Sent reply XML to client:"
                      << response << endl;
     } else {
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket is not connected!  Not sending reply to client";
