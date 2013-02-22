@@ -103,20 +103,7 @@ void ClientHandler::sessionMetadataTimeout()
         }
 
         // Delete all session-level metadata for this publisher
-        QHash<Id, QList<Meta> > idMetaDeleted;
-        QHash<Link, QList<Meta> > linkMetaDeleted;
-        bool haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
-        // Check subscriptions for changes to Map Graph
-        while (haveChange) {
-            updateSubscriptions(idMetaDeleted, linkMetaDeleted);
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
-                _mapGraph->dumpMap();
-            }
-            idMetaDeleted.clear();
-            linkMetaDeleted.clear();
-            haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
-        }
-        sendResultsOnActivePolls();
+        purgePublisher(publisherId, true);
     }
 }
 
@@ -1093,18 +1080,7 @@ void ClientHandler::processPurgePublisher(QVariant clientRequest)
         }
 
         if (!requestError) {
-            QHash<Id, QList<Meta> > idMetaDeleted;
-            QHash<Link, QList<Meta> > linkMetaDeleted;
-            bool haveChange = _mapGraph->deleteMetaWithPublisherId(purgePubId, &idMetaDeleted, &linkMetaDeleted);
-
-            // Check subscriptions for changes to Map Graph
-            if (haveChange) {
-                updateSubscriptions(idMetaDeleted, linkMetaDeleted);
-                sendResultsOnActivePolls();
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
-                    _mapGraph->dumpMap();
-                }
-            }
+            purgePublisher(purgePubId, false);
         }
     }
 
@@ -1242,20 +1218,7 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
            to create another session.
         */
         // Delete all session-level metadata for this publisher
-        QHash<Id, QList<Meta> > idMetaDeleted;
-        QHash<Link, QList<Meta> > linkMetaDeleted;
-        bool haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
-        // Check subscriptions for changes to Map Graph
-        while (haveChange) {
-            updateSubscriptions(idMetaDeleted, linkMetaDeleted);
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
-                _mapGraph->dumpMap();
-            }
-            idMetaDeleted.clear();
-            linkMetaDeleted.clear();
-            haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, true);
-        }
-        sendResultsOnActivePolls();
+        purgePublisher(publisherId, true);
     }
 
     return hadExistingSSRCSession;
@@ -1295,6 +1258,32 @@ bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVe
     }
 
     return hadExistingARCSession;
+}
+
+bool ClientHandler::purgePublisher(QString publisherId, bool sessionMetadataOnly)
+{
+    bool haveChanges = false;
+    bool haveChange = true;
+    while (haveChange) {
+        QHash<Id, QList<Meta> > idMetaDeleted;
+        QHash<Link, QList<Meta> > linkMetaDeleted;
+        // Need to iterate since only a metadata on a single link will be deleted by deleteMetaWithPublisherId
+        haveChange = _mapGraph->deleteMetaWithPublisherId(publisherId, &idMetaDeleted, &linkMetaDeleted, sessionMetadataOnly);
+
+        // Check subscriptions for changes to Map Graph
+        if (haveChange) {
+            updateSubscriptions(idMetaDeleted, linkMetaDeleted);
+            haveChanges = true;
+        }
+    }
+    if (haveChanges) {
+        sendResultsOnActivePolls();
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowMAPGraphAfterChange)) {
+            _mapGraph->dumpMap();
+        }
+    }
+
+    return haveChanges;
 }
 
 QString ClientHandler::filteredMetadata(Meta meta, QString filter, QMap<QString, QString> searchNamespaces, MapRequest::RequestError &error)
