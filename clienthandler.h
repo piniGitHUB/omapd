@@ -106,6 +106,7 @@ private:
 
     bool terminateSession(QString sessionId, MapRequest::RequestVersion requestVersion);
     bool terminateARCSession(QString sessionId, MapRequest::RequestVersion requestVersion);
+    bool purgePublisher(QString publisherId, bool sessionMetadataOnly);
 
 private:
     OmapdConfig* _omapdConfig;
