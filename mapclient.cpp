@@ -30,7 +30,7 @@ MapClient::MapClient()
     _hasActivePoll = false;
 }
 
-MapClient::MapClient(QString authToken, MapRequest::AuthenticationType authType, OmapdConfig::AuthzOptions authz, QString pubId)
+MapClient::MapClient(QString authToken, MapRequest::AuthenticationType authType, OmapdConfig::AuthzOptions authz, QString pubId, QString metadataPolicy)
 {
     _hasActiveSSRC = false;
     _hasActiveARC = false;
@@ -39,4 +39,5 @@ MapClient::MapClient(QString authToken, MapRequest::AuthenticationType authType,
     _authType = authType;
     _authz = authz;
     _pubId = pubId;
+    _metadataPolicy = metadataPolicy;
 }

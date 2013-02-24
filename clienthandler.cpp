@@ -841,7 +841,7 @@ void ClientHandler::processPublish(QVariant clientRequest)
                 keepMetaList = results.first;
                 deleteMetaList = results.second;
 
-                if (metadataDeleted) {
+                if (metadataDeleted && !requestError) {
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "Updating map graph because metadata was deleted";
                     }
@@ -849,11 +849,24 @@ void ClientHandler::processPublish(QVariant clientRequest)
                 }
 
             } else if (! existingMetaList.isEmpty()) {
-                // Default 3rd parameter on replaceMeta (empty QList) implies no meta to replace
-                // No filter provided so we just delete all metadata
-                _mapGraph->replaceMeta(pubOper._link, pubOper._isLink);
-                metadataDeleted = true;
-                deleteMetaList = existingMetaList;
+                QListIterator<Meta> metaListIt(existingMetaList);
+                while (metaListIt.hasNext() && !requestError) {
+                    Meta aMeta = metaListIt.next();
+                    if (!_mapSessions->metadataAuthorizationForAuthToken(_authToken, aMeta.elementName(), aMeta.elementNS())) {
+                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client not authorized to delete metadata";
+                        }
+                        requestError = MapRequest::IfmapAccessDenied;
+                    }
+                }
+
+                if (!requestError) {
+                    // Default 3rd parameter on replaceMeta (empty QList) implies no meta to replace
+                    // No filter provided so we just delete all metadata
+                    _mapGraph->replaceMeta(pubOper._link, pubOper._isLink);
+                    metadataDeleted = true;
+                    deleteMetaList = existingMetaList;
+                }
             } else {
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "No metadata to delete!";
@@ -900,7 +913,7 @@ QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(QList<M
     QString filter = Subscription::translateFilter(pubOper._deleteFilter);
 
     QListIterator<Meta> metaListIt(existingMetaList);
-    while (metaListIt.hasNext()) {
+    while (metaListIt.hasNext() && !requestError) {
         Meta aMeta = metaListIt.next();
         /* First need to know if the delete filter will match anything,
            because if it does match, then we'll need to notify any
@@ -915,12 +928,20 @@ QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(QList<M
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Found Meta to keep:" << aMeta.elementName();
                 }
             } else {
-                deleteMetaList.append(aMeta);
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Meta will be deleted:" << aMeta.elementName();
+                // Check metadata policy for client authorized to delete this metadata
+                if (_mapSessions->metadataAuthorizationForAuthToken(_authToken, aMeta.elementName(), aMeta.elementNS())) {
+                    deleteMetaList.append(aMeta);
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Meta will be deleted:" << aMeta.elementName();
+                    }
+                    // Delete matched something, so this may affect subscriptions
+                    *metadataDeleted = true;
+                } else {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Client not authorized to delete metadata";
+                    }
+                    requestError = MapRequest::IfmapAccessDenied;
                 }
-                // Delete matched something, so this may affect subscriptions
-                *metadataDeleted = true;
             }
         }
     }

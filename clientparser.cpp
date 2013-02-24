@@ -1282,6 +1282,15 @@ QList<Meta> ClientParser::parseMetadata(PublishRequest &pubReq, Meta::Lifetime l
             _requestError = MapRequest::IfmapInvalidMetadata;
             _xml.raiseError("Metadata did not pass validation test");
         }
+
+        QString authToken = ((ClientHandler*)this->parent())->authToken();
+        bool metaPolicy = MapSessions::getInstance()->metadataAuthorizationForAuthToken(authToken, metaName, metaNS);
+        if (!metaPolicy) {
+            pubReq.setRequestError(MapRequest::IfmapAccessDenied);
+            _requestError = MapRequest::IfmapAccessDenied;
+            _xml.raiseError("Client not authorized to publish metadata in request");
+        }
+
     }
 
     // Can check metadata length here too
