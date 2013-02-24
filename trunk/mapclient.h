@@ -32,12 +32,17 @@ public:
     // that return a default constructed value
     MapClient();
 
-    MapClient(QString authToken, MapRequest::AuthenticationType authType, OmapdConfig::AuthzOptions authz, QString pubId);
+    MapClient(QString authToken,
+              MapRequest::AuthenticationType authType,
+              OmapdConfig::AuthzOptions authz,
+              QString pubId,
+              QString metadataPolicy);
 
     QString pubId()  const { return _pubId; }
     QString authToken() const { return _authToken; }
     MapRequest::AuthenticationType authType() const { return _authType; }
     OmapdConfig::AuthzOptions authz() const { return _authz; }
+    QString metadataPolicy() const { return _metadataPolicy; }
 
     QString sessId() const { return _sessId; }
     bool hasActiveSSRC() const { return _hasActiveSSRC; }
@@ -58,6 +63,7 @@ private:
     QString _authToken;
     MapRequest::AuthenticationType _authType;
     OmapdConfig::AuthzOptions _authz;
+    QString _metadataPolicy;
 
     QString _sessId;
     bool _hasActiveSSRC;

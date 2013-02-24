@@ -135,25 +135,27 @@ void MapSessions::loadClientConfigurations()
 
         if (clientConfigOk) {
             if (client->authType() == MapRequest::AuthCACert) {
-                MapClient mapClient(authToken, client->authType(), client->authz(), "");
+                MapClient mapClient(authToken, client->authType(), client->authz(), "", client->metadataPolicy());
                 _mapClientCAs.insert(authToken, mapClient);
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Created CA Authentication MapClient for configuration named:" << client->name()
                              << "authToken:" << authToken
-                             << "authz:" << client->authz();
+                             << "authz:" << client->authz()
+                             << "metadataPolicy" << client->metadataPolicy();
                 }
             } else {
                 // Create a new publisher-id for this client
                 QString pubId;
                 pubId.setNum(_pubIdIndex++);
 
-                MapClient mapClient(authToken, client->authType(), client->authz(), pubId);
+                MapClient mapClient(authToken, client->authType(), client->authz(), pubId, client->metadataPolicy());
                 _mapClients.insert(authToken, mapClient);
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "Created MapClient for client configuration named:" << client->name()
                              << "with publisher-id:" << pubId
                              << "authToken:" << authToken
-                             << "authz:" << client->authz();
+                             << "authz:" << client->authz()
+                             << "metadataPolicy:" << client->metadataPolicy();
                 }
             }
         } else {
@@ -213,7 +215,8 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
                 pubId.setNum(_pubIdIndex++);
                 // Set the client authorization as determined by CA Cert setting
                 OmapdConfig::AuthzOptions authz = _mapClientCAs.value(compToken.last()).authz();
-                MapClient client(authToken, authType, authz, pubId);
+                QString metadataPolicy = _mapClientCAs.value(compToken.last()).metadataPolicy();
+                MapClient client(authToken, authType, authz, pubId, metadataPolicy);
                 _mapClients.insert(authToken, client);
 
                 registered = true;
@@ -225,7 +228,8 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
             // Create a new publisher-id for this client
             pubId.setNum(_pubIdIndex++);
             OmapdConfig::AuthzOptions authz = _omapdConfig->valueFor("default_authorization").value<OmapdConfig::AuthzOptions>();
-            MapClient client(authToken, authType, authz, pubId);
+            // TODO: Allow application of metadataPolicy to clients created this way
+            MapClient client(authToken, authType, authz, pubId, "");
             _mapClients.insert(authToken, client);
 
             registered = true;
@@ -342,6 +346,36 @@ OmapdConfig::AuthzOptions MapSessions::authzForAuthToken(QString authToken)
         authz = _mapClients.value(authToken).authz();
     }
     return authz;
+}
+
+bool MapSessions::metadataAuthorizationForAuthToken(QString authToken, QString metaName, QString metaNamespace)
+{
+    bool clientAuthorized = false;
+    if (_mapClients.contains(authToken)) {
+        QString policyName = _mapClients.value(authToken).metadataPolicy();
+
+        if (policyName.isEmpty()) {
+            // No policy defined for client
+            clientAuthorized = true;
+        } else {
+            QList<VSM> metaAllowed = _omapdConfig->metadataPolicies().values(policyName);
+            QListIterator<VSM> i(metaAllowed);
+            while (i.hasNext() && !clientAuthorized) {
+                VSM metaAllowed = i.next();
+                if (metaAllowed.first == metaName && metaAllowed.second == metaNamespace) {
+                    clientAuthorized = true;
+                }
+            }
+        }
+
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client authorization for:"
+                     << metaNamespace << ":" << metaName
+                     << ":" << clientAuthorized;
+        }
+    }
+
+    return clientAuthorized;
 }
 
 bool MapSessions::haveActivePollForClient(QString authToken)

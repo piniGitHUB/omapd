@@ -28,16 +28,17 @@ ClientConfiguration::ClientConfiguration()
     _authz = OmapdConfig::DenyAll;
 }
 
-void ClientConfiguration::createBasicAuthClient(QString clientName, QString username, QString password, OmapdConfig::AuthzOptions authz)
+void ClientConfiguration::createBasicAuthClient(QString clientName, QString username, QString password, OmapdConfig::AuthzOptions authz, QString metadataPolicy)
 {
     _authType = MapRequest::AuthBasic;
     _authz = authz;
     _name = clientName;
     _username = username;
     _password = password;
+    _metadataPolicy = metadataPolicy;
 }
 
-void ClientConfiguration::createCertAuthClient(QString clientName, QString certFile, QString caCertFile, OmapdConfig::AuthzOptions authz)
+void ClientConfiguration::createCertAuthClient(QString clientName, QString certFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy)
 {
     _authType = MapRequest::AuthCert;
     _authz = authz;
@@ -45,9 +46,10 @@ void ClientConfiguration::createCertAuthClient(QString clientName, QString certF
     _certFileName = certFile;
     _caCertFileName = caCertFile;
     _haveClientCert = true;
+    _metadataPolicy = metadataPolicy;
 }
 
-void ClientConfiguration::createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz)
+void ClientConfiguration::createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy)
 {
     _authType = MapRequest::AuthCACert;
     _authz = authz;
@@ -56,4 +58,5 @@ void ClientConfiguration::createCAAuthClient(QString clientPrefix, QString issui
     // In this case, _certFileName and _haveClientCert refer to the issuingCACertFile
     _certFileName = issuingCACertFile;
     _haveClientCert = true;
+    _metadataPolicy = metadataPolicy;
 }

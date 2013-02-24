@@ -26,6 +26,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 
 class ClientConfiguration;
 
+typedef QPair<QString, QString> VSM; // elementName, elementNamespace
+
 class OmapdConfig : public QObject
 {
     Q_OBJECT
@@ -80,6 +82,7 @@ public:
     void showConfigValues();
 
     QList<ClientConfiguration *> clientConfigurations() { return _clientConfigurations; }
+    QMultiHash<QString, VSM> metadataPolicies() { return _metadataPolicies; }
 
     int readConfigFile(QString configFileName = "omapd.conf");
 
@@ -95,6 +98,7 @@ private:
 
     QMap<QString,QVariant> _omapdConfig;
     QList<ClientConfiguration *> _clientConfigurations;
+    QMultiHash<QString,VSM> _metadataPolicies; // policyName, (metaName, metaNS)
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::IfmapDebugOptions)
 Q_DECLARE_OPERATORS_FOR_FLAGS(OmapdConfig::MapVersionSupportOptions)

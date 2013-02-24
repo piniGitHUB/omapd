@@ -29,10 +29,11 @@ class ClientConfiguration
 {
 public:
     ClientConfiguration();
-    void createBasicAuthClient(QString clientName, QString username, QString password, OmapdConfig::AuthzOptions authz);
-    void createCertAuthClient(QString clientName, QString certFile, QString caCertFile, OmapdConfig::AuthzOptions authz);
-    void createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz);
+    void createBasicAuthClient(QString clientName, QString username, QString password, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
+    void createCertAuthClient(QString clientName, QString certFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
+    void createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
 
+    QString metadataPolicy() { return _metadataPolicy; }
     QString name() { return _name; }
     QString username() { return _username; }
     QString password() { return _password; }
@@ -43,6 +44,7 @@ public:
     OmapdConfig::AuthzOptions authz() { return _authz; }
 
 private:
+    QString _metadataPolicy;
     QString _username;
     QString _password;
     QString _certFileName;

@@ -32,8 +32,6 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "server.h"
 #include "clienthandler.h"
 
-typedef QPair<QString, QString> VSM;
-
 class MapClient;
 
 class MapSessions : public QObject
@@ -67,6 +65,7 @@ public:
     QString pubIdForAuthToken(QString authToken);
     QString pubIdForSessId(QString sessId);
     OmapdConfig::AuthzOptions authzForAuthToken(QString authToken);
+    bool metadataAuthorizationForAuthToken(QString authToken, QString metaName, QString metaNamespace);
 
     QList<Subscription> subscriptionListForClient(QString authToken);
     QList<Subscription> removeSubscriptionListForClient(QString authToken);
@@ -88,7 +87,6 @@ private:
 
     QHash<QString, MapClient> _mapClients; // authToken --> MapClient
     QHash<QString, MapClient> _mapClientCAs; // CA AuthToken --> MapClient
-
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;
 

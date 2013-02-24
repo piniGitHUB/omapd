@@ -220,6 +220,17 @@ void OmapdConfig::showConfigValues()
     }
 
     qDebug() << fnName << "Num client configurations loaded:" << _clientConfigurations.count();
+
+    qDebug() << fnName << "Number of metadata policy definitions:" << _metadataPolicies.uniqueKeys().size();
+    QHashIterator<QString, VSM> i(_metadataPolicies);
+    while (i.hasNext()) {
+        i.next();
+        QString policyName = i.key();
+        VSM metadataPolicy = i.value();
+        qDebug() << fnName << "    policy:" << policyName
+                 << "metadata:" << metadataPolicy.first
+                 << "namespace:" << metadataPolicy.second;
+    }
 }
 
 bool OmapdConfig::readConfigXML(QIODevice *device)
@@ -390,6 +401,64 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                         }
                         xmlReader.readNext();
                     }  // service_configuration
+                } else if (xmlReader.name() == "metadata_policies") {
+                    bool policiesDone = false;
+                    while (!xmlReader.atEnd() && !policiesDone) {
+                        xmlReader.readNext();
+
+                        if (xmlReader.isStartElement() && xmlReader.name() == "metadata_policy") {
+                            QString policyName;
+                            if (xmlReader.attributes().hasAttribute("name")) {
+                                policyName = xmlReader.attributes().value("name").toString();
+                            } else {
+                                xmlReader.raiseError(QObject::tr("name attribute not specified for policy"));
+                            }
+                            if (policyName.isEmpty()) {
+                                xmlReader.raiseError(QObject::tr("invalid policy name attribute"));
+                            }
+
+                            bool metadataDone = false;
+                            while (!xmlReader.atEnd() && !metadataDone) {
+                                xmlReader.readNext();
+
+                                if (xmlReader.isStartElement() && xmlReader.name() == "metadata") {
+                                    QString metadataName;
+                                    if (xmlReader.attributes().hasAttribute("name")) {
+                                        metadataName = xmlReader.attributes().value("name").toString();
+                                    } else {
+                                        xmlReader.raiseError(QObject::tr("name attribute not specified for metadata"));
+                                    }
+                                    QString metadataNamespace;
+                                    if (xmlReader.attributes().hasAttribute("metaNS")) {
+                                        metadataNamespace = xmlReader.attributes().value("metaNS").toString();
+                                    } else {
+                                        xmlReader.raiseError(QObject::tr("namespace attribute not specified for metadata"));
+                                    }
+
+                                    if (metadataName.isEmpty() || metadataNamespace.isEmpty()) {
+                                        xmlReader.raiseError(QObject::tr("metadata name or namespace attribute not specified"));
+                                    }
+                                    VSM mpol;
+                                    mpol.first = metadataName;
+                                    mpol.second = metadataNamespace;
+                                    _metadataPolicies.insert(policyName, mpol);
+                                }
+
+                                if (xmlReader.tokenType() == QXmlStreamReader::EndElement &&
+                                        xmlReader.name() == "metadata_policy") {
+                                    metadataDone = true;
+                                }
+                            }
+                            // End while (metadata)
+                        }
+
+                        if (xmlReader.tokenType() == QXmlStreamReader::EndElement &&
+                            xmlReader.name() == "metadata_policies") {
+                            policiesDone = true;
+                        }
+                    }
+                    // End while (metadata_policies
+
                 } else if (xmlReader.name() == "client_configuration") {
                     QVariant defaultAuthzVar;
                     if (xmlReader.attributes().hasAttribute("default-authorization")) {
@@ -397,7 +466,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                         unsigned int authzVal = xmlReader.attributes().value("default-authorization").toString().toUInt(&ok, 16);
                         if (ok) {
                             defaultAuthzVar.setValue(authzVal);
-			    addConfigItem("default_authorization", defaultAuthzVar);
+                            addConfigItem("default_authorization", defaultAuthzVar);
                         }
                     }
 
@@ -409,6 +478,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             unsigned int clientAuthz = _omapdConfig.value("default_authorization").toUInt();
                             QString clientName;
                             QString authType;
+                            QString metadataPolicy;
                             if (xmlReader.attributes().hasAttribute("name")) {
                                 clientName = xmlReader.attributes().value("name").toString();
                             } else {
@@ -426,7 +496,12 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                             } else {
                                 xmlReader.raiseError(QObject::tr("authentication attribute not specified for client"));
                             }
-
+                            if (xmlReader.attributes().hasAttribute("metadata_policy")) {
+                                metadataPolicy = xmlReader.attributes().value("metadata_policy").toString();
+                                if (!_metadataPolicies.contains(metadataPolicy)) {
+                                    xmlReader.raiseError(QObject::tr("metadata_policy not found for client"));
+                                }
+                            }
                             xmlReader.readNextStartElement();
 
                             if (authType == "basic") {
@@ -447,7 +522,11 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                 if (haveUsername && havePassword) {
                                     // Create client
                                     ClientConfiguration *clientConfig = new ClientConfiguration();
-                                    clientConfig->createBasicAuthClient(clientName, username, password, OmapdConfig::authzOptions(clientAuthz));
+                                    clientConfig->createBasicAuthClient(clientName,
+                                                                        username,
+                                                                        password,
+                                                                        OmapdConfig::authzOptions(clientAuthz),
+                                                                        metadataPolicy);
                                     _clientConfigurations.append(clientConfig);
                                 }
                             } else if (authType == "certificate") {
@@ -472,7 +551,11 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                 if (haveCACertFile && haveClientCertFile) {
                                     // Create client
                                     ClientConfiguration *clientConfig = new ClientConfiguration();
-                                    clientConfig->createCertAuthClient(clientName, certFileName, caCertFileName, OmapdConfig::authzOptions(clientAuthz));
+                                    clientConfig->createCertAuthClient(clientName,
+                                                                       certFileName,
+                                                                       caCertFileName,
+                                                                       OmapdConfig::authzOptions(clientAuthz),
+                                                                       metadataPolicy);
                                     _clientConfigurations.append(clientConfig);
                                 }
 
@@ -498,7 +581,11 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                 if (haveCACertFile && haveIssuingCACertFile) {
                                     // Create client
                                     ClientConfiguration *clientConfig = new ClientConfiguration();
-                                    clientConfig->createCAAuthClient(clientName, issuingCaCertFileName, caCertFileName, OmapdConfig::authzOptions(clientAuthz));
+                                    clientConfig->createCAAuthClient(clientName,
+                                                                     issuingCaCertFileName,
+                                                                     caCertFileName,
+                                                                     OmapdConfig::authzOptions(clientAuthz),
+                                                                     metadataPolicy);
                                     _clientConfigurations.append(clientConfig);
                                 }
 
