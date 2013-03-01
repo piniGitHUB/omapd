@@ -26,6 +26,8 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include <QTcpServer>
 #include "mapgraphinterface.h"
 
+#define MANAGEMENT_MSG_MAX_LENGTH 1024
+
 class ManagementServer : public QTcpServer
 {
     Q_OBJECT

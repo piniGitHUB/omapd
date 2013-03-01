@@ -76,6 +76,9 @@ public:
 
     QString generateSessionId();
 
+    bool loadClientConfiguration(ClientConfiguration *client);
+    bool removeClientConfiguration(ClientConfiguration *client);
+
 private:
     MapSessions(QObject *parent = 0);
     ~MapSessions();
