@@ -43,7 +43,7 @@ QString ClientHandler::buildDN(QSslCertificate cert, ClientHandler::CertInfoTarg
                 << cert.subjectInfo(QSslCertificate::OrganizationalUnitName)
                 << cert.subjectInfo(QSslCertificate::CommonName);
     } else if (target == ClientHandler::Issuer) {
-        dnElements << cert.subjectInfo(QSslCertificate::Organization)
+        dnElements << cert.issuerInfo(QSslCertificate::Organization)
                 << cert.issuerInfo(QSslCertificate::CountryName)
                 << cert.issuerInfo(QSslCertificate::StateOrProvinceName)
                 << cert.issuerInfo(QSslCertificate::LocalityName)
