@@ -223,6 +223,48 @@ void ManagementServer::readMgmtRequest()
 
         }
 
+    } else if (command == "addCertClientToBlacklist") {
+        // Note: Clients blacklisted through mgmt interface but still defined in omapd.conf
+        // will be re-enabled when omapd restarts.
+        /*
+        { "cmd":"addCertClientToBlacklist",
+          "certPath":"/path/to/clientCert",
+          "caPath":"/path/to/clientCACert" }
+        */
+        if (parsedRequest.contains("certPath") &&
+                parsedRequest.contains("caPath") &&
+                QFile::exists(parsedRequest["certPath"].toString()) &&
+                QFile::exists(parsedRequest["caPath"].toString())) {
+
+            QString certPath = parsedRequest["certPath"].toString();
+            QString certCAPath = parsedRequest["caPath"].toString();
+
+            ClientConfiguration clientConfig;
+            clientConfig.createCertAuthClient("", certPath, certCAPath, 0, "");
+            MapSessions::getInstance()->addBlacklistClientConfiguration(&clientConfig);
+        }
+
+    } else if (command == "removeCertClientFromBlacklist") {
+        // Note: Clients removed from the blacklist through mgmt interface but still defined
+        // in omapd.conf will be re-added to the blacklist when omapd restarts.
+        /*
+        { "cmd":"removeCertClientFromBlacklist",
+          "certPath":"/path/to/clientCert",
+          "caPath":"/path/to/clientCACert" }
+        */
+        if (parsedRequest.contains("certPath") &&
+                parsedRequest.contains("caPath") &&
+                QFile::exists(parsedRequest["certPath"].toString()) &&
+                QFile::exists(parsedRequest["caPath"].toString())) {
+
+            QString certPath = parsedRequest["certPath"].toString();
+            QString certCAPath = parsedRequest["caPath"].toString();
+
+            ClientConfiguration clientConfig;
+            clientConfig.createCertAuthClient("", certPath, certCAPath, 0, "");
+            MapSessions::getInstance()->removeBlacklistClientConfiguration(&clientConfig);
+        }
+
     } else {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowManagementRequests)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Received unrecognized management command:"

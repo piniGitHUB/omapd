@@ -31,7 +31,7 @@ public:
     ClientConfiguration();
     void createBasicAuthClient(QString clientName, QString username, QString password, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
     void createCertAuthClient(QString clientName, QString certFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
-    void createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
+    void createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy, QString blacklistDir = QString());
 
     QString metadataPolicy() { return _metadataPolicy; }
     QString name() { return _name; }
@@ -39,6 +39,7 @@ public:
     QString password() { return _password; }
     QString certFileName() { return _certFileName; }
     QString caCertFileName() { return _caCertFileName; }
+    QString blacklistDirectory() { return _blacklistDirectory; }
     bool haveClientCert() { return _haveClientCert; }
     MapRequest::AuthenticationType authType() { return _authType; }
     OmapdConfig::AuthzOptions authz() { return _authz; }
@@ -49,6 +50,7 @@ private:
     QString _password;
     QString _certFileName;
     QString _caCertFileName;
+    QString _blacklistDirectory;
     bool _haveClientCert;
     MapRequest::AuthenticationType _authType;
     OmapdConfig::AuthzOptions _authz;

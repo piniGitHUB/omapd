@@ -563,6 +563,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                 bool haveIssuingCACertFile = false, haveCACertFile = false;
                                 QString issuingCaCertFileName;
                                 QString caCertFileName;
+                                QString blacklistDirectory;
 
                                 for (int i=0; i<2; i++) {
                                     if (xmlReader.name() == "issuing_ca_certificate_file") {
@@ -573,8 +574,10 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                         // TODO: Deal with certificate type {pem|der}
                                         caCertFileName = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
                                         haveCACertFile = QFile::exists(caCertFileName);
+                                    } else if (xmlReader.name() == "blacklist_directory") {
+                                        blacklistDirectory = xmlReader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);
                                     } else {
-                                        xmlReader.raiseError(QObject::tr("invalid cert auth element"));
+                                        xmlReader.raiseError(QObject::tr("invalid ca-certificate auth element"));
                                     }
                                     xmlReader.readNextStartElement();
                                 }
@@ -585,7 +588,8 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
                                                                      issuingCaCertFileName,
                                                                      caCertFileName,
                                                                      OmapdConfig::authzOptions(clientAuthz),
-                                                                     metadataPolicy);
+                                                                     metadataPolicy,
+                                                                     blacklistDirectory);
                                     _clientConfigurations.append(clientConfig);
                                 }
 

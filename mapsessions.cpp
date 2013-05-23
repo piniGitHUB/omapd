@@ -143,11 +143,17 @@ bool MapSessions::loadClientConfiguration(ClientConfiguration *client)
         if (client->authType() == MapRequest::AuthCACert) {
             MapClient mapClient(authToken, client->authType(), client->authz(), "", client->metadataPolicy());
             _mapClientCAs.insert(authToken, mapClient);
+
+            if (!client->blacklistDirectory().isEmpty()) {
+                loadBlacklistedClients(client->blacklistDirectory(), client->caCertFileName());
+            }
+
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Created CA Authentication MapClient for configuration named:" << client->name()
                          << "authToken:" << authToken
                          << "authz:" << OmapdConfig::authzOptionsString(client->authz())
-                         << "metadataPolicy" << client->metadataPolicy();
+                         << "metadataPolicy" << client->metadataPolicy()
+                         << "blacklist directory" << client->blacklistDirectory();
             }
         } else {
             QString pubId;
@@ -237,6 +243,92 @@ bool MapSessions::removeClientConfiguration(ClientConfiguration *client)
     return clientConfigOk;
 }
 
+void MapSessions::loadBlacklistedClients(QString blacklistDirectory, QString caCertFile)
+{
+    QDir blacklistDir(blacklistDirectory);
+    QStringList files = blacklistDir.entryList();
+
+    QStringListIterator fileIt(files);
+    while (fileIt.hasNext()) {
+        QString file = fileIt.next();
+        ClientConfiguration clientConfig;
+        clientConfig.createCertAuthClient("blacklist", file, caCertFile, 0, "");
+
+        manageClientBlacklist(&clientConfig, MapSessions::AddToBlacklist);
+    }
+}
+
+bool MapSessions::manageClientBlacklist(ClientConfiguration *client, MapSessions::BlacklistAction action)
+{
+    bool clientConfigOk = false;
+
+    QString authToken;
+
+    if (client->haveClientCert()) {
+        QFile certFile(client->certFileName());
+        if (!certFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Client:" << client->name()
+                    << "has no certificate file:" << certFile.fileName();
+        } else {
+            QSslCertificate clientCert;
+            // Try PEM format fail over to DER; since they are the only 2
+            // supported by the QSsl Certificate classes
+            clientCert = QSslCertificate(&certFile, QSsl::Pem);
+            if ( clientCert.isNull() )
+                clientCert = QSslCertificate(&certFile, QSsl::Der);
+
+            if (!clientCert.isNull()) clientConfigOk = true;
+
+            authToken = ClientHandler::buildDN(clientCert, ClientHandler::Subject);
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Loaded cert for client named:" << client->name();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "-- DN:" << authToken;
+            }
+            authToken += "::SEPARATOR::";
+            authToken += ClientHandler::buildDN(clientCert, ClientHandler::Issuer);
+
+            if (authToken.isEmpty())
+                clientConfigOk = false;
+        }
+    }
+
+    if (clientConfigOk) {
+        if (action == MapSessions::AddToBlacklist) {
+            _blacklistedClients.insert(authToken);
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Added blacklisted MapClient with authToken" << authToken;
+            }
+        } else if (action == MapSessions::RemoveFromBlacklist) {
+            // Note: we will still return true even if client is not originally in blacklist
+            _blacklistedClients.remove(authToken);
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Removed MapClient from blacklisted with authToken" << authToken;
+            }
+        }
+    } else {
+        qDebug() << __PRETTY_FUNCTION__ << ":" << "Error adding blacklisted MapClient";
+    }
+
+    return clientConfigOk;
+}
+
+bool MapSessions::addBlacklistClientConfiguration(ClientConfiguration *client)
+{
+    bool addOk = false;
+
+    if (manageClientBlacklist(client, MapSessions::AddToBlacklist)) {
+        // Terminate existing sessions
+        addOk = true;
+    }
+
+    return addOk;
+}
+
+bool MapSessions::removeBlacklistClientConfiguration(ClientConfiguration *client)
+{
+    return manageClientBlacklist(client, MapSessions::RemoveFromBlacklist);
+}
+
 QString MapSessions::generateSessionId()
 {
     QString sid;
@@ -272,7 +364,12 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
     bool registered = false;
 
     if (authType != MapRequest::AuthNone && !authToken.isEmpty()) {
-        if (_mapClients.contains(authToken)) {
+        if (_blacklistedClients.contains(authToken)) {
+            // This client is blacklisted
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Client is blacklisted:" << authToken;
+            }
+        } else if (_mapClients.contains(authToken)) {
             // Already have a publisher-id for this client
             pubId = _mapClients.value(authToken).pubId();
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
