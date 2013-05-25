@@ -56,41 +56,41 @@ public:
     MapResponse(MapRequest::RequestVersion reqVersion);
     ~MapResponse();
 
-    QByteArray responseData() const { return _responseBuffer.data(); }
+    const QByteArray& responseData() const { return _responseBuffer.data(); }
     MapRequest::RequestVersion requestVersion() const { return _requestVersion; }
 
-    void setClientFault(QString faultString);
+    void setClientFault(const QString &faultString);
 
-    void setErrorResponse(MapRequest::RequestError requestError, QString sessionId, QString errorString = "", QString name = "");
-    void setNewSessionResponse(QString sessiondId, QString publisherId, bool mprsSet = false, unsigned int mprs = 0);
-    void setRenewSessionResponse(QString sessiondId);
-    void setEndSessionResponse(QString sessiondId);
-    void setAttachSessionResponse(QString sessionId, QString publisherId);
-    void setPublishResponse(QString sessionId);
-    void setSubscribeResponse(QString sessionId);
-    void setPurgePublisherResponse(QString sessionId);
+    void setErrorResponse(const MapRequest::RequestError& requestError, const QString& sessionId, const QString& errorString = "", const QString& name = "");
+    void setNewSessionResponse(const QString& sessiondId, const QString& publisherId, bool mprsSet = false, unsigned int mprs = 0);
+    void setRenewSessionResponse(const QString& sessiondId);
+    void setEndSessionResponse(const QString& sessiondId);
+    void setAttachSessionResponse(const QString& sessionId, const QString& publisherId);
+    void setPublishResponse(const QString& sessionId);
+    void setSubscribeResponse(const QString& sessionId);
+    void setPurgePublisherResponse(const QString& sessionId);
 
-    void setSearchResults(QString sessionId, QList<SearchResult *> searchResults);
+    void setSearchResults(const QString& sessionId, const QList<SearchResult *>& searchResults);
 
-    void startPollResponse(QString sessionId);
-    void addPollErrorResult(QString subName, MapRequest::RequestError error, QString errorString = "");
-    void addPollResults(QList<SearchResult *> results, QString subName);
+    void startPollResponse(const QString& sessionId);
+    void addPollErrorResult(const QString& subName, const MapRequest::RequestError& error, const QString& errorString = "");
+    void addPollResults(const QList<SearchResult *>& results, const QString& subName);
     void endPollResponse();
 
 private:
     MapResponse(); // Don't use
 
-    void checkAddSessionId(QString sessionId);
+    void checkAddSessionId(const QString& sessionId);
     void finishEnvelope();
     void startResponse();
     void endResponse();
-    void writeIdentifier(Identifier id);
+    void writeIdentifier(const Identifier& id);
 
-    void addLinkResult(Link link, QString metaXML);
-    void addIdentifierResult(Identifier id, QString metaXML);
-    void addMetadataResult(QString metaXML);
+    void addLinkResult(const Link& link, const QString& metaXML);
+    void addIdentifierResult(const Identifier& id, const QString& metaXML);
+    void addMetadataResult(const QString& metaXML);
 
-    void startSearchResult(SearchResult::ResultType resultType, QString subName);
+    void startSearchResult(SearchResult::ResultType resultType, const QString& subName);
     void endSearchResult();
 private:
     const char *_soap_envelope;

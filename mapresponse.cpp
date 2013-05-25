@@ -77,7 +77,7 @@ void MapResponse::endResponse()
     _xmlWriter.writeEndElement(); // </SOAP-ENV:Body>
 }
 
-void MapResponse::checkAddSessionId(QString sessionId)
+void MapResponse::checkAddSessionId(const QString& sessionId)
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement(_soap_envelope, "Header");
@@ -86,7 +86,7 @@ void MapResponse::checkAddSessionId(QString sessionId)
     }
 }
 
-void MapResponse::writeIdentifier(Identifier id)
+void MapResponse::writeIdentifier(const Identifier& id)
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement("identifier");
@@ -192,7 +192,7 @@ void MapResponse::writeIdentifier(Identifier id)
     }
 }
 
-void MapResponse::setClientFault(QString faultString)
+void MapResponse::setClientFault(const QString& faultString)
 {
     _xmlWriter.writeStartElement(_soap_envelope, "Body");
     _xmlWriter.writeStartElement(_soap_envelope, "Fault");
@@ -203,7 +203,7 @@ void MapResponse::setClientFault(QString faultString)
     finishEnvelope();
 }
 
-void MapResponse::setErrorResponse(MapRequest::RequestError requestError, QString sessionId, QString errorString, QString name)
+void MapResponse::setErrorResponse(const MapRequest::RequestError& requestError, const QString& sessionId, const QString& errorString, const QString& name)
 {
     checkAddSessionId(sessionId);
     startResponse();
@@ -220,7 +220,7 @@ void MapResponse::setErrorResponse(MapRequest::RequestError requestError, QStrin
     finishEnvelope();
 }
 
-void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId, bool mprsSet, unsigned int mprs)
+void MapResponse::setNewSessionResponse(const QString& sessionId, const QString& publisherId, bool mprsSet, unsigned int mprs)
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement(_soap_envelope, "Header");
@@ -249,7 +249,7 @@ void MapResponse::setNewSessionResponse(QString sessionId, QString publisherId, 
     finishEnvelope();
 }
 
-void MapResponse::setRenewSessionResponse(QString sessionId)
+void MapResponse::setRenewSessionResponse(const QString& sessionId)
 {
     startResponse();
     _xmlWriter.writeEmptyElement("renewSessionResult");
@@ -258,7 +258,7 @@ void MapResponse::setRenewSessionResponse(QString sessionId)
     finishEnvelope();
 }
 
-void MapResponse::setEndSessionResponse(QString sessionId)
+void MapResponse::setEndSessionResponse(const QString& sessionId)
 {
     startResponse();
     _xmlWriter.writeEmptyElement("endSessionResult");
@@ -267,7 +267,7 @@ void MapResponse::setEndSessionResponse(QString sessionId)
     finishEnvelope();
 }
 
-void MapResponse::setAttachSessionResponse(QString sessionId, QString publisherId)
+void MapResponse::setAttachSessionResponse(const QString& sessionId, const QString& publisherId)
 {
     _xmlWriter.writeStartElement(_soap_envelope, "Header");
     _xmlWriter.writeTextElement(IFMAP_NS_1, "session-id", sessionId);
@@ -281,7 +281,7 @@ void MapResponse::setAttachSessionResponse(QString sessionId, QString publisherI
     finishEnvelope();
 }
 
-void MapResponse::setPublishResponse(QString sessionId)
+void MapResponse::setPublishResponse(const QString& sessionId)
 {
     checkAddSessionId(sessionId);
     startResponse();
@@ -290,7 +290,7 @@ void MapResponse::setPublishResponse(QString sessionId)
     finishEnvelope();
 }
 
-void MapResponse::setSubscribeResponse(QString sessionId)
+void MapResponse::setSubscribeResponse(const QString& sessionId)
 {
     checkAddSessionId(sessionId);
     startResponse();
@@ -299,7 +299,7 @@ void MapResponse::setSubscribeResponse(QString sessionId)
     finishEnvelope();
 }
 
-void MapResponse::setPurgePublisherResponse(QString sessionId)
+void MapResponse::setPurgePublisherResponse(const QString& sessionId)
 {
     checkAddSessionId(sessionId);
     startResponse();
@@ -308,7 +308,7 @@ void MapResponse::setPurgePublisherResponse(QString sessionId)
     finishEnvelope();
 }
 
-void MapResponse::setSearchResults(QString sessionId, QList<SearchResult *> searchResults)
+void MapResponse::setSearchResults(const QString& sessionId, const QList<SearchResult *>& searchResults)
 {
     checkAddSessionId(sessionId);
     startResponse();
@@ -334,7 +334,7 @@ void MapResponse::setSearchResults(QString sessionId, QList<SearchResult *> sear
     finishEnvelope();
 }
 
-void MapResponse::addLinkResult(Link link, QString metaXML)
+void MapResponse::addLinkResult(const Link& link, const QString& metaXML)
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement("linkResult");
@@ -357,7 +357,7 @@ void MapResponse::addLinkResult(Link link, QString metaXML)
     }
 }
 
-void MapResponse::addIdentifierResult(Identifier id, QString metaXML)
+void MapResponse::addIdentifierResult(const Identifier& id, const QString& metaXML)
 {
     if (_requestVersion == MapRequest::IFMAPv11) {
         _xmlWriter.writeStartElement("identifierResult");
@@ -376,7 +376,7 @@ void MapResponse::addIdentifierResult(Identifier id, QString metaXML)
     }
 }
 
-void MapResponse::addMetadataResult(QString metaXML)
+void MapResponse::addMetadataResult(const QString& metaXML)
 {
     // TODO: It would be cleaner to just write the <metadata> tags here
     // instead of adding them in Server::filteredMetadata(), but if I do that
@@ -410,14 +410,14 @@ void MapResponse::addMetadataResult(QString metaXML)
     //_xmlWriter.writeEndElement(); // </metadata>
 }
 
-void MapResponse::startPollResponse(QString sessionId)
+void MapResponse::startPollResponse(const QString& sessionId)
 {
     checkAddSessionId(sessionId);
     startResponse();
     _xmlWriter.writeStartElement("pollResult");
 }
 
-void MapResponse::addPollErrorResult(QString subName, MapRequest::RequestError error, QString errorString)
+void MapResponse::addPollErrorResult(const QString& subName, const MapRequest::RequestError& error, const QString& errorString)
 {
     _xmlWriter.writeStartElement("errorResult");
     _xmlWriter.writeAttribute("errorCode", MapRequest::requestErrorString(error));
@@ -428,7 +428,7 @@ void MapResponse::addPollErrorResult(QString subName, MapRequest::RequestError e
     _xmlWriter.writeEndElement(); // </errorResult>
 }
 
-void MapResponse::addPollResults(QList<SearchResult *> results, QString subName)
+void MapResponse::addPollResults(const QList<SearchResult *>& results, const QString& subName)
 {
     QListIterator<SearchResult *> srIt(results);
 
@@ -494,7 +494,7 @@ void MapResponse::endPollResponse()
     finishEnvelope();
 }
 
-void MapResponse::startSearchResult(SearchResult::ResultType resultType, QString subName)
+void MapResponse::startSearchResult(SearchResult::ResultType resultType, const QString& subName)
 {
     QString tagName = "";
     switch (resultType) {

@@ -41,20 +41,20 @@ public:
     };
 
     explicit ClientHandler(MapGraphInterface *mapGraph, QObject *parent = 0);
-    explicit ClientHandler(MapGraphInterface *mapGraph, QString authToken, QObject *parent = 0);
+    explicit ClientHandler(MapGraphInterface *mapGraph, const QString& authToken, QObject *parent = 0);
     ~ClientHandler();
 
-    static QString buildDN(QSslCertificate cert, ClientHandler::CertInfoTarget target);
+    static QString buildDN(const QSslCertificate& cert, const ClientHandler::CertInfoTarget& target);
 
     void sessionMetadataTimeout();
-    void sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion);
-    QString authToken() { return _authToken; }
+    void sendPollResponse(const QByteArray& response, const MapRequest::RequestVersion& reqVersion);
+    const QString& authToken() { return _authToken; }
     bool useCompression() { return _useCompression; }
 
 signals:
-    void needToSendPollResponse(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
-    void receivedNewSession(QString authToken);
-    void receivedRenewSession(QString authToken);
+    void needToSendPollResponse(ClientHandler *client, const QByteArray& response, MapRequest::RequestVersion reqVersion);
+    void receivedNewSession(const QString& authToken);
+    void receivedRenewSession(const QString& authToken);
     void receivedEndSession();
     void receivedMigratedSession(ClientHandler *client);
 
@@ -62,51 +62,51 @@ public slots:
     void handleParseComplete();
 
 private slots:
-    void clientSocketError(QAbstractSocket::SocketError socketError);
+    void clientSocketError(const QAbstractSocket::SocketError& socketError);
     void processReadyRead();
     void socketReady();
     void clientSSLErrors(const QList<QSslError> & errors);
     void clientConnState(QAbstractSocket::SocketState sState);
-    void processHeader(QNetworkRequest requestHdrs);
+    void processHeader(const QNetworkRequest& requestHdrs);
 
 private:
     void registerCert();
-    QByteArray compressResponse(QByteArray uncompressed);
-    void sendHttpResponse(int hdrNumber, QString hdrText);
-    void sendMapResponse(MapResponse &mapResponse);
-    void sendResponse(QByteArray response, MapRequest::RequestVersion reqVersion);
+    void compressResponse(const QByteArray& uncompressed, QByteArray& deflated);
+    void sendHttpResponse(int hdrNumber, const QString& hdrText);
+    void sendMapResponse(const MapResponse &mapResponse);
+    void sendResponse(const QByteArray& response, const MapRequest::RequestVersion& reqVersion);
     void processClientRequest();
     void sendResultsOnActivePolls();
 
-    QString filteredMetadata(QList<Meta> metaList, QString filter, QMap<QString, QString> searchNamespaces, MapRequest::RequestError &error);
-    QString filteredMetadata(Meta meta, QString filter, QMap<QString, QString> searchNamespaces, MapRequest::RequestError &error);
+    QString filteredMetadata(const QList<Meta>& metaList, const QString& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error);
+    QString filteredMetadata(const Meta& meta, const QString& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error);
 
     void collectSearchGraphMetadata(Subscription &sub, SearchResult::ResultType resultType, MapRequest::RequestError &operationError);
-    void addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, QSet<Id> idList, QSet<Link> linkList, MapRequest::RequestError &operationError);
-    void buildSearchGraph(Subscription &sub, Id startId, int currentDepth);
-    void addIdentifierResult(Subscription &sub, Identifier id, QList<Meta> metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError);
-    void addLinkResult(Subscription &sub, Link link, QList<Meta> metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError);
+    void addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, const QSet<Id>& idList, const QSet<Link>& linkList, MapRequest::RequestError &operationError);
+    void buildSearchGraph(Subscription &sub, const Id& startId, int currentDepth);
+    void addIdentifierResult(Subscription &sub, const Identifier& id, const QList<Meta>& metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError);
+    void addLinkResult(Subscription &sub, const Link& link, const QList<Meta>& metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError);
 
-    void updateSubscriptionsWithNotify(Link link, bool isLink, QList<Meta> metaChanges);
-    void updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Link, QList<Meta> > linkMetaDeleted);
-    void updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges, Meta::PublishOperationType publishType);
+    void updateSubscriptionsWithNotify(const Link& link, bool isLink, const QList<Meta>& metaChanges);
+    void updateSubscriptions(const QHash<Id, QList<Meta> >& idMetaDeleted, const QHash<Link, QList<Meta> >& linkMetaDeleted);
+    void updateSubscriptions(const Link link, bool isLink, const QList<Meta>& metaChanges, Meta::PublishOperationType publishType);
 
-    void processNewSession(QVariant clientRequest);
-    void processRenewSession(QVariant clientRequest);
-    void processEndSession(QVariant clientRequest);
-    void processAttachSession(QVariant clientRequest);
-    void processPublish(QVariant clientRequest);
-    void processSubscribe(QVariant clientRequest);
-    void processSearch(QVariant clientRequest);
-    void processPurgePublisher(QVariant clientRequest);
-    void processPoll(QVariant clientRequest);
+    void processNewSession(const QVariant& clientRequest);
+    void processRenewSession(const QVariant& clientRequest);
+    void processEndSession(const QVariant& clientRequest);
+    void processAttachSession(const QVariant& clientRequest);
+    void processPublish(const QVariant& clientRequest);
+    void processSubscribe(const QVariant& clientRequest);
+    void processSearch(const QVariant& clientRequest);
+    void processPurgePublisher(const QVariant& clientRequest);
+    void processPoll(const QVariant& clientRequest);
 
     void checkPublishAtomicity(PublishRequest &pubReq, MapRequest::RequestError &requestError);
-    QPair< QList<Meta>, QList<Meta> > applyDeleteFilterToMeta(QList<Meta> existingMetaList, PublishOperation pubOper, MapRequest::RequestError &requestError, bool *metadataDeleted = 0);
+    QPair< QList<Meta>, QList<Meta> > applyDeleteFilterToMeta(const QList<Meta>& existingMetaList, const PublishOperation& pubOper, MapRequest::RequestError &requestError, bool *metadataDeleted = 0);
 
-    bool terminateSession(QString sessionId, MapRequest::RequestVersion requestVersion);
-    bool terminateARCSession(QString sessionId, MapRequest::RequestVersion requestVersion);
-    bool purgePublisher(QString publisherId, bool sessionMetadataOnly);
+    bool terminateSession(const QString& sessionId, MapRequest::RequestVersion requestVersion);
+    bool terminateARCSession(const QString& sessionId, MapRequest::RequestVersion requestVersion);
+    bool purgePublisher(const QString& publisherId, bool sessionMetadataOnly);
 
 private:
     OmapdConfig* _omapdConfig;

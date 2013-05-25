@@ -47,20 +47,20 @@ public:
     Meta(Meta::Cardinality cardinality = Meta::SingleValue,
          Meta::Lifetime lifetime = Meta::LifetimeSession);
 
-    Meta::Cardinality cardinality() { return _cardinality; }
+    Meta::Cardinality cardinality() const { return _cardinality; }
     Meta::Lifetime lifetime() const { return _lifetime; }
-    QString lifetimeString();
+    QString lifetimeString() const;
 
-    QString publisherId() const { return _publisherId; }
-    QString elementName() const { return _elementName; }
-    QString elementNS() const { return _elementNS; }
-    QString metaXML() const { return _metaXML; }
+    const QString& publisherId() const { return _publisherId; }
+    const QString& elementName() const { return _elementName; }
+    const QString& elementNS() const { return _elementNS; }
+    const QString& metaXML() const { return _metaXML; }
 
     void setLifetime(Meta::Lifetime lifetime) { _lifetime = lifetime; }
-    void setPublisherId(QString pubId) { _publisherId = pubId; }
-    void setElementName(QString elementName) { _elementName = elementName; }
-    void setElementNS(QString elementNS) { _elementNS = elementNS; }
-    void setMetaXML(QString metaXML) {_metaXML = metaXML; }
+    void setPublisherId(const QString& pubId) { _publisherId = pubId; }
+    void setElementName(const QString& elementName) { _elementName = elementName; }
+    void setElementNS(const QString& elementNS) { _elementNS = elementNS; }
+    void setMetaXML(const QString& metaXML) {_metaXML = metaXML; }
 
     // Two Meta objects are equal iff their elementName and namespace members are the same
     bool operator==(const Meta &other) const;

@@ -118,7 +118,7 @@ void Server::discardConnection()
     client->deleteLater();
 }
 
-void Server::addClientToTimeout(QString authToken)
+void Server::addClientToTimeout(const QString& authToken)
 {
     ClientHandler *client = (ClientHandler*)sender();
     _clientAuthTokens.insert(client, authToken);
@@ -136,7 +136,7 @@ void Server::removeClientConnectionFromTimeout(ClientHandler *client)
     _clientAuthTokens.remove(client);
 }
 
-void Server::removeTimerForClient(QString authToken)
+void Server::removeTimerForClient(const QString& authToken)
 {
     if (_clientTimeouts.contains(authToken)) {
         QTimer *timer = _clientTimeouts.take(authToken);
@@ -157,9 +157,9 @@ void Server::deleteClientMetadata()
              qDebug() << __PRETTY_FUNCTION__ << ":" << "Time to remove session metadata for client with authToken:" << authToken;
         ClientHandler client(_mapGraph, authToken, this);
         connect(&client,
-                SIGNAL(needToSendPollResponse(ClientHandler*,QByteArray,MapRequest::RequestVersion)),
+                SIGNAL(needToSendPollResponse(ClientHandler*, const QByteArray&,MapRequest::RequestVersion)),
                 this,
-                SLOT(sendPollResponseToClient(ClientHandler*,QByteArray,MapRequest::RequestVersion)));
+                SLOT(sendPollResponseToClient(ClientHandler*,const QByteArray&,MapRequest::RequestVersion)));
         client.sessionMetadataTimeout();
 
         removeTimerForClient(authToken);
@@ -169,7 +169,7 @@ void Server::deleteClientMetadata()
 
 }
 
-void Server::sendPollResponseToClient(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion)
+void Server::sendPollResponseToClient(ClientHandler *client, const QByteArray& response, MapRequest::RequestVersion reqVersion)
 {
     if (client) {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))

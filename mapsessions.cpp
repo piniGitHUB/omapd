@@ -71,7 +71,7 @@ MapSessions::~MapSessions()
 
 void MapSessions::loadClientConfigurations()
 {
-    QList<ClientConfiguration *> clientConfigurations = _omapdConfig->clientConfigurations();
+    const QList<ClientConfiguration *>& clientConfigurations = _omapdConfig->clientConfigurations();
 
     QListIterator<ClientConfiguration *> clientIt(clientConfigurations);
     while (clientIt.hasNext()) {
@@ -80,7 +80,7 @@ void MapSessions::loadClientConfigurations()
     }
 }
 
-bool MapSessions::loadClientConfiguration(ClientConfiguration *client)
+bool MapSessions::loadClientConfiguration(const ClientConfiguration *client)
 {
     bool clientConfigOk = false;
 
@@ -258,15 +258,13 @@ void MapSessions::removeClientConnections(ClientHandler *clientHandler)
         _activePollConnections.remove(authToken);
 
         if (_mapClients.contains(authToken)) {
-            MapClient client = _mapClients.take(authToken);
-            client.setHasActiveARC(false);
-            client.setHasActivePoll(false);
-            _mapClients.insert(authToken, client);
+            _mapClients[authToken].setHasActiveARC(false);
+            _mapClients[authToken].setHasActivePoll(false);
         }
     }
 }
 
-QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest::AuthenticationType authType, QString authToken)
+QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest::AuthenticationType authType, const QString& authToken)
 {
     QString pubId;
     bool registered = false;
@@ -324,56 +322,72 @@ QString MapSessions::registerMapClient(ClientHandler *clientHandler, MapRequest:
     return pubId;
 }
 
-bool MapSessions::haveActiveSSRCForClient(QString authToken)
+bool MapSessions::haveActiveSSRCForClient(const QString& authToken)
 {
     bool haveSSRC = false;
 
     if (_mapClients.contains(authToken)) {
-        haveSSRC = ! _mapClients.value(authToken).sessId().isEmpty();
+
+        // LFu: access hash element in-place
+        haveSSRC = ! _mapClients[authToken].sessId().isEmpty();
     }
     return haveSSRC;
 }
 
-void MapSessions::removeActiveSSRCForClient(QString authToken)
+void MapSessions::removeActiveSSRCForClient(const QString& authToken)
 {
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveSSRC()) {
-        MapClient client = _mapClients.take(authToken);
+        _mapClients[authToken].hasActiveSSRC()) {
+        // LFu: manipulate hash element in-place
+        MapClient& client = _mapClients[authToken];
         client.setHasActiveSSRC(false);
         client.clearSessId();
-        _mapClients.insert(authToken, client);
 
         _ssrcConnections.remove(authToken);
     }
 }
 
-QString MapSessions::sessIdForClient(QString authToken)
+QString MapSessions::sessIdForClient(const QString& authToken)
 {
     QString sessId;
     if (_mapClients.contains(authToken)) {
-        sessId = _mapClients.value(authToken).sessId();
+        // LFu: access hash element in-place
+        sessId = _mapClients[authToken].sessId();
     }
     return sessId;
 }
 
-QString MapSessions::pubIdForSessId(QString sessId)
+QString MapSessions::pubIdForSessId(const QString& sessId)
 {
     QString pubId;
-    QList<MapClient> clientList = _mapClients.values();
-    bool done = false;
-    int i=0;
 
-    while (!done && i<clientList.size()) {
-        if (clientList[i].sessId().compare(sessId, Qt::CaseSensitive) == 0) {
-            done = true;
-            pubId = clientList[i].pubId();
+    QHash<QString, MapClient>::const_iterator i = _mapClients.constBegin();
+    while (i != _mapClients.constEnd()) {
+
+        const MapClient& client = i.value();
+        if (client.sessId() == sessId) {
+            pubId = client.pubId();
+            break;
         }
-        i++;
+         ++i;
     }
+
+//    (LFu)  was:
+//    QList<MapClient> clientList = _mapClients.values();
+//    bool done = false;
+//    int i=0;
+
+//    while (!done && i<clientList.size()) {
+//        if (clientList[i].sessId().compare(sessId, Qt::CaseSensitive) == 0) {
+//            done = true;
+//            pubId = clientList[i].pubId();
+//        }
+//        i++;
+//    }
     return pubId;
 }
 
-QString MapSessions::addActiveSSRCForClient(ClientHandler *clientHandler, QString authToken)
+QString MapSessions::addActiveSSRCForClient(ClientHandler *clientHandler, const QString& authToken)
 {
     QString sessId;
     if (_mapClients.contains(authToken)) {
@@ -381,63 +395,63 @@ QString MapSessions::addActiveSSRCForClient(ClientHandler *clientHandler, QStrin
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps))
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got session-id to use:" << sessId;
 
-        MapClient client = _mapClients.take(authToken);
+        // LFu: code changed to modify MapClient in-place
+        MapClient& client = _mapClients[authToken];
         client.setSessId(sessId);
         client.setHasActiveSSRC(true);
-        _mapClients.insert(authToken, client);
 
         _ssrcConnections.insert(authToken, clientHandler);
     }
     return sessId;
 }
 
-bool MapSessions::validateSessionId(QString sessId, QString authToken)
+bool MapSessions::validateSessionId(const QString& sessId, const QString& authToken)
 {
     bool rc = false;
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveSSRC() &&
-        _mapClients.value(authToken).sessId().compare(sessId, Qt::CaseSensitive) == 0) {
+            _mapClients[authToken].hasActiveSSRC() &&
+            _mapClients[authToken].sessId() == sessId) {
         rc = true;
     }
     return rc;
 }
 
-QString MapSessions::pubIdForAuthToken(QString authToken)
+QString MapSessions::pubIdForAuthToken(const QString& authToken)
 {
     QString pubId;
     if (_mapClients.contains(authToken)) {
-        pubId = _mapClients.value(authToken).pubId();
+        pubId = _mapClients[authToken].pubId();
     }
     return pubId;
 }
 
-OmapdConfig::AuthzOptions MapSessions::authzForAuthToken(QString authToken)
+OmapdConfig::AuthzOptions MapSessions::authzForAuthToken(const QString& authToken)
 {
     OmapdConfig::AuthzOptions authz = _omapdConfig->valueFor("default_authorization").value<OmapdConfig::AuthzOptions>();
     if (_mapClients.contains(authToken)) {
-        authz = _mapClients.value(authToken).authz();
+        authz = _mapClients[authToken].authz();
     }
     return authz;
 }
 
-bool MapSessions::metadataAuthorizationForAuthToken(QString authToken, QString metaName, QString metaNamespace)
+bool MapSessions::metadataAuthorizationForAuthToken(const QString& authToken, const QString& metaName, const QString& metaNamespace)
 {
     bool clientAuthorized = false;
     if (_mapClients.contains(authToken)) {
-        QString policyName = _mapClients.value(authToken).metadataPolicy();
+        const QString& policyName = _mapClients[authToken].metadataPolicy();
 
         if (policyName.isEmpty()) {
             // No policy defined for client
             clientAuthorized = true;
         } else {
-            QList<VSM> metaAllowed = _omapdConfig->metadataPolicies().values(policyName);
-            QListIterator<VSM> i(metaAllowed);
-            while (i.hasNext() && !clientAuthorized) {
-                VSM metaAllowed = i.next();
-                if (metaAllowed.first == metaName && metaAllowed.second == metaNamespace) {
-                    clientAuthorized = true;
-                }
-            }
+             QList<VSM> metaAllowed = _omapdConfig->metadataPolicies().values(policyName);
+             QListIterator<VSM> i(metaAllowed);
+             while (i.hasNext() && !clientAuthorized) {
+                 VSM metaAllowed = i.next();
+                 if (metaAllowed.first == metaName && metaAllowed.second == metaNamespace) {
+                     clientAuthorized = true;
+                 }
+             }
         }
 
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
@@ -450,139 +464,143 @@ bool MapSessions::metadataAuthorizationForAuthToken(QString authToken, QString m
     return clientAuthorized;
 }
 
-bool MapSessions::haveActivePollForClient(QString authToken)
+bool MapSessions::haveActivePollForClient(const QString& authToken)
 {
     bool rc = false;
     if (_mapClients.contains(authToken)) {
-        rc = _mapClients.value(authToken).hasActivePoll();
+        rc = _mapClients[authToken].hasActivePoll();
     }
     return rc;
 }
 
-void MapSessions::setActivePollForClient(QString authToken, ClientHandler *pollClientHandler)
+void MapSessions::setActivePollForClient(const QString& authToken, ClientHandler *pollClientHandler)
 {
     if (_mapClients.contains(authToken)) {
-        MapClient client = _mapClients.take(authToken);
+
+        MapClient& client = _mapClients[authToken];
         client.setHasActivePoll(true);
-        _mapClients.insert(authToken, client);
 
         _activePollConnections.insert(authToken, pollClientHandler);
     }
 }
 
-void MapSessions::removeActivePollForClient(QString authToken)
+void MapSessions::removeActivePollForClient(const QString& authToken)
 {
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActivePoll()) {
-        MapClient client = _mapClients.take(authToken);
-        client.setHasActivePoll(false);
-        _mapClients.insert(authToken, client);
+        _mapClients[authToken].hasActivePoll()) {
 
+        _mapClients[authToken].setHasActivePoll(false);
         _activePollConnections.remove(authToken);
     }
 }
 
-ClientHandler* MapSessions::pollConnectionForClient(QString authToken)
+ClientHandler* MapSessions::pollConnectionForClient(const QString& authToken)
 {
     ClientHandler* clientHandler = 0;
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveARC() &&
-        _mapClients.value(authToken).hasActivePoll()) {
+        _mapClients[authToken].hasActiveARC() &&
+        _mapClients[authToken].hasActivePoll()) {
         clientHandler = _activePollConnections.value(authToken, 0);
     }
     return clientHandler;
 }
 
-ClientHandler* MapSessions::ssrcForClient(QString authToken)
+ClientHandler* MapSessions::ssrcForClient(const QString& authToken)
 {
     ClientHandler* clientHandler = 0;
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveSSRC()) {
+        _mapClients[authToken].hasActiveSSRC()) {
         clientHandler = _ssrcConnections.value(authToken, 0);
     }
     return clientHandler;
 }
 
-void MapSessions::migrateSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler)
+void MapSessions::migrateSSRCForClient(const QString& authToken, ClientHandler *newSSRCClientHandler)
 {
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveSSRC()) {
+        _mapClients[authToken].hasActiveSSRC()) {
         ClientHandler *oldConnection = _ssrcConnections.take(authToken);
         _ssrcConnections.insert(authToken, newSSRCClientHandler);
         oldConnection->disconnectFromHost();
     }
 }
 
-void MapSessions::setActiveARCForClient(QString authToken, ClientHandler *arcClientHandler)
+void MapSessions::setActiveARCForClient(const QString& authToken, ClientHandler *arcClientHandler)
 {
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveSSRC()) {
-        MapClient client = _mapClients.take(authToken);
-        client.setHasActiveARC(true);
-        _mapClients.insert(authToken, client);
+        _mapClients[authToken].hasActiveSSRC()) {
+
+        _mapClients[authToken].setHasActiveARC(true);
 
         _arcConnections.insert(authToken, arcClientHandler);
     }
 }
 
-bool MapSessions::haveActiveARCForClient(QString authToken)
+bool MapSessions::haveActiveARCForClient(const QString& authToken)
 {
     bool rc = false;
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveARC()) {
+        _mapClients[authToken].hasActiveARC()) {
         rc = true;
     }
     return rc;
 }
 
-void MapSessions::removeActiveARCForClient(QString authToken)
+void MapSessions::removeActiveARCForClient(const QString& authToken)
 {
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveARC()) {
-        MapClient client = _mapClients.take(authToken);
-        client.setHasActiveARC(false);
-        _mapClients.insert(authToken, client);
+        _mapClients[authToken].hasActiveARC()) {
 
+        _mapClients[authToken].setHasActiveARC(false);
         _arcConnections.remove(authToken);
     }
 }
 
-ClientHandler* MapSessions::arcForClient(QString authToken)
+ClientHandler* MapSessions::arcForClient(const QString& authToken)
 {
     ClientHandler* clientHandler = 0;
     if (_mapClients.contains(authToken) &&
-        _mapClients.value(authToken).hasActiveARC()) {
+        _mapClients[authToken].hasActiveARC()) {
         clientHandler = _arcConnections.value(authToken, 0);
     }
-    return clientHandler;}
-
-QList<Subscription> MapSessions::subscriptionListForClient(QString authToken)
-{
-    QList<Subscription> subList;
-    if (_mapClients.contains(authToken)) {
-        subList = _mapClients.value(authToken).subscriptionList();
-    }
-    return subList;
+    return clientHandler;
 }
 
-QList<Subscription> MapSessions::removeSubscriptionListForClient(QString authToken)
+QList<Subscription>& MapSessions::subscriptionListForClient(const QString& authToken)
 {
-    QList<Subscription> subList;
+    // LFu: changed this to return a reference to the client subscriptions and
+    // changed usage of the method to make changes in-place. Before, the caller
+    // retrieved a copy of the list, changed that list and then had to restore
+    // the whole list back in order to make changes
+
+    return _mapClients[authToken].subscriptionList();
+
+//  was:
+//    QList<Subscription> subList;
+//    if (_mapClients.contains(authToken)) {
+//        subList = _mapClients[authToken].subscriptionList();
+//    }
+//    return subList;
+}
+
+// LFu: instead of removing and re-inserting the MapClient,
+// manipulate the subscription list directly. Also, return an int instead of a
+// copy of the whole list
+int MapSessions::removeSubscriptionListForClient(const QString& authToken)
+{
+    int result = 0;
     if (_mapClients.contains(authToken)) {
-        MapClient client = _mapClients.take(authToken);
-        subList = client.subscriptionList();
+        MapClient& client = _mapClients[authToken];
+        result = client.subscriptionList().size();
         client.emptySubscriptionList();
-        _mapClients.insert(authToken, client);
     }
-    return subList;
+    return result;
 }
 
-void MapSessions::setSubscriptionListForClient(QString authToken, QList<Subscription> subList)
+void MapSessions::setSubscriptionListForClient(const QString& authToken, const QList<Subscription>& subList)
 {
     if (_mapClients.contains(authToken)) {
-        MapClient client = _mapClients.take(authToken);
-        client.setSubscriptionList(subList);
-        _mapClients.insert(authToken, client);
+        _mapClients[authToken].setSubscriptionList(subList);
     }
 }
 
@@ -600,7 +618,7 @@ QHash<QString, QList<Subscription> > MapSessions::subscriptionLists()
     return allSubLists;
 }
 
-bool MapSessions::validateMetadata(Meta aMeta)
+bool MapSessions::validateMetadata(const Meta& aMeta)
 {
     bool isValid = false;
 

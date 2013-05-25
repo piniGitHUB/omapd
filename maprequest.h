@@ -105,18 +105,18 @@ public:
     MapRequest::RequestError requestError() const { return _requestError; }
     MapRequest::RequestVersion requestVersion() const { return _requestVersion; }
     MapRequest::RequestType requestType() const { return _requestType; }
-    QString sessionId() const { return _sessionId; }
+    const QString& sessionId() const { return _sessionId; }
     bool clientSetSessionId() const { return _clientSetSessionId; }
     MapRequest::AuthenticationType authType() const { return _authType; }
-    QString authToken() const { return _authValue; }
+    const QString& authToken() const { return _authValue; }
 
     void setRequestError(MapRequest::RequestError requestError) { _requestError = requestError; }
     void setRequestType(MapRequest::RequestType requestType) { _requestType = requestType; }
     void setRequestVersion(MapRequest::RequestVersion requestVersion) { _requestVersion = requestVersion; }
-    void setSessionId(QString sessionId) { _sessionId = sessionId; }
+    void setSessionId(const QString& sessionId) { _sessionId = sessionId; }
     void setClientSetSessionId(bool set) { _clientSetSessionId = set; }
     void setAuthType(MapRequest::AuthenticationType type) { _authType = type; }
-    void setAuthValue(QString value) { _authValue = value; }
+    void setAuthValue(const QString& value) { _authValue = value; }
 
 protected:
     MapRequest::RequestError _requestError;
@@ -179,11 +179,12 @@ public:
     PurgePublisherRequest();
     PurgePublisherRequest(const PurgePublisherRequest&);
     ~PurgePublisherRequest() {;}
+    // FIXME LFu: this seems wrong (const return value)
     const PurgePublisherRequest& operator= (const PurgePublisherRequest& rhs);
 
-    QString publisherId() const { return _publisherId; }
+    const QString& publisherId() const { return _publisherId; }
     bool clientSetPublisherId() const { return _clientSetPublisherId; }
-    void setPublisherId(QString pubId) { _publisherId = pubId; }
+    void setPublisherId(const QString& pubId) { _publisherId = pubId; }
     void setClientSetPublisherId(bool set) { _clientSetPublisherId = set; }
 private:
     QString _publisherId;
@@ -226,11 +227,11 @@ public:
     PublishRequest(const PublishRequest&);
     ~PublishRequest() { _publishOperations.clear();}
 
-    QString publisherId() const { return _publisherId; }
-    void setPublisherId(QString pubId) { _publisherId = pubId; }
-    void setPublishOperations(QList<PublishOperation> operations) { _publishOperations = operations; }
-    QList<PublishOperation> publishOperations() const { return _publishOperations; }
-    void addPublishOperation(PublishOperation pubOper) { _publishOperations.append(pubOper); }
+    const QString& publisherId() const { return _publisherId; }
+    void setPublisherId(const QString& pubId) { _publisherId = pubId; }
+    void setPublishOperations(const QList<PublishOperation>& operations) { _publishOperations = operations; }
+    const QList<PublishOperation>& publishOperations() const { return _publishOperations; }
+    void addPublishOperation(const PublishOperation& pubOper) { _publishOperations.append(pubOper); }
 private:
     QList<PublishOperation> _publishOperations;
     QString _publisherId;
@@ -243,11 +244,11 @@ public:
     SearchType();
     int maxDepth() const { return _maxDepth; }
     int maxSize() const { return _maxSize; }
-    QString resultFilter() const { return _resultFilter; }
-    QString matchLinks() const { return _matchLinks; }
-    QString terminalId() const { return _terminalId; }
-    Id startId() const { return _startId; }
-    QMap<QString, QString> filterNamespaceDefinitions() const { return _filterNamespaceDefinitions; }
+    const QString& resultFilter() const { return _resultFilter; }
+    const QString& matchLinks() const { return _matchLinks; }
+    const QString& terminalId() const { return _terminalId; }
+    const Id& startId() const { return _startId; }
+    const QMap<QString, QString>& filterNamespaceDefinitions() const { return _filterNamespaceDefinitions; }
 
     bool clientSetMaxDepth() const { return _clientSetMaxDepth; }
     bool clientSetMaxSize() const { return _clientSetMaxSize; }
@@ -257,11 +258,11 @@ public:
 
     void setMaxDepth(int maxDepth) { _maxDepth = maxDepth; _clientSetMaxDepth = true; }
     void setMaxSize(int maxSize) { _maxSize = maxSize; _clientSetMaxSize = true; }
-    void setResultFilter(QString resultFilter) { _resultFilter = resultFilter; _clientSetResultFilter = true; }
-    void setMatchLinks(QString matchLinks) { _matchLinks = matchLinks; _clientSetMatchLinks = true; }
-    void setTerminalId(QString terminalId) { _terminalId = terminalId; _clientSetTerminalId = true; }
+    void setResultFilter(const QString& resultFilter) { _resultFilter = resultFilter; _clientSetResultFilter = true; }
+    void setMatchLinks(const QString& matchLinks) { _matchLinks = matchLinks; _clientSetMatchLinks = true; }
+    void setTerminalId(const QString& terminalId) { _terminalId = terminalId; _clientSetTerminalId = true; }
     void setStartId(Id id) { _startId = id; }
-    void setFilterNamespaceDefinitions(QMap<QString,QString> nsDefs) {_filterNamespaceDefinitions = nsDefs; }
+    void setFilterNamespaceDefinitions(const QMap<QString,QString>& nsDefs) {_filterNamespaceDefinitions = nsDefs; }
 protected:
     int _maxDepth;
     bool _clientSetMaxDepth;
@@ -287,14 +288,14 @@ public:
 
     SubscribeOperation();
 
-    void setName(QString name) { _name = name; }
-    QString name() const { return _name; }
+    void setName(const QString& name) { _name = name; }
+    const QString& name() const { return _name; }
 
     SubscribeOperation::SubscribeType subscribeType() const { return _subscribeType; }
     void setSubscribeType(SubscribeOperation::SubscribeType subType) { _subscribeType = subType; }
 
-    SearchType search() const { return _search; }
-    void setSearch(SearchType search) { _search = search; }
+    const SearchType& search() const { return _search; }
+    void setSearch(const SearchType& search) { _search = search; }
 private:
     QString _name;
     SubscribeOperation::SubscribeType _subscribeType;
@@ -308,8 +309,8 @@ public:
     SearchRequest(const SearchRequest&);
     ~SearchRequest() {;}
 
-    SearchType search() const { return _search; }
-    void setSearch(SearchType search) { _search = search; }
+    const SearchType& search() const { return _search; }
+    void setSearch(const SearchType& search) { _search = search; }
 private:
     SearchType _search;
 };
@@ -323,7 +324,7 @@ public:
     ~SubscribeRequest() { _subscribeOperations.clear();}
 
     QList<SubscribeOperation> subscribeOperations() const { return _subscribeOperations; }
-    void addSubscribeOperation(SubscribeOperation subOper) { _subscribeOperations.append(subOper); }
+    void addSubscribeOperation(const SubscribeOperation& subOper) { _subscribeOperations.append(subOper); }
 private:
     QList<SubscribeOperation> _subscribeOperations;
 };

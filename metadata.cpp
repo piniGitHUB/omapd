@@ -26,7 +26,7 @@ Meta::Meta(Meta::Cardinality cardinality, Meta::Lifetime lifetime)
 {
 }
 
-QString Meta::lifetimeString()
+QString Meta::lifetimeString() const
 {
     QString str("");
     switch (_lifetime) {

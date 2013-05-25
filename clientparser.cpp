@@ -543,7 +543,7 @@ void ClientParser::parsePurgePublisher()
     }
 
     if (_requestError == MapRequest::ErrorNone) {
-        QString authToken = ((ClientHandler*)this->parent())->authToken();
+        const QString& authToken = ((ClientHandler*)this->parent())->authToken();
         QString clientPubId = MapSessions::getInstance()->pubIdForAuthToken(authToken);
         OmapdConfig::AuthzOptions authz = MapSessions::getInstance()->authzForAuthToken(authToken);
 
@@ -569,7 +569,7 @@ void ClientParser::parsePublish()
     pubReq.setRequestVersion(_requestVersion);
     _requestType = MapRequest::Publish;
     setSessionId(pubReq);
-    QString authToken = ((ClientHandler*)this->parent())->authToken();
+    const QString& authToken = ((ClientHandler*)this->parent())->authToken();
     pubReq.setPublisherId(MapSessions::getInstance()->pubIdForAuthToken(authToken));
 
     OmapdConfig::AuthzOptions authz = MapSessions::getInstance()->authzForAuthToken(authToken);
@@ -1283,7 +1283,7 @@ QList<Meta> ClientParser::parseMetadata(PublishRequest &pubReq, Meta::Lifetime l
             _xml.raiseError("Metadata did not pass validation test");
         }
 
-        QString authToken = ((ClientHandler*)this->parent())->authToken();
+        const QString& authToken = ((ClientHandler*)this->parent())->authToken();
         bool metaPolicy = MapSessions::getInstance()->metadataAuthorizationForAuthToken(authToken, metaName, metaNS);
         if (!metaPolicy) {
             pubReq.setRequestError(MapRequest::IfmapAccessDenied);

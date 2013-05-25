@@ -44,15 +44,15 @@ class ClientParser : public QObject
 public:
     ClientParser(QIODevice *parent = 0);
     ~ClientParser();
-    QString clientXML() { return _clientRequestXml; }
+    const QString& clientXML() { return _clientRequestXml; }
     QString errorString() const { return _xml.errorString(); }
     QXmlStreamReader::Error error() const { return _xml.error(); }
 
-    QVariant request() const { return _mapRequest; }
-    MapRequest::RequestError requestError() const { return _requestError; }
-    MapRequest::RequestVersion requestVersion() const { return _requestVersion; }
+    const QVariant& request() const { return _mapRequest; }
+    const MapRequest::RequestError& requestError() const { return _requestError; }
+    const  MapRequest::RequestVersion& requestVersion() const { return _requestVersion; }
     MapRequest::RequestType requestType() const { return _requestType; }
-    QString sessionId() const { return _sessionId; }
+    const QString& sessionId() const { return _sessionId; }
 
 
 signals:
