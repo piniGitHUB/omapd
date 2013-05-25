@@ -30,7 +30,7 @@ MapClient::MapClient()
     _hasActivePoll = false;
 }
 
-MapClient::MapClient(QString authToken, MapRequest::AuthenticationType authType, OmapdConfig::AuthzOptions authz, QString pubId, QString metadataPolicy)
+MapClient::MapClient(const QString& authToken, MapRequest::AuthenticationType authType, OmapdConfig::AuthzOptions authz, const QString& pubId, const QString& metadataPolicy)
 {
     _hasActiveSSRC = false;
     _hasActiveARC = false;

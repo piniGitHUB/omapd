@@ -64,7 +64,16 @@ public:
     QString _name;
     SearchType _search;
 
-    QSet<Id> _idList;
+    QMap<Id, int> _ids;
+    QSet<Id> identifiers() const;
+    inline void addId(const Id& id, int depth) { if(!_ids.contains(id) || _ids[id] > depth) _ids[id] = depth; }
+    inline int getDepth(const Id& id) const { return (_ids.contains(id) ? _ids[id] : -1); }
+    // calculates the set difference between this subscription's identifiers and others
+    QSet<Id> identifiersWithout(const QMap<Id, int>& others) const;
+    // subtracts this subscription's identifiers form others
+    QSet<Id> subtractFrom(const QMap<Id, int>& others) const;
+
+    // QSet<Id> _idList;
     QSet<Link> _linkList;
 
     QList<SearchResult *> _searchResults;
@@ -77,11 +86,11 @@ public:
     // Two SearchGraphs are equal iff their names are equal
     bool operator==(const Subscription &other) const;
 
-    void clearSearchResults();
+    void clearSearchResults();    
 
-    static QString translateFilter(QString ifmapFilter);
-    static QString intersectFilter(QString matchLinksFilter, QString resultFilter);
-    static QStringList filterPrefixes(QString filter);
+    static QString translateFilter(const QString& ifmapFilter);
+    static QString intersectFilter(const QString& matchLinksFilter, const QString& resultFilter);
+    static QStringList filterPrefixes(const QString& filter);
 };
 
 #endif // SUBSCRIPTION_H

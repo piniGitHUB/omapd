@@ -60,6 +60,48 @@ Subscription::~Subscription()
     // TODO: Do I need to clearSearchResults() to avoid leaking memory?
 }
 
+QSet<Id> Subscription::identifiers() const
+{
+    QSet<Id> resultSet;
+
+    QMapIterator<Id, int> mapIt(_ids);
+    while(mapIt.hasNext())
+    {
+        mapIt.next();
+        resultSet << mapIt.key();
+    }
+
+    return resultSet;
+}
+
+QSet<Id> Subscription::identifiersWithout(const QMap<Id, int>& others) const
+{
+    QSet<Id> resultSet;
+    QMapIterator<Id, int> mapIt(_ids);
+    while(mapIt.hasNext())
+    {
+        mapIt.next();
+        if(!others.contains(mapIt.key()))
+            resultSet << mapIt.key();
+    }
+
+    return resultSet;
+}
+
+QSet<Id> Subscription::subtractFrom(const QMap<Id, int>& others) const
+{
+    QSet<Id> resultSet;
+    QMapIterator<Id, int> mapIt(others);
+    while(mapIt.hasNext())
+    {
+        mapIt.next();
+        if(!_ids.contains(mapIt.key()))
+            resultSet << mapIt.key();
+    }
+
+    return resultSet;
+}
+
 void Subscription::clearSearchResults()
 {
     while (! _searchResults.isEmpty()) {
@@ -81,7 +123,7 @@ bool Subscription::operator==(const Subscription &other) const
         return false;
 }
 
-QString Subscription::translateFilter(QString ifmapFilter)
+QString Subscription::translateFilter(const QString& ifmapFilter)
 {
     //const char *fnName = "SearchGraph::translateFilter:";
 
@@ -104,7 +146,7 @@ QString Subscription::translateFilter(QString ifmapFilter)
     if (ifmapFilter.contains(" or ", Qt::CaseInsensitive)) {
         //qDebug() << fnName << "WARNING! filter translation is woefully incomplete!";
         //qDebug() << fnName << "filter before translation:" << ifmapFilter;
-        qtFilter = ifmapFilter.replace(" or "," | ");
+        qtFilter.replace(" or "," | ");
         qtFilter.prepend("(");
         qtFilter.append(")");
         //qDebug() << fnName << "filter after translation:" << qtFilter;
@@ -113,7 +155,7 @@ QString Subscription::translateFilter(QString ifmapFilter)
     return qtFilter;
 }
 
-QString Subscription::intersectFilter(QString matchLinksFilter, QString resultFilter)
+QString Subscription::intersectFilter(const QString& matchLinksFilter, const QString& resultFilter)
 {
     /* This method creates an intersect filter for XPath
        as the logical AND combination of the match-links
@@ -131,7 +173,7 @@ QString Subscription::intersectFilter(QString matchLinksFilter, QString resultFi
     return qtFilter;
 }
 
-QStringList Subscription::filterPrefixes(QString filter)
+QStringList Subscription::filterPrefixes(const QString& filter)
 {
     // TODO: Improve RegExp to not include colons inside quotes
     // For example: vend:ike-policy[@gateway=1.2.3.4 and meta:phase1/@identity=name:joe]
