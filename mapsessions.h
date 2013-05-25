@@ -38,11 +38,6 @@ class MapSessions : public QObject
 {
     Q_OBJECT
 public:
-    enum BlacklistAction {
-        AddToBlacklist = 1,
-        RemoveFromBlacklist
-    };
-
     static MapSessions* getInstance();
 
     QString registerMapClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString authToken);
@@ -84,11 +79,6 @@ public:
     bool loadClientConfiguration(ClientConfiguration *client);
     bool removeClientConfiguration(ClientConfiguration *client);
 
-    void loadBlacklistedClients(QString blacklistDirectory, QString caCertFile);
-    bool manageClientBlacklist(ClientConfiguration *client, MapSessions::BlacklistAction action);
-    bool addBlacklistClientConfiguration(ClientConfiguration *client);
-    bool removeBlacklistClientConfiguration(ClientConfiguration *client);
-
 private:
     MapSessions(QObject *parent = 0);
     ~MapSessions();
@@ -100,7 +90,6 @@ private:
 
     QHash<QString, MapClient> _mapClients; // authToken --> MapClient
     QHash<QString, MapClient> _mapClientCAs; // CA AuthToken --> MapClient
-    QSet<QString> _blacklistedClients; // blacklisted client authToken
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;
 

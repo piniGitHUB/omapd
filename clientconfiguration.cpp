@@ -49,13 +49,12 @@ void ClientConfiguration::createCertAuthClient(QString clientName, QString certF
     _metadataPolicy = metadataPolicy;
 }
 
-void ClientConfiguration::createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy, QString blacklistDir)
+void ClientConfiguration::createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy)
 {
     _authType = MapRequest::AuthCACert;
     _authz = authz;
     _name = clientPrefix;
     _caCertFileName = caCertFile;
-    _blacklistDirectory = blacklistDir;
     // In this case, _certFileName and _haveClientCert refer to the issuingCACertFile
     _certFileName = issuingCACertFile;
     _haveClientCert = true;
