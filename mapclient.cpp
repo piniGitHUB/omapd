@@ -41,3 +41,56 @@ MapClient::MapClient(const QString& authToken, MapRequest::AuthenticationType au
     _pubId = pubId;
     _metadataPolicy = metadataPolicy;
 }
+
+MapClient::~MapClient()
+{
+    clearSubscriptionList();
+}
+
+void MapClient::clearSubscriptionList()
+{
+    QListIterator<Subscription*> it(_subscriptionList);
+    while(it.hasNext())
+    {
+        delete it.next();
+    }
+    _subscriptionList.clear();
+}
+
+void MapClient::insertSubscription(Subscription* sub)
+{
+    // we need to check if a subscription with this name
+    // exists already and replace it with the new one if found
+    QMutableListIterator<Subscription*> it(_subscriptionList);
+    while(it.hasNext())
+    {
+        Subscription* s = it.next();
+        if(*s == *sub)
+        {
+            delete s;
+            it.setValue(sub);
+            return;
+        }
+    }
+
+    // otherwise just add the new one:
+    _subscriptionList << sub;
+
+}
+
+void MapClient::removeSubscription(const QString& name)
+{
+    // we need to check if a subscription with this name
+    // exists already and replace it with the new one if found
+    QMutableListIterator<Subscription*> it(_subscriptionList);
+    while(it.hasNext())
+    {
+        Subscription* s = it.next();
+        if(s->_name == name)
+        {
+            delete s;
+            it.remove();
+            return;
+        }
+    }
+}

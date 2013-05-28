@@ -38,6 +38,8 @@ public:
               const QString& pubId,
               const QString& metadataPolicy);
 
+    ~MapClient();
+
     const QString& pubId()  const { return _pubId; }
     const QString& authToken() const { return _authToken; }
     MapRequest::AuthenticationType authType() const { return _authType; }
@@ -48,16 +50,19 @@ public:
     bool hasActiveSSRC() const { return _hasActiveSSRC; }
     bool hasActiveARC() const { return _hasActiveARC; }
     bool hasActivePoll() const { return _hasActivePoll; }
-    const QList<Subscription>& subscriptionList() const { return _subscriptionList; }
-    QList<Subscription>& subscriptionList() { return _subscriptionList; }
+    const QList<Subscription*>& subscriptionList() const { return _subscriptionList; }
+    QList<Subscription*>& subscriptionList() { return _subscriptionList; }
 
     void setSessId(const QString& sessId) { _sessId = sessId; }
     void clearSessId() { _sessId.clear(); }
     void setHasActiveSSRC(bool hasActiveSSRC) { _hasActiveSSRC = hasActiveSSRC; }
     void setHasActiveARC(bool hasActiveARC) { _hasActiveARC = hasActiveARC; }
     void setHasActivePoll(bool hasActivePoll) { _hasActivePoll = hasActivePoll; }
-    void setSubscriptionList(const QList<Subscription>& subList) { _subscriptionList = subList; }
-    void emptySubscriptionList() { _subscriptionList.clear(); }
+
+    // void setSubscriptionList(const QList<Subscription>& subList) { _subscriptionList = subList; }
+    void insertSubscription(Subscription* sub);
+    void removeSubscription(const QString& name);
+    void clearSubscriptionList();
 
 private:
     QString _pubId;
@@ -70,7 +75,7 @@ private:
     bool _hasActiveSSRC;
     bool _hasActiveARC;
     bool _hasActivePoll;
-    QList<Subscription> _subscriptionList;
+    QList<Subscription*> _subscriptionList;
 };
 
 #endif // MAPCLIENT_H

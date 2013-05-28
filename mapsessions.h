@@ -67,10 +67,12 @@ public:
     OmapdConfig::AuthzOptions authzForAuthToken(const QString& authToken);
     bool metadataAuthorizationForAuthToken(const QString& authToken, const QString& metaName, const QString& metaNamespace);
 
-    QList<Subscription>& subscriptionListForClient(const QString& authToken);
+    QList<Subscription*>& subscriptionListForClient(const QString& authToken);
+    void insertSubscriptionForClient(Subscription* sub, const QString&_authToken);
+    void removeSubscriptionForClient(const QString& name, const QString&_authToken);
     int removeSubscriptionListForClient(const QString& authToken);
-    void setSubscriptionListForClient(const QString& authToken, const QList<Subscription>& subList);
-    QHash<QString, QList<Subscription> > subscriptionLists(); // authToken --> subscriptionList for authToken
+    // void setSubscriptionListForClient(const QString& authToken, const QList<Subscription>& subList);
+    QHash<QString, QList<Subscription*> > subscriptionLists(); // authToken --> subscriptionList for authToken
 
     bool validateMetadata(const Meta& aMeta);
 
@@ -78,6 +80,9 @@ public:
 
     bool loadClientConfiguration(const ClientConfiguration *client);
     bool removeClientConfiguration(ClientConfiguration *client);
+
+    void removeMapClient(const QString& authToken);
+    void removeMapClientCA(const QString& authToken);
 
 private:
     MapSessions(QObject *parent = 0);
@@ -88,8 +93,8 @@ private:
 
     OmapdConfig *_omapdConfig;
 
-    QHash<QString, MapClient> _mapClients; // authToken --> MapClient
-    QHash<QString, MapClient> _mapClientCAs; // CA AuthToken --> MapClient
+    QHash<QString, MapClient*> _mapClients; // authToken --> MapClient
+    QHash<QString, MapClient*> _mapClientCAs; // CA AuthToken --> MapClient
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;
 
