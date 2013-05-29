@@ -494,8 +494,8 @@ void ClientHandler::processClientRequest()
     case MapRequest::Publish:
     {
         // LFu - remove this
-        QTime timer;
-        timer.start();
+        // QTime timer;
+        // timer.start();
         processPublish(clientRequest);
         // qDebug() << "~~processing publish request took " << timer.elapsed() << " ms";
         break;
@@ -820,17 +820,17 @@ void ClientHandler::processPublish(const QVariant& clientRequest)
 
             if (pubOper._publishType == PublishOperation::Update) {
                 // LFu - remove
-                QTime timer;
-                timer.start();
+                // QTime timer;
+                // timer.start();
                 _mapGraph->addMeta(pubOper._link, pubOper._isLink, pubOper._metadata, publisherId);
                 // qDebug() << "~~processing addMeta() took " << timer.elapsed() << " ms (meta = " << pubOper._metadata.first().elementName() << ")";
 
-                timer.restart();
+                // timer.restart();
 
                 // TODO: Move this outside of while loop for major performance boost!
                 // update subscriptions
                 updateSubscriptions(pubOper._link, pubOper._isLink, pubOper._metadata, Meta::PublishUpdate);
-                qDebug() << "~~processing updateSubscriptions() took " << timer.elapsed() << " ms";
+                // qDebug() << "~~processing updateSubscriptions() took " << timer.elapsed() << " ms";
 
             } else if (pubOper._publishType == PublishOperation::Notify) {
                 // Deal with notify
@@ -890,8 +890,8 @@ void ClientHandler::processPublish(const QVariant& clientRequest)
             if (metadataDeleted && !requestError) {
 
                 // LFu - remove
-                QTime timer;
-                timer.start();
+                // QTime timer;
+                // timer.start();
                 updateSubscriptions(pubOper._link, pubOper._isLink, deleteMetaList, Meta::PublishDelete);
                 // qDebug() << "~~processing updateSubscriptions() took " << timer.elapsed() << " ms";
 
@@ -1736,6 +1736,7 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
             } else {
 
                 bool isLinkInSub = sub->_linkList.contains(link);
+                bool oneIdInSub = sub->_ids.contains(link.first) || sub->_ids.contains(link.second);
 
                 if (isLinkInSub && publishType == Meta::PublishDelete) {
                     // Case 3.
@@ -1748,50 +1749,64 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
                 if (isLinkInSub && publishType == Meta::PublishUpdate) {
                     // Case 2.
                     subIsDirty = true;
-                } else if (isLinkInSub || publishType == Meta::PublishUpdate) {
-                    // (LFu) - the way this else was writen before, it also covered the case:
+                } else if(subIsDirty || (oneIdInSub && publishType == Meta::PublishUpdate)) {
+                    // (LFu) - the way this else was written before, it also covered the case:
                     //    !sub._linkList.contains(link) && publishType == Meta::PublishDelete, which we should ignore
 
-                    // TODO: when adding a link do no re-calculate the subs search graph if the link identifer
-                    // is equal to max search depth because the new link won't contribute to the subscription
-                    // search graph
+                    // Case 4. (and search graph rebuild for case 3)
 
-                    // TODO: when ading a link that has no metadata that matches the subscripton also do not rebuild
-                    // the search graph
+                    // (LFu) Changes:
+                    // - when adding a link that contributes to the subscription's search graph, extend the search graph
+                    // rather than rebuilding it completely. This will cause non-matching links or links attached to an
+                    // identifier at max search depth to become noops
 
-                    // TODO: when adding a link that contrinutes to the subscription's search graph, we should be able
-                    // to extend the search graph rather than having to completely recalculate it
+                    bool needFullRebuild = (publishType == Meta::PublishUpdate ? false : true);
 
                     // TODO: we should also be able to optimize removal of a link, e.g. any link that ends in an identifier
                     // of max subs search depth can be removed in isolation (i.e. no subs graph must be calculated)
 
-                    // Case 4. (and search graph rebuild for case 3)
                     QMap<Id, int> existingIdList = sub->_ids;
                     QSet<Link> existingLinkList = sub->_linkList;
-                    sub->_ids.clear();
-                    sub->_linkList.clear();
                     int currentDepth = -1;
+                    Id startId;
+                    if(needFullRebuild)
+                    {
+                        sub->_ids.clear();
+                        sub->_linkList.clear();
+                        startId = sub->_search.startId();
+                        // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
+                    }
+                    else
+                    {
+                        // determine the identifier at which the search graph is extended
+                        startId = link.first;
+                        currentDepth = sub->getDepth(startId);
+                        if(-1 == currentDepth)
+                        {
+                            startId = link.second;
+                            currentDepth = sub->getDepth(startId);
+                        }
+                        // qDebug() << "~~making search graph exension for sub " << sub->_name;
+                    }
+
+                    // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
 
                     // LFu - remove
-                    QTime buildSearchGraphTimer;
-                    buildSearchGraphTimer.start();
+                    // QTime buildSearchGraphTimer;
+                    // buildSearchGraphTimer.start();
 
-                    buildSearchGraph(*sub, sub->_search.startId(), currentDepth);
-                    // qDebug() << "~~processing buildSearchGraph() took " << buildSearchGraphTimer.elapsed() << " ms for sub " << sub._name;
+                    buildSearchGraph(*sub, startId, (needFullRebuild ? currentDepth : currentDepth - 1));
+                    // qDebug() << "~~processing buildSearchGraph() took " << buildSearchGraphTimer.elapsed() << " ms for sub " << sub->_name;
 
                     if (sub->_ids != existingIdList) {
                         subIsDirty = true;
                         modifiedSearchGraph = true;
 
-                        // Metadata on these ids are in updateResults
+                        // subtract pre-existing IDs from recalculated search graph: Metadata on these ids are in updateResults
                         idsWithConnectedGraphUpdates = sub->identifiersWithout(existingIdList);
-                        // was:
-                        // idsWithConnectedGraphUpdates = sub._idList - existingIdList;
 
-                        // Metadata on these ids are in deleteResults
+                        // subtract recalculated search graph IDs from pre-existing IDs: Metadata on these ids are in deleteResults
                         idsWithConnectedGraphDeletes = sub->subtractFrom(existingIdList);
-                        // was:
-                        // idsWithConnectedGraphDeletes = existingIdList - sub._idList;
 
                         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":sub._linkList.contains(link) && " << "----subscription is dirty with newIdList.size:" << sub->_ids.size();
@@ -1935,7 +1950,7 @@ void ClientHandler::updateSubscriptionsWithNotify(const Link& link, bool isLink,
             }
         }
 
-//        no longer needed:
+//        (LFu) no longer needed:
 //        if (publisherHasDirtySub) {
 //            _mapSessions->setSubscriptionListForClient(authToken, subList);
 //        }
