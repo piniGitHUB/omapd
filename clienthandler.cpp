@@ -993,8 +993,16 @@ void ClientHandler::processSubscribe(const QVariant& clientRequest)
             Subscription* sub = new Subscription(subReq.requestVersion());
             sub->_name = subOper.name();
             sub->_search = subOper.search();
+            sub->_authToken = _authToken;
             int currentDepth = -1;
             buildSearchGraph(*sub, sub->_search.startId(), currentDepth);
+
+            // add all identifiers to the index.
+            const QSet<Id> sub_ids(sub->identifiers());
+            QSetIterator<Id> setIt(sub_ids);
+            while(setIt.hasNext()) {
+                MapSessions::getInstance()->addToIndex(setIt.next(), sub);
+            }
 
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Subscription:" << subOper.name();
@@ -1079,6 +1087,8 @@ void ClientHandler::processSearch(const QVariant& clientRequest)
 
     if (!requestError) {
         Subscription tempSub(searchReq.requestVersion());
+        // don't include this subscription in the subscription index:
+        tempSub._indexed = false;
         tempSub._search = searchReq.search();
 
         int currentDepth = -1;
@@ -1700,174 +1710,190 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
     //        new link could link two separate sub-graphs together or a deleted link
     //        could prune a graph into two separate sub-graphs.
 
-    QHash<QString, QList<Subscription*> > allSubLists(_mapSessions->subscriptionLists());
-    QMutableHashIterator<QString,QList<Subscription*> > allSubsIt(allSubLists);
+    // QHash<QString, QList<Subscription*> > allSubLists(_mapSessions->subscriptionLists());
+    // LFu - only consider subscriptions that include the new/deleted Id(s):
+    QSet<Subscription*> allSubLists = MapSessions::getInstance()->getSubscriptionsForIdentifier(link.first);
+    if (isLink)
+       allSubLists += MapSessions::getInstance()->getSubscriptionsForIdentifier(link.second);
+
+    // QMutableHashIterator<QString,QList<Subscription*> > allSubsIt(allSubLists);
+    QMutableSetIterator<Subscription*> allSubsIt(allSubLists);
 
     while (allSubsIt.hasNext()) {
-        allSubsIt.next();
-        const QString& authToken = allSubsIt.key();
+        Subscription* sub = allSubsIt.next();
+        const QString& authToken = sub->_authToken;
         QString pubId = _mapSessions->pubIdForAuthToken(authToken);
-        QList<Subscription*>& subList = allSubsIt.value();
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
-        }
+        // QList<Subscription*>& subList = allSubsIt.value();
+        // if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+        //     qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
+        // }
 
         // bool publisherHasDirtySub = false;
-        QMutableListIterator<Subscription*> subIt(subList);
-        while (subIt.hasNext()) {
-            Subscription* sub = subIt.next();
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub->_name;
+        // QMutableListIterator<Subscription*> subIt(subList);
+        // while (subIt.hasNext()) {
+
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub->_name;
+        }
+
+        QSet<Id> idsWithConnectedGraphUpdates, idsWithConnectedGraphDeletes;
+        QSet<Link> linksWithConnectedGraphUpdates, linksWithConnectedGraphDeletes;
+        bool modifiedSearchGraph = false;
+        bool subIsDirty = false;
+
+        if (! isLink) {
+            if (sub->_ids.contains(link.first)) {
+                // Case 1.
+                subIsDirty = true;
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
+                }
+            }
+        } else {
+
+            bool isLinkInSub = sub->_linkList.contains(link);
+            bool oneIdInSub = sub->_ids.contains(link.first) || sub->_ids.contains(link.second);
+
+            if (isLinkInSub && publishType == Meta::PublishDelete) {
+                // Case 3.
+                subIsDirty = true;
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
+                }
             }
 
-            QSet<Id> idsWithConnectedGraphUpdates, idsWithConnectedGraphDeletes;
-            QSet<Link> linksWithConnectedGraphUpdates, linksWithConnectedGraphDeletes;
-            bool modifiedSearchGraph = false;
-            bool subIsDirty = false;
+            if (isLinkInSub && publishType == Meta::PublishUpdate) {
+                // Case 2.
+                subIsDirty = true;
+            } else if(subIsDirty || (oneIdInSub && publishType == Meta::PublishUpdate)) {
+                // (LFu) - the way this else was written before, it also covered the case:
+                //    !sub._linkList.contains(link) && publishType == Meta::PublishDelete, which we should ignore
 
-            if (! isLink) {
-                if (sub->_ids.contains(link.first)) {
-                    // Case 1.
-                    subIsDirty = true;
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
-                    }
-                }
-            } else {
+                // Case 4. (and search graph rebuild for case 3)
 
-                bool isLinkInSub = sub->_linkList.contains(link);
-                bool oneIdInSub = sub->_ids.contains(link.first) || sub->_ids.contains(link.second);
+                // (LFu) Changes:
+                // - when adding a link that contributes to the subscription's search graph, extend the search graph
+                // rather than rebuilding it completely. This will cause non-matching links or links attached to an
+                // identifier at max search depth to become noops
 
-                if (isLinkInSub && publishType == Meta::PublishDelete) {
-                    // Case 3.
-                    subIsDirty = true;
-                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
-                    }
-                }
+                bool needFullRebuild = (publishType == Meta::PublishUpdate ? false : true);
 
-                if (isLinkInSub && publishType == Meta::PublishUpdate) {
-                    // Case 2.
-                    subIsDirty = true;
-                } else if(subIsDirty || (oneIdInSub && publishType == Meta::PublishUpdate)) {
-                    // (LFu) - the way this else was written before, it also covered the case:
-                    //    !sub._linkList.contains(link) && publishType == Meta::PublishDelete, which we should ignore
+                // TODO: we should also be able to optimize removal of a link, e.g. any link that ends in an identifier
+                // of max subs search depth can be removed in isolation (i.e. no subs graph must be calculated)
 
-                    // Case 4. (and search graph rebuild for case 3)
-
-                    // (LFu) Changes:
-                    // - when adding a link that contributes to the subscription's search graph, extend the search graph
-                    // rather than rebuilding it completely. This will cause non-matching links or links attached to an
-                    // identifier at max search depth to become noops
-
-                    bool needFullRebuild = (publishType == Meta::PublishUpdate ? false : true);
-
-                    // TODO: we should also be able to optimize removal of a link, e.g. any link that ends in an identifier
-                    // of max subs search depth can be removed in isolation (i.e. no subs graph must be calculated)
-
-                    QMap<Id, int> existingIdList = sub->_ids;
-                    QSet<Link> existingLinkList = sub->_linkList;
-                    int currentDepth = -1;
-                    Id startId;
-                    if(needFullRebuild)
-                    {
-                        sub->_ids.clear();
-                        sub->_linkList.clear();
-                        startId = sub->_search.startId();
-                        // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
-                    }
-                    else
-                    {
-                        // determine the identifier at which the search graph is extended
-                        startId = link.first;
-                        currentDepth = sub->getDepth(startId);
-                        if(-1 == currentDepth)
-                        {
-                            startId = link.second;
-                            currentDepth = sub->getDepth(startId);
-                        }
-                        // qDebug() << "~~making search graph exension for sub " << sub->_name;
-                    }
-
+                QMap<Id, int> existingIdList = sub->_ids;
+                QSet<Link> existingLinkList = sub->_linkList;
+                int currentDepth = -1;
+                Id startId;
+                if(needFullRebuild)
+                {
+                    sub->_ids.clear();
+                    sub->_linkList.clear();
+                    startId = sub->_search.startId();
                     // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
-
-                    // LFu - remove
-                    // QTime buildSearchGraphTimer;
-                    // buildSearchGraphTimer.start();
-
-                    buildSearchGraph(*sub, startId, (needFullRebuild ? currentDepth : currentDepth - 1));
-                    // qDebug() << "~~processing buildSearchGraph() took " << buildSearchGraphTimer.elapsed() << " ms for sub " << sub->_name;
-
-                    if (sub->_ids != existingIdList) {
-                        subIsDirty = true;
-                        modifiedSearchGraph = true;
-
-                        // subtract pre-existing IDs from recalculated search graph: Metadata on these ids are in updateResults
-                        idsWithConnectedGraphUpdates = sub->identifiersWithout(existingIdList);
-
-                        // subtract recalculated search graph IDs from pre-existing IDs: Metadata on these ids are in deleteResults
-                        idsWithConnectedGraphDeletes = sub->subtractFrom(existingIdList);
-
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":sub._linkList.contains(link) && " << "----subscription is dirty with newIdList.size:" << sub->_ids.size();
-                        }
-                    }
-
-                    if (sub->_linkList != existingLinkList) {
-                        subIsDirty = true;
-                        modifiedSearchGraph = true;
-                        // Metadata on these links are in updateResults
-                        linksWithConnectedGraphUpdates = sub->_linkList - existingLinkList;
-                        // Metadata on these links are in deleteResults
-                        linksWithConnectedGraphDeletes = existingLinkList - sub->_linkList;
-
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newLinkList.size:" << sub->_linkList.size();
-                        }
-                    }
                 }
-            }
+                else
+                {
+                    // determine the identifier at which the search graph is extended
+                    startId = link.first;
+                    currentDepth = sub->getDepth(startId);
+                    if(-1 == currentDepth)
+                    {
+                        startId = link.second;
+                        currentDepth = sub->getDepth(startId);
+                    }
+                    // qDebug() << "~~making search graph exension for sub " << sub->_name;
+                }
 
-            if (subIsDirty && !sub->_subscriptionError) {
-                // Construct results for the subscription
-                if (sub->_requestVersion == MapRequest::IFMAPv11) {
-                    // Trigger to build and send pollResults
-                    sub->_sentFirstResult = false;
-                } else if (sub->_sentFirstResult && sub->_requestVersion == MapRequest::IFMAPv20) {
-                    MapRequest::RequestError error = MapRequest::ErrorNone;
-                    // Add results from publish/delete/endSessipublisherHasDirtySubon/purgePublisher (that don't modify SearchGraph)
-                    if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
-                        SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding update/delete results from un-changed SearchGraph";
-                        }
-                        if (isLink) {
-                            addLinkResult(*sub, link, metaChanges, resultType, error);
-                        } else {
-                            addIdentifierResult(*sub, link.first, metaChanges, resultType, error);
-                        }
+                // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
+
+                // LFu - remove
+                // QTime buildSearchGraphTimer;
+                // buildSearchGraphTimer.start();
+
+                buildSearchGraph(*sub, startId, (needFullRebuild ? currentDepth : currentDepth - 1));
+                // qDebug() << "~~processing buildSearchGraph() took " << buildSearchGraphTimer.elapsed() << " ms for sub " << sub->_name;
+
+                if (sub->_ids != existingIdList) {
+                    subIsDirty = true;
+                    modifiedSearchGraph = true;
+
+                    // subtract pre-existing IDs from recalculated search graph: Metadata on these ids are in updateResults
+                    idsWithConnectedGraphUpdates = sub->identifiersWithout(existingIdList);
+                    // we need to add all these IDs to the index:
+                    QSetIterator<Id> addIt(idsWithConnectedGraphUpdates);
+                    while(addIt.hasNext()) {
+                        MapSessions::getInstance()->addToIndex(addIt.next(), sub);
                     }
-                    // Add results from extending SearchGraph for this subscription
-                    if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding updateResults from changed SearchGraph";
-                        }
-                        addUpdateAndDeleteMetadata(*sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
+
+                    // subtract recalculated search graph IDs from pre-existing IDs: Metadata on these ids are in deleteResults
+                    idsWithConnectedGraphDeletes = sub->subtractFrom(existingIdList);
+                    // we need to remove all these IDs from the index:
+                    QSetIterator<Id> delIt(idsWithConnectedGraphDeletes);
+                    while(delIt.hasNext()) {
+                        MapSessions::getInstance()->addToIndex(delIt.next(), sub);
                     }
-                    // Add results from pruning SearchGraph for this subscription
-                    if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding deleteResults from changed SearchGraph";
-                        }
-                        addUpdateAndDeleteMetadata(*sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
+
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":sub._linkList.contains(link) && " << "----subscription is dirty with newIdList.size:" << sub->_ids.size();
                     }
                 }
 
-                // LFu: not needed any longer:
-                // subIt.setValue(sub);
-                // publisherHasDirtySub = true;
+                if (sub->_linkList != existingLinkList) {
+                    subIsDirty = true;
+                    modifiedSearchGraph = true;
+                    // Metadata on these links are in updateResults
+                    linksWithConnectedGraphUpdates = sub->_linkList - existingLinkList;
+                    // Metadata on these links are in deleteResults
+                    linksWithConnectedGraphDeletes = existingLinkList - sub->_linkList;
+
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newLinkList.size:" << sub->_linkList.size();
+                    }
+                }
             }
         }
+
+        if (subIsDirty && !sub->_subscriptionError) {
+            // Construct results for the subscription
+            if (sub->_requestVersion == MapRequest::IFMAPv11) {
+                // Trigger to build and send pollResults
+                sub->_sentFirstResult = false;
+            } else if (sub->_sentFirstResult && sub->_requestVersion == MapRequest::IFMAPv20) {
+                MapRequest::RequestError error = MapRequest::ErrorNone;
+                // Add results from publish/delete/endSessipublisherHasDirtySubon/purgePublisher (that don't modify SearchGraph)
+                if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
+                    SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding update/delete results from un-changed SearchGraph";
+                    }
+                    if (isLink) {
+                        addLinkResult(*sub, link, metaChanges, resultType, error);
+                    } else {
+                        addIdentifierResult(*sub, link.first, metaChanges, resultType, error);
+                    }
+                }
+                // Add results from extending SearchGraph for this subscription
+                if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding updateResults from changed SearchGraph";
+                    }
+                    addUpdateAndDeleteMetadata(*sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
+                }
+                // Add results from pruning SearchGraph for this subscription
+                if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding deleteResults from changed SearchGraph";
+                    }
+                    addUpdateAndDeleteMetadata(*sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
+                }
+            }
+
+            // LFu: not needed any longer:
+            // subIt.setValue(sub);
+            // publisherHasDirtySub = true;
+        }
+        // }
 
 
 //        if (publisherHasDirtySub) {

@@ -63,8 +63,11 @@ public:
 
     QString _name;
     SearchType _search;
+    bool _indexed; // this is set to false for temporary subscriptions used in search requests
 
-    QMap<Id, int> _ids;
+    QString _authToken;
+
+    QMap<Id, int> _ids; // id --> search depth
     QSet<Id> identifiers() const;
     inline void addId(const Id& id, int depth) { if(!_ids.contains(id) || _ids[id] > depth) _ids[id] = depth; }
     inline int getDepth(const Id& id) const { return (_ids.contains(id) ? _ids[id] : -1); }

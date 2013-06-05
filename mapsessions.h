@@ -84,6 +84,12 @@ public:
     void removeMapClient(const QString& authToken);
     void removeMapClientCA(const QString& authToken);
 
+    QSet<Subscription*> getSubscriptionsForIdentifier(const Id& id); // return list of all subscriptions that
+                                                                     // include id in their search graph
+    void addToIndex(const Id& id, Subscription* sub);
+    void removeFromIndex(const Id& id, Subscription* sub);
+
+
 private:
     MapSessions(QObject *parent = 0);
     ~MapSessions();
@@ -95,6 +101,7 @@ private:
 
     QHash<QString, MapClient*> _mapClients; // authToken --> MapClient
     QHash<QString, MapClient*> _mapClientCAs; // CA AuthToken --> MapClient
+    QHash<Id, QSet<Subscription*> > _subs; // Identifier --> list of referenced subscriptions
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;
 
