@@ -718,3 +718,18 @@ bool MapSessions::validateMetadata(const Meta& aMeta)
 
     return isValid;
 }
+
+QSet<Subscription*> MapSessions::getSubscriptionsForIdentifier(const Id& id)
+{
+    return _subs[id];
+}
+
+void MapSessions::addToIndex(const Id& id, Subscription* sub)
+{
+    _subs[id].insert(sub);
+}
+
+void MapSessions::removeFromIndex(const Id& id, Subscription* sub)
+{
+    _subs[id].remove(sub);
+}

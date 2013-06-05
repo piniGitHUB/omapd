@@ -20,6 +20,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "subscription.h"
+#include "mapsessions.h"
 
 SearchResult::ResultType SearchResult::resultTypeForPublishType(Meta::PublishOperationType publishType)
 {
@@ -53,11 +54,26 @@ Subscription::Subscription(MapRequest::RequestVersion requestVersion)
     _sentFirstResult = false;
     _curSize = 0;
     _subscriptionError = MapRequest::ErrorNone;
+    _indexed = true;
 }
 
 Subscription::~Subscription()
 {
     // TODO: Do I need to clearSearchResults() to avoid leaking memory?
+
+    // (LFu) You bet:
+    clearSearchResults();
+
+    // also remove this Subscription from the index
+    if(_indexed)
+    {
+        MapSessions* ms = MapSessions::getInstance();
+        QMapIterator<Id, int> mapIt(_ids);
+        while(mapIt.hasNext())
+        {
+            ms->removeFromIndex(mapIt.next().key(), this);
+        }
+    }
 }
 
 QSet<Id> Subscription::identifiers() const
