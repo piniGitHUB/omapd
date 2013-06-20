@@ -34,6 +34,14 @@ OmapdConfig* OmapdConfig::getInstance()
     return _instance;
 }
 
+void OmapdConfig::destroy()
+{
+    if (_instance != 0) {
+        delete _instance;
+        _instance = NULL;
+    }
+}
+
 OmapdConfig::IfmapDebugOptions OmapdConfig::debugOptions(unsigned int dbgValue)
 {
     OmapdConfig::IfmapDebugOptions debug = OmapdConfig::DebugNone;
@@ -189,6 +197,13 @@ OmapdConfig::~OmapdConfig()
 {
     const char *fnName = "OmapdConfig::~OmapdConfig():";
     qDebug() << fnName;
+
+    QListIterator<ClientConfiguration *> it(_clientConfigurations);
+    while(it.hasNext())
+    {
+        delete it.next();
+    }
+    _clientConfigurations.clear();
 }
 
 void OmapdConfig::addConfigItem(const QString& key, const QVariant& value)

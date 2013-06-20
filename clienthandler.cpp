@@ -1751,8 +1751,22 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
             }
         } else {
 
+            // is this link already in the search graph?
             bool isLinkInSub = sub->_linkList.contains(link);
-            bool oneIdInSub = sub->_ids.contains(link.first) || sub->_ids.contains(link.second);
+            // at least one of the IDs is in the sub search graph ?
+            bool oneIdInSub = (sub->_ids.contains(link.first) || sub->_ids.contains(link.second));
+//            qDebug() << "~~handling link " << (publishType == Meta::PublishDelete ? "DELETE" : "UPDATE") << " in sub " << sub->_name;
+//            qDebug() << "~~ids in sub:";
+//            QMapIterator<Id, int> idit(sub->_ids);
+//            while(idit.hasNext()) qDebug() << "\t" << idit.next().key().value();
+//            qDebug() << "~~isLinkInSub: " << (isLinkInSub ? "true" : "false") << ", oneIdInSub: " << (oneIdInSub ? "true" : "false");
+//            qDebug() << "~~sub->_ids.contains(link.first): " << (sub->_ids.contains(link.first) ? "true" : "false")
+//                     << ", sub->_ids.contains(link.second): " << (sub->_ids.contains(link.second) ? "true" : "false");
+
+            bool needsBuildSearchGraph = true; // must call buildSearchGraph when true
+            bool needFullRebuild = true;       // if needsBuildSearchGraph: full rebuild or extend
+            bool deleteSingleLink = false;     // can delete be optimized to a simple link deletion
+            int deleteId = 0;                  // if deleteSingleLink: which one of the link IDs is going away? (0 means none)
 
             if (isLinkInSub && publishType == Meta::PublishDelete) {
                 // Case 3.
@@ -1760,11 +1774,50 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                     qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
                 }
+
+                // for deletes, we check if the removal of metadata makes the link go away
+                QList<Meta> curLinkMeta = _mapGraph->metaForLink(link);
+                MapRequest::RequestError error = MapRequest::ErrorNone;
+                QString matchLinkMeta = filteredMetadata(curLinkMeta, sub->_search.matchLinks(), sub->_search.filterNamespaceDefinitions(), error);
+                if (! matchLinkMeta.isEmpty()) {
+                    // the link isn't going away, so the search graph will remain the same
+                    needsBuildSearchGraph = false;
+                }
+                else {
+                    // the link is going away. However, if the link forms a leaf in the search
+                    // graph then the removal will not have a ripple effect and we can also save a full rebuild
+                    int d1 = sub->_ids[link.first];
+                    int d2 = sub->_ids[link.second];
+                    if(d1 == d2)
+                    {
+                        // both identifiers have the same depth means we can always remove this link without
+                        // any other part of the search graph breaking away
+                        needsBuildSearchGraph = false;
+                        deleteSingleLink = true;
+                        needFullRebuild = false;
+                    }
+                    else if(d1 < d2 && sub->linksContaining(link.second) == 1) // 1 means this id is only used in the link we're deleting
+                    {
+                        needsBuildSearchGraph = false;
+                        deleteSingleLink = true;
+                        needFullRebuild = false;
+                        deleteId = 2;
+                    }
+                    else if(d2 < d1 && sub->linksContaining(link.second) == 1)
+                    {
+                        needsBuildSearchGraph = false;
+                        deleteSingleLink = true;
+                        needFullRebuild = false;
+                        deleteId = 1;
+                    }
+                    // in all other cases make a full search graph rebuild
+                }
             }
 
             if (isLinkInSub && publishType == Meta::PublishUpdate) {
                 // Case 2.
                 subIsDirty = true;
+                qDebug() << "~~oneIdInSub: case 2";
             } else if(subIsDirty || (oneIdInSub && publishType == Meta::PublishUpdate)) {
                 // (LFu) - the way this else was written before, it also covered the case:
                 //    !sub._linkList.contains(link) && publishType == Meta::PublishDelete, which we should ignore
@@ -1776,7 +1829,7 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
                 // rather than rebuilding it completely. This will cause non-matching links or links attached to an
                 // identifier at max search depth to become noops
 
-                bool needFullRebuild = (publishType == Meta::PublishUpdate ? false : true);
+                if (publishType == Meta::PublishUpdate) needFullRebuild = false;
 
                 // TODO: we should also be able to optimize removal of a link, e.g. any link that ends in an identifier
                 // of max subs search depth can be removed in isolation (i.e. no subs graph must be calculated)
@@ -1785,24 +1838,43 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
                 QSet<Link> existingLinkList = sub->_linkList;
                 int currentDepth = -1;
                 Id startId;
-                if(needFullRebuild)
+//                qDebug() << "~~case 3: needsBuildSearchGraph = " << (needsBuildSearchGraph ? "true" : "false")
+//                         << ", needFullRebuild = " << (needFullRebuild ? "true" : "false")
+//                         << ", deleteSingleLink = " << (deleteSingleLink ? "true" : "false");
+                if(needFullRebuild) // full search graph rebuild
                 {
                     sub->_ids.clear();
                     sub->_linkList.clear();
                     startId = sub->_search.startId();
                     // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
                 }
-                else
+                else if(publishType == Meta::PublishUpdate) // extend the search graph
                 {
-                    // determine the identifier at which the search graph is extended
-                    startId = link.first;
-                    currentDepth = sub->getDepth(startId);
-                    if(-1 == currentDepth)
+                    // determine the identifier with the lowest depth to start the graph expansion:
+                    int depth1 = sub->getDepth(link.first);
+                    int depth2 = sub->getDepth(link.second);
+
+                    if(-1 == depth2 || (depth1 >= 0 && depth1 <= depth2))
+                    {
+                        startId = link.first;
+                        currentDepth = depth1;
+                    }
+                    else
                     {
                         startId = link.second;
-                        currentDepth = sub->getDepth(startId);
+                        currentDepth = depth2;
                     }
                     // qDebug() << "~~making search graph exension for sub " << sub->_name;
+                }
+                else if (deleteSingleLink)
+                {
+                    // only delete a single link
+                    sub->_linkList.remove(link);
+                    // delete
+                    if(deleteId == 2)
+                        sub->_ids.remove(link.second);
+                    else if(deleteId == 1)
+                        sub->_ids.remove(link.first);
                 }
 
                 // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
@@ -1811,7 +1883,8 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
                 // QTime buildSearchGraphTimer;
                 // buildSearchGraphTimer.start();
 
-                buildSearchGraph(*sub, startId, (needFullRebuild ? currentDepth : currentDepth - 1));
+                if(needsBuildSearchGraph)
+                    buildSearchGraph(*sub, startId, (needFullRebuild ? currentDepth : currentDepth - 1));
                 // qDebug() << "~~processing buildSearchGraph() took " << buildSearchGraphTimer.elapsed() << " ms for sub " << sub->_name;
 
                 if (sub->_ids != existingIdList) {
@@ -1873,6 +1946,7 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
                         addIdentifierResult(*sub, link.first, metaChanges, resultType, error);
                     }
                 }
+
                 // Add results from extending SearchGraph for this subscription
                 if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {

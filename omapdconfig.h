@@ -72,6 +72,9 @@ public:
         AllowAll = 0x3F // Convenience enum "or" of all allow options
     };
     Q_DECLARE_FLAGS(AuthzOptions, Authz);
+
+    static void destroy();
+
     static AuthzOptions authzOptions(unsigned int authzValue);
     static QString authzOptionsString(OmapdConfig::AuthzOptions option);
 
