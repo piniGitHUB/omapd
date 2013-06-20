@@ -75,6 +75,8 @@ public:
     QSet<Id> identifiersWithout(const QMap<Id, int>& others) const;
     // subtracts this subscription's identifiers form others
     QSet<Id> subtractFrom(const QMap<Id, int>& others) const;
+    // count the number of links that contain an Id.
+    unsigned int linksContaining(const Id& id) const;
 
     // QSet<Id> _idList;
     QSet<Link> _linkList;

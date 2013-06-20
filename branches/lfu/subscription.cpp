@@ -118,6 +118,20 @@ QSet<Id> Subscription::subtractFrom(const QMap<Id, int>& others) const
     return resultSet;
 }
 
+unsigned int Subscription::linksContaining(const Id& id) const
+{
+    unsigned int result = 0;
+    QSetIterator<Link> it(_linkList);
+    while(it.hasNext())
+    {
+        const Link& link = it.next();
+        if(link.first == id || link.second == id)
+            result++;
+    }
+
+    return result;
+}
+
 void Subscription::clearSearchResults()
 {
     while (! _searchResults.isEmpty()) {
