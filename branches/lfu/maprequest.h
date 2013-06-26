@@ -238,18 +238,43 @@ private:
 };
 Q_DECLARE_METATYPE(PublishRequest)
 
+typedef QList<QPair<QString, QString> > SimplifiedFilter;
+
+class MetadataFilter
+{
+public:
+    MetadataFilter(const QString& filterStr);
+    MetadataFilter(const MetadataFilter& other);
+    ~MetadataFilter();
+
+    MetadataFilter& operator=(const MetadataFilter& other);
+    bool operator==(const MetadataFilter& other) const;
+    bool operator==(const QString& filterStr) const;
+
+    bool isEmpty() const { return _filter.isEmpty(); }
+    bool isSimple() const { return _simFilter != NULL; }
+    const QString& str() const { return _filter; }
+
+    const SimplifiedFilter* getSimplifiedFilter() const { return _simFilter; }
+    void setFilter(const QString& ifmapFilter);
+
+
+private:
+    QString _filter;
+    SimplifiedFilter* _simFilter;
+};
+
 class SearchType
 {
 public:
     SearchType();
     int maxDepth() const { return _maxDepth; }
     int maxSize() const { return _maxSize; }
-    const QString& resultFilter() const { return _resultFilter; }
-    const QString& matchLinks() const { return _matchLinks; }
+    const MetadataFilter& resultFilter() const { return _resultFilter; }
+    const MetadataFilter& matchLinks() const { return _matchLinks; }
     const QString& terminalId() const { return _terminalId; }
     const Id& startId() const { return _startId; }
     const QMap<QString, QString>& filterNamespaceDefinitions() const { return _filterNamespaceDefinitions; }
-
     bool clientSetMaxDepth() const { return _clientSetMaxDepth; }
     bool clientSetMaxSize() const { return _clientSetMaxSize; }
     bool clientSetResultFilter() const { return _clientSetResultFilter; }
@@ -258,8 +283,8 @@ public:
 
     void setMaxDepth(int maxDepth) { _maxDepth = maxDepth; _clientSetMaxDepth = true; }
     void setMaxSize(int maxSize) { _maxSize = maxSize; _clientSetMaxSize = true; }
-    void setResultFilter(const QString& resultFilter) { _resultFilter = resultFilter; _clientSetResultFilter = true; }
-    void setMatchLinks(const QString& matchLinks) { _matchLinks = matchLinks; _clientSetMatchLinks = true; }
+    void setResultFilter(const QString& resultFilter) { _resultFilter.setFilter(resultFilter); _clientSetResultFilter = true; }
+    void setMatchLinks(const QString& matchLinks) { _matchLinks.setFilter(matchLinks); _clientSetMatchLinks = true; }
     void setTerminalId(const QString& terminalId) { _terminalId = terminalId; _clientSetTerminalId = true; }
     void setStartId(Id id) { _startId = id; }
     void setFilterNamespaceDefinitions(const QMap<QString,QString>& nsDefs) {_filterNamespaceDefinitions = nsDefs; }
@@ -268,9 +293,9 @@ protected:
     bool _clientSetMaxDepth;
     int _maxSize;
     bool _clientSetMaxSize;
-    QString _resultFilter;
+    MetadataFilter _resultFilter;
     bool _clientSetResultFilter;
-    QString _matchLinks;
+    MetadataFilter _matchLinks;
     bool _clientSetMatchLinks;
     QString _terminalId;
     bool _clientSetTerminalId;

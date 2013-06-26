@@ -930,7 +930,7 @@ QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(const Q
 
     QPair< QList<Meta>, QList<Meta> > result;
 
-    QString filter = Subscription::translateFilter(pubOper._deleteFilter);
+    MetadataFilter filter(pubOper._deleteFilter);
 
     QListIterator<Meta> metaListIt(existingMetaList);
     while (metaListIt.hasNext() && !requestError) {
@@ -940,6 +940,7 @@ QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(const Q
            active subscribers.
         */
         QString delMeta = filteredMetadata(aMeta, filter, pubOper._filterNamespaceDefinitions, requestError);
+
         if (! requestError) {
             if (delMeta.isEmpty()) {
                 // Keep this metadata (delete filter did not match)
@@ -1345,14 +1346,14 @@ bool ClientHandler::purgePublisher(const QString& publisherId, bool sessionMetad
     return haveChanges;
 }
 
-QString ClientHandler::filteredMetadata(const Meta& meta, const QString& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error)
+QString ClientHandler::filteredMetadata(const Meta& meta, const MetadataFilter& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error)
 {
     QList<Meta> singleMetaList;
     singleMetaList.append(meta);
     return filteredMetadata(singleMetaList, filter, searchNamespaces, error);
 }
 
-QString ClientHandler::filteredMetadata(const QList<Meta>& metaList, const QString& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error)
+QString ClientHandler::filteredMetadata(const QList<Meta>& metaList, const MetadataFilter& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error)
 {
     QString resultString("");
     bool matchAll = false;
@@ -1382,55 +1383,29 @@ QString ClientHandler::filteredMetadata(const QList<Meta>& metaList, const QStri
         matchAll = true;
     }
 
-    QString qString;
-    QTextStream queryStream(&qString);
+    if(filter.isSimple())
+    {
+        // the simplified filter will never be empty
+        const SimplifiedFilter* simFilter = filter.getSimplifiedFilter();
 
-    if (!matchAll) {
-        QMapIterator<QString, QString> nsIt(searchNamespaces);
-        while (nsIt.hasNext()) {
-            nsIt.next();
-            queryStream << "declare namespace "
-                    << nsIt.key()
-                    << " = \""
-                    << nsIt.value()
-                    << "\";";
+        // go through each metadata item
+        QListIterator<Meta> metaIt(metaList);
+        while (metaIt.hasNext()) {
+            const Meta& meta = metaIt.next();
+            // and iterate through each filter disjunction element
+            QListIterator<QPair<QString, QString> > filterIt(*simFilter);
+            while (filterIt.hasNext()) {
+                const QPair<QString, QString>& pair = filterIt.next();
+                // element name must match as well as namespace
+                if(pair.second == meta.elementName() && searchNamespaces[pair.first] == meta.elementNS())
+                {
+                    // qDebug() << "~~ filter " << pair.first << ':' << pair.second << " matches " << meta.metaXML();
+                    resultString.append(meta.metaXML());
+                    break;
+                }
+            }
         }
 
-        queryStream << "<metadata>";
-    }
-
-    QListIterator<Meta> metaIt(metaList);
-    while (metaIt.hasNext()) {
-        queryStream << metaIt.next().metaXML();
-    }
-
-    if (!matchAll) {
-        queryStream << "</metadata>";
-        queryStream << "//"
-                    << filter;
-    }
-
-    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterStatements))
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Statement:" << endl << qString;
-
-    QXmlQuery query;
-    bool qrc;
-
-    if (!matchAll) {
-        query.setQuery(qString);
-        qrc = query.evaluateTo(&resultString);
-    } else {
-        resultString = qString;
-        qrc = true;
-    }
-
-    // Make sure (resultString.size() == 0) is true for checking if we have results
-    resultString = resultString.trimmed();
-
-    if (! qrc) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Error running query with filter:" << filter;
-        error = MapRequest::IfmapSystemError;
-    } else {
         // If there are no query results, we won't add <metadata> enclosing element
         if (! resultString.isEmpty()) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
@@ -1440,9 +1415,72 @@ QString ClientHandler::filteredMetadata(const QList<Meta>& metaList, const QStri
             resultString.append("</metadata>");
         }
     }
+    else
+    {
+        // run XMLQuery
+        QString qString;
+        QTextStream queryStream(&qString);
+
+        if (!matchAll) {
+            QMapIterator<QString, QString> nsIt(searchNamespaces);
+            while (nsIt.hasNext()) {
+                nsIt.next();
+                queryStream << "declare namespace "
+                        << nsIt.key()
+                        << " = \""
+                        << nsIt.value()
+                        << "\";";
+            }
+
+            queryStream << "<metadata>";
+        }
+
+        QListIterator<Meta> metaIt(metaList);
+        while (metaIt.hasNext()) {
+            queryStream << metaIt.next().metaXML();
+        }
+
+        if (!matchAll) {
+            queryStream << "</metadata>";
+            queryStream << "//"
+                        << filter.str();
+        }
+
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterStatements))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Statement:" << endl << qString;
+
+        QXmlQuery query;
+        bool qrc;
+
+        if (!matchAll) {
+            query.setQuery(qString);
+            qrc = query.evaluateTo(&resultString);
+        } else {
+            resultString = qString;
+            qrc = true;
+        }
+
+        // Make sure (resultString.size() == 0) is true for checking if we have results
+        resultString = resultString.trimmed();
+
+        if (! qrc) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Error running query with filter:" << filter.str();
+            error = MapRequest::IfmapSystemError;
+        } else {
+            // If there are no query results, we won't add <metadata> enclosing element
+            if (! resultString.isEmpty()) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Result:" << endl << resultString;
+
+                resultString.prepend("<metadata>");
+                resultString.append("</metadata>");
+            }
+        }
+    }
 
     return resultString;
 }
+
 
 void ClientHandler::addIdentifierResult(Subscription &sub, const Identifier& id, const QList<Meta>& metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
 {
@@ -1478,11 +1516,13 @@ void ClientHandler::addLinkResult(Subscription &sub, const Link& link, const QLi
     searchResult->_link = link;
 
     if (!metaList.isEmpty() && ! sub._search.resultFilter().isEmpty()) {
-        QString combinedFilter = sub._search.matchLinks();
-        if (sub._search.resultFilter().compare("*") != 0) {
-            combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
-        }
-        QString metaString = filteredMetadata(metaList, combinedFilter, sub._search.filterNamespaceDefinitions(), operationError);
+        // (LFu) - only match result against result filter
+//        QString combinedFilter = sub._search.matchLinks();
+//        if (sub._search.resultFilter().compare("*") != 0) {
+//            combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
+//        }
+//        QString metaString = filteredMetadata(metaList, combinedFilter, sub._search.filterNamespaceDefinitions(), operationError);
+          QString metaString = filteredMetadata(metaList, sub._search.resultFilter(), sub._search.filterNamespaceDefinitions(), operationError);
 
         if (! metaString.isEmpty()) {
             searchResult->_metadata = metaString;
@@ -1817,7 +1857,7 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
             if (isLinkInSub && publishType == Meta::PublishUpdate) {
                 // Case 2.
                 subIsDirty = true;
-                qDebug() << "~~oneIdInSub: case 2";
+                // qDebug() << "~~oneIdInSub: case 2";
             } else if(subIsDirty || (oneIdInSub && publishType == Meta::PublishUpdate)) {
                 // (LFu) - the way this else was written before, it also covered the case:
                 //    !sub._linkList.contains(link) && publishType == Meta::PublishDelete, which we should ignore

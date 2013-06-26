@@ -801,11 +801,11 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
        specifies a max-size that exceeds what the MAP Server can support,
        the MAP Server MUST enforce its own maximum size constraints.
     */
-    long maxSize = IFMAP_MAX_SIZE;
+    long long maxSize = IFMAP_MAX_SIZE;
     if (attrs.hasAttribute("max-size")) {
         QString ms = attrs.value("max-size").toString();
         bool ok;
-        maxSize = ms.toLong(&ok);
+        maxSize = ms.toLongLong(&ok);
         if (ok) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter max-size:" << maxSize;
@@ -837,10 +837,10 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter match-links:" << matchLinks;
         }
-        search.setMatchLinks(Subscription::translateFilter(matchLinks));
+        search.setMatchLinks(matchLinks);
     } else {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter match-links:" << search.matchLinks();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter match-links:" << search.matchLinks().str();
         }
     }
 
@@ -849,10 +849,10 @@ SearchType ClientParser::parseSearchDetails(MapRequest &request)
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Got search parameter result-filter:" << resultFilter;
         }
-        search.setResultFilter(Subscription::translateFilter(resultFilter));
+        search.setResultFilter(resultFilter);
     } else {
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLParsing)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter result-filter:" << search.resultFilter();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Using default search parameter result-filter:" << search.resultFilter().str();
         }
     }
 
