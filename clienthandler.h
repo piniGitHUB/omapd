@@ -78,8 +78,8 @@ private:
     void processClientRequest();
     void sendResultsOnActivePolls();
 
-    QString filteredMetadata(const QList<Meta>& metaList, const QString& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error);
-    QString filteredMetadata(const Meta& meta, const QString& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error);
+    QString filteredMetadata(const QList<Meta>& metaList, const MetadataFilter& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error);
+    QString filteredMetadata(const Meta& meta, const MetadataFilter& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error);
 
     void collectSearchGraphMetadata(Subscription &sub, SearchResult::ResultType resultType, MapRequest::RequestError &operationError);
     void addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, const QSet<Id>& idList, const QSet<Link>& linkList, MapRequest::RequestError &operationError);

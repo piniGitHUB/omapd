@@ -55,6 +55,7 @@ public:
     MapRequest::RequestError _error;
 };
 
+
 class Subscription
 {
 public:
@@ -93,9 +94,14 @@ public:
 
     void clearSearchResults();    
 
-    static QString translateFilter(const QString& ifmapFilter);
-    static QString intersectFilter(const QString& matchLinksFilter, const QString& resultFilter);
-    static QStringList filterPrefixes(const QString& filter);
+    // translates the filter to use with Qt xmlpattern matching
+    // (LFu) the method now determines if the filter is a simple disjunction of qual. metadata element names
+    // and if so the method will set canSimplifyMatching to true and fills simFilter with the list of
+    // (namespace prefix/element name) pairs that the filter contains. In this case the method returns
+    // the empty string.
+//    static QString translateFilter(const QString& ifmapFilter, SimplifiedFilter& simFilter, bool& canSimplifyMatching);
+//    static QString intersectFilter(const QString& matchLinksFilter, const QString& resultFilter);
+//    static QStringList filterPrefixes(const QString& filter);
 };
 
 #endif // SUBSCRIPTION_H
