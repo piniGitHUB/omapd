@@ -72,21 +72,24 @@ public:
         AllowAll = 0x3F // Convenience enum "or" of all allow options
     };
     Q_DECLARE_FLAGS(AuthzOptions, Authz);
+
+    static void destroy();
+
     static AuthzOptions authzOptions(unsigned int authzValue);
     static QString authzOptionsString(OmapdConfig::AuthzOptions option);
 
     static OmapdConfig* getInstance();
 
-    bool isSet(QString key) { return _omapdConfig.contains(key); }
-    QVariant valueFor(QString key);
+    bool isSet(const QString& key) { return _omapdConfig.contains(key); }
+    const QVariant& valueFor(const QString& key);
     void showConfigValues();
 
-    QList<ClientConfiguration *> clientConfigurations() { return _clientConfigurations; }
-    QMultiHash<QString, VSM> metadataPolicies() { return _metadataPolicies; }
+    const QList<ClientConfiguration *>& clientConfigurations() { return _clientConfigurations; }
+    const QMultiHash<QString, VSM>& metadataPolicies() { return _metadataPolicies; }
 
-    int readConfigFile(QString configFileName = "omapd.conf");
+    int readConfigFile(const QString& configFileName = "omapd.conf");
 
-    void addConfigItem(QString key, QVariant value);
+    void addConfigItem(const QString& key, const QVariant& value);
 private:
     OmapdConfig(QObject * parent = 0);
     ~OmapdConfig();

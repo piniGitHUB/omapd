@@ -55,6 +55,7 @@ public:
     MapRequest::RequestError _error;
 };
 
+
 class Subscription
 {
 public:
@@ -63,8 +64,22 @@ public:
 
     QString _name;
     SearchType _search;
+    bool _indexed; // this is set to false for temporary subscriptions used in search requests
 
-    QSet<Id> _idList;
+    QString _authToken;
+
+    QMap<Id, int> _ids; // id --> search depth
+    QSet<Id> identifiers() const;
+    inline void addId(const Id& id, int depth) { if(!_ids.contains(id) || _ids[id] > depth) _ids[id] = depth; }
+    inline int getDepth(const Id& id) const { return (_ids.contains(id) ? _ids[id] : -1); }
+    // calculates the set difference between this subscription's identifiers and others
+    QSet<Id> identifiersWithout(const QMap<Id, int>& others) const;
+    // subtracts this subscription's identifiers form others
+    QSet<Id> subtractFrom(const QMap<Id, int>& others) const;
+    // count the number of links that contain an Id.
+    unsigned int linksContaining(const Id& id) const;
+
+    // QSet<Id> _idList;
     QSet<Link> _linkList;
 
     QList<SearchResult *> _searchResults;
@@ -77,11 +92,16 @@ public:
     // Two SearchGraphs are equal iff their names are equal
     bool operator==(const Subscription &other) const;
 
-    void clearSearchResults();
+    void clearSearchResults();    
 
-    static QString translateFilter(QString ifmapFilter);
-    static QString intersectFilter(QString matchLinksFilter, QString resultFilter);
-    static QStringList filterPrefixes(QString filter);
+    // translates the filter to use with Qt xmlpattern matching
+    // (LFu) the method now determines if the filter is a simple disjunction of qual. metadata element names
+    // and if so the method will set canSimplifyMatching to true and fills simFilter with the list of
+    // (namespace prefix/element name) pairs that the filter contains. In this case the method returns
+    // the empty string.
+//    static QString translateFilter(const QString& ifmapFilter, SimplifiedFilter& simFilter, bool& canSimplifyMatching);
+//    static QString intersectFilter(const QString& matchLinksFilter, const QString& resultFilter);
+//    static QStringList filterPrefixes(const QString& filter);
 };
 
 #endif // SUBSCRIPTION_H

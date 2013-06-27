@@ -30,7 +30,7 @@ along with omapd.  If not, see <http://www.gnu.org/licenses/>.
 #include "mapsessions.h"
 #include "clientconfiguration.h"
 
-QString ClientHandler::buildDN(QSslCertificate cert, ClientHandler::CertInfoTarget target)
+QString ClientHandler::buildDN(const QSslCertificate& cert, const ClientHandler::CertInfoTarget& target)
 {
     QStringList dnElements;
     QString certDN;
@@ -79,7 +79,7 @@ ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QObject *parent) :
 
 }
 
-ClientHandler::ClientHandler(MapGraphInterface *mapGraph, QString authToken, QObject *parent) :
+ClientHandler::ClientHandler(MapGraphInterface *mapGraph, const QString& authToken, QObject *parent) :
     QSslSocket(parent), _mapGraph(mapGraph), _authToken(authToken)
 {
     _omapdConfig = OmapdConfig::getInstance();
@@ -95,7 +95,7 @@ void ClientHandler::sessionMetadataTimeout()
     QString publisherId = _mapSessions->pubIdForAuthToken(_authToken);
 
     if (!publisherId.isEmpty()) {
-        if (_mapSessions->removeSubscriptionListForClient(_authToken).size() > 0) {
+        if (_mapSessions->removeSubscriptionListForClient(_authToken) > 0) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:"
                         << publisherId;
@@ -112,7 +112,7 @@ ClientHandler::~ClientHandler()
     if (_parser) delete _parser;
 }
 
-void ClientHandler::clientSocketError(QAbstractSocket::SocketError socketError)
+void ClientHandler::clientSocketError(const QAbstractSocket::SocketError& socketError)
 {
     qDebug() << __PRETTY_FUNCTION__ << ":" << "Socket error:" << socketError
              << errorString()
@@ -190,7 +190,7 @@ void ClientHandler::clientConnState(QAbstractSocket::SocketState sState)
                  << "------------->:" << sState;
 }
 
-void ClientHandler::processHeader(QNetworkRequest requestHdrs)
+void ClientHandler::processHeader(const QNetworkRequest& requestHdrs)
 {
     // TODO: Improve http protocol support
     if (requestHdrs.hasRawHeader(QByteArray("Expect"))) {
@@ -252,7 +252,7 @@ void ClientHandler::processHeader(QNetworkRequest requestHdrs)
 
 }
 
-void ClientHandler::sendHttpResponse(int hdrNumber, QString hdrText)
+void ClientHandler::sendHttpResponse(int hdrNumber, const QString& hdrText)
 {
     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowRawSocketData))
         qDebug() << __PRETTY_FUNCTION__ << ":" << "Sending Http Response:" << hdrNumber << hdrText;
@@ -361,22 +361,22 @@ void ClientHandler::handleParseComplete()
             this, SLOT(processHeader(QNetworkRequest)));
 }
 
-void ClientHandler::sendPollResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
+void ClientHandler::sendPollResponse(const QByteArray& response, const MapRequest::RequestVersion& reqVersion)
 {
     this->sendResponse(response, reqVersion);
 }
 
-void ClientHandler::sendMapResponse(MapResponse &mapResponse)
+void ClientHandler::sendMapResponse(const MapResponse &mapResponse)
 {
     this->sendResponse(mapResponse.responseData(), mapResponse.requestVersion());
 }
 
-void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion reqVersion)
+void ClientHandler::sendResponse(const QByteArray& response, const MapRequest::RequestVersion& reqVersion)
 {
     QByteArray compResponse;
     QHttpResponseHeader header(200,"OK");
     if (_useCompression) {
-        compResponse = compressResponse(response);
+        compressResponse(response, compResponse);
         header.setValue("Content-Encoding", "gzip");
         header.setValue("Transfer-Encoding","chunked");
         header.setContentLength(compResponse.size());
@@ -418,10 +418,8 @@ void ClientHandler::sendResponse(QByteArray response, MapRequest::RequestVersion
     }
 }
 
-QByteArray ClientHandler::compressResponse(QByteArray uncompressed)
+void ClientHandler::compressResponse(const QByteArray& uncompressed, QByteArray& deflated )
 {
-    QByteArray deflated;
-
     deflated = qCompress(uncompressed);
 
     // eliminate qCompress size on first 4 bytes and 2 byte header
@@ -460,14 +458,12 @@ QByteArray ClientHandler::compressResponse(QByteArray uncompressed)
     footer[4] = (isize & 0x000000ff);
 
     deflated.append(footer);
-
-    return deflated;
 }
 
 void ClientHandler::processClientRequest()
 {
     MapRequest::RequestType reqType = _parser->requestType();
-    QVariant clientRequest = _parser->request();
+    const QVariant&     clientRequest = _parser->request();
 
     MapResponse *clientFaultResponse;
 
@@ -496,8 +492,14 @@ void ClientHandler::processClientRequest()
         processPurgePublisher(clientRequest);
         break;
     case MapRequest::Publish:
+    {
+        // LFu - remove this
+        // QTime timer;
+        // timer.start();
         processPublish(clientRequest);
+        // qDebug() << "~~processing publish request took " << timer.elapsed() << " ms";
         break;
+    }
     case MapRequest::Subscribe:
         processSubscribe(clientRequest);
         break;
@@ -511,7 +513,7 @@ void ClientHandler::processClientRequest()
 
 }
 
-void ClientHandler::processNewSession(QVariant clientRequest)
+void ClientHandler::processNewSession(const QVariant& clientRequest)
 {
     NewSessionRequest nsReq = clientRequest.value<NewSessionRequest>();
     MapResponse nsResp(nsReq.requestVersion());
@@ -549,7 +551,7 @@ void ClientHandler::processNewSession(QVariant clientRequest)
     sendMapResponse(nsResp);
 }
 
-void ClientHandler::processRenewSession(QVariant clientRequest)
+void ClientHandler::processRenewSession(const QVariant& clientRequest)
 {
     /* IFMAP20: 4.4: In order to keep an IF-MAP session from timing out,
        a MAP Client MUST either keep the underlying TCP connection associated
@@ -569,7 +571,7 @@ void ClientHandler::processRenewSession(QVariant clientRequest)
     sendMapResponse(rsResp);
 }
 
-void ClientHandler::processEndSession(QVariant clientRequest)
+void ClientHandler::processEndSession(const QVariant& clientRequest)
 {
     EndSessionRequest esReq = clientRequest.value<EndSessionRequest>();
 
@@ -593,7 +595,7 @@ void ClientHandler::processEndSession(QVariant clientRequest)
     sendMapResponse(esResp);
 }
 
-void ClientHandler::processAttachSession(QVariant clientRequest)
+void ClientHandler::processAttachSession(const QVariant& clientRequest)
 {
     AttachSessionRequest asReq = clientRequest.value<AttachSessionRequest>();
     MapResponse asResp(asReq.requestVersion());
@@ -656,7 +658,8 @@ void ClientHandler::checkPublishAtomicity(PublishRequest &pubReq, MapRequest::Re
     QList<PublishOperation> publishOperations = pubReq.publishOperations();
     QMutableListIterator<PublishOperation> pubOperIt(publishOperations);
     while (pubOperIt.hasNext()) {
-        PublishOperation pubOperCheck = pubOperIt.next();
+        // LFu: use reference here to avoid copy
+        PublishOperation& pubOperCheck = pubOperIt.next();
 
         // Only check operations that come later in the request against the current one
         for (int i=pubOperCheck._operationNumber; i<publishOperations.size(); i++) {
@@ -720,7 +723,8 @@ void ClientHandler::checkPublishAtomicity(PublishRequest &pubReq, MapRequest::Re
                                     << "to number of metadata elements:" << keepMetaList.size();
                         }
                         pubOperCheck._metadata = keepMetaList;
-                        pubOperIt.setValue(pubOperCheck);
+                        // LFu: no need to setValue since we're manipulating the list element directly
+                        // pubOperIt.setValue(pubOperCheck);
                     }
 
                 } else if (pubOperCheck._publishType == PublishOperation::Update &&
@@ -753,7 +757,8 @@ void ClientHandler::checkPublishAtomicity(PublishRequest &pubReq, MapRequest::Re
                                             << "to number of metadata elements:" << keepMetaList.size();
                                 }
                                 pubOperCheck._metadata = keepMetaList;
-                                pubOperIt.setValue(pubOperCheck);
+                                // LFu: no need to setValue since we're manipulating the list element directly
+                                // pubOperIt.setValue(pubOperCheck);
                             }
                         }
 
@@ -789,7 +794,7 @@ void ClientHandler::checkPublishAtomicity(PublishRequest &pubReq, MapRequest::Re
     pubReq.setPublishOperations(publishOperations);
 }
 
-void ClientHandler::processPublish(QVariant clientRequest)
+void ClientHandler::processPublish(const QVariant& clientRequest)
 {
     PublishRequest pubReq = clientRequest.value<PublishRequest>();
 
@@ -805,19 +810,28 @@ void ClientHandler::processPublish(QVariant clientRequest)
        an errorResult element with an errorCode attribute indicating the cause of the
        failure.
     */
-    QList<PublishOperation> publishOperations = pubReq.publishOperations();
+    const QList<PublishOperation>& publishOperations = pubReq.publishOperations();
     QListIterator<PublishOperation> pubOperIt(publishOperations);
     while (pubOperIt.hasNext() && !requestError) {
-        PublishOperation pubOper = pubOperIt.next();
+        const PublishOperation& pubOper = pubOperIt.next();
 
         if (pubOper._publishType == PublishOperation::Update
             || pubOper._publishType == PublishOperation::Notify) {
 
             if (pubOper._publishType == PublishOperation::Update) {
+                // LFu - remove
+                // QTime timer;
+                // timer.start();
                 _mapGraph->addMeta(pubOper._link, pubOper._isLink, pubOper._metadata, publisherId);
+                // qDebug() << "~~processing addMeta() took " << timer.elapsed() << " ms (meta = " << pubOper._metadata.first().elementName() << ")";
+
+                // timer.restart();
+
                 // TODO: Move this outside of while loop for major performance boost!
                 // update subscriptions
                 updateSubscriptions(pubOper._link, pubOper._isLink, pubOper._metadata, Meta::PublishUpdate);
+                // qDebug() << "~~processing updateSubscriptions() took " << timer.elapsed() << " ms";
+
             } else if (pubOper._publishType == PublishOperation::Notify) {
                 // Deal with notify
                 updateSubscriptionsWithNotify(pubOper._link, pubOper._isLink, pubOper._metadata);
@@ -874,7 +888,13 @@ void ClientHandler::processPublish(QVariant clientRequest)
             }
 
             if (metadataDeleted && !requestError) {
+
+                // LFu - remove
+                // QTime timer;
+                // timer.start();
                 updateSubscriptions(pubOper._link, pubOper._isLink, deleteMetaList, Meta::PublishDelete);
+                // qDebug() << "~~processing updateSubscriptions() took " << timer.elapsed() << " ms";
+
             }
 
         }
@@ -903,14 +923,14 @@ void ClientHandler::processPublish(QVariant clientRequest)
     sendMapResponse(pubResp);
 }
 
-QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(QList<Meta> existingMetaList, PublishOperation pubOper, MapRequest::RequestError &requestError, bool *metadataDeleted)
+QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(const QList<Meta>& existingMetaList, const PublishOperation& pubOper, MapRequest::RequestError &requestError, bool *metadataDeleted)
 {
     QList<Meta> keepMetaList;
     QList<Meta> deleteMetaList;
 
     QPair< QList<Meta>, QList<Meta> > result;
 
-    QString filter = Subscription::translateFilter(pubOper._deleteFilter);
+    MetadataFilter filter(pubOper._deleteFilter);
 
     QListIterator<Meta> metaListIt(existingMetaList);
     while (metaListIt.hasNext() && !requestError) {
@@ -920,6 +940,7 @@ QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(QList<M
            active subscribers.
         */
         QString delMeta = filteredMetadata(aMeta, filter, pubOper._filterNamespaceDefinitions, requestError);
+
         if (! requestError) {
             if (delMeta.isEmpty()) {
                 // Keep this metadata (delete filter did not match)
@@ -952,7 +973,7 @@ QPair< QList<Meta>, QList<Meta> > ClientHandler::applyDeleteFilterToMeta(QList<M
 
 }
 
-void ClientHandler::processSubscribe(QVariant clientRequest)
+void ClientHandler::processSubscribe(const QVariant& clientRequest)
 {
     SubscribeRequest subReq = clientRequest.value<SubscribeRequest>();
 
@@ -970,33 +991,39 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
         SubscribeOperation subOper = subOperIt.next();
 
         if (subOper.subscribeType() == SubscribeOperation::Update) {
-            Subscription sub(subReq.requestVersion());
-            sub._name = subOper.name();
-            sub._search = subOper.search();
+            Subscription* sub = new Subscription(subReq.requestVersion());
+            sub->_name = subOper.name();
+            sub->_search = subOper.search();
+            sub->_authToken = _authToken;
             int currentDepth = -1;
-            buildSearchGraph(sub, sub._search.startId(), currentDepth);
+            buildSearchGraph(*sub, sub->_search.startId(), currentDepth);
+
+            // add all identifiers to the index.
+            const QSet<Id> sub_ids(sub->identifiers());
+            QSetIterator<Id> setIt(sub_ids);
+            while(setIt.hasNext()) {
+                MapSessions::getInstance()->addToIndex(setIt.next(), sub);
+            }
 
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Subscription:" << subOper.name();
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << sub._idList.size();
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << sub._linkList.size();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << sub->_ids.size();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << sub->_linkList.size();
             }
 
-            QList<Subscription> subList = _mapSessions->subscriptionListForClient(_authToken);
-            if (subList.isEmpty()) {
-                subList << sub;
-            } else {
-                // Replace any existing subscriptions with the same name with removeOne
-                subList.removeOne(sub);
-                subList << sub;
-            }
+            // LFu:
+            // instead of changing a local copy of the subs list and then writing it back,
+            // change the list in place?
+            _mapSessions->insertSubscriptionForClient(sub, _authToken);
+
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << subList.size();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << _mapSessions->subscriptionListForClient(_authToken).size();
             }
 
-            _mapSessions->setSubscriptionListForClient(_authToken, subList);
+            // LFu: this is no longer necessary:
+            // _mapSessions->setSubscriptionListForClient(_authToken, subList);
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding SearchGraph to subscription lists with name:" << sub._name;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Adding SearchGraph to subscription lists with name:" << sub->_name;
             }
 
             if (_mapSessions->haveActivePollForClient(_authToken)) {
@@ -1005,28 +1032,38 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
             }
 
         } else if (subOper.subscribeType() == SubscribeOperation::Delete) {
-            Subscription delSub(subReq.requestVersion());
-            delSub._name = subOper.name();
-
-            QList<Subscription> subList = _mapSessions->removeSubscriptionListForClient(_authToken);
-            if (! subList.isEmpty()) {
-                // remove delSub from list with same name
-                subList.removeOne(delSub);
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscription from subList with name:" << delSub._name;
-                }
-            } else {
-                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions to delete for publisher:" << publisherId;
-                }
-            }
-
-            if (! subList.isEmpty()) {
-                _mapSessions->setSubscriptionListForClient(_authToken, subList);
-            }
 
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << subList.size();
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscription from subList with name:" << subOper.name();
+            }
+
+            _mapSessions->removeSubscriptionForClient(subOper.name(), _authToken);
+
+//            Subscription delSub(subReq.requestVersion());
+//            delSub._name = subOper.name();
+
+//            // LFu: change subscription list in-place
+//            QList<Subscription>& subList = _mapSessions->subscriptionListForClient(_authToken);
+//            // _mapSessions->removeSubscriptionListForClient(_authToken);
+//            if (! subList.isEmpty()) {
+//                // remove delSub from list with same name
+//                subList.removeOne(delSub);
+//                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+//                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscription from subList with name:" << delSub._name;
+//                }
+//            } else {
+//                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+//                    qDebug() << __PRETTY_FUNCTION__ << ":" << "No subscriptions to delete for publisher:" << publisherId;
+//                }
+//            }
+
+            // (LFu) no longer need to save back list
+            // if (! subList.isEmpty()) {
+            //     _mapSessions->setSubscriptionListForClient(_authToken, subList);
+            // }
+
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "subList size:" << _mapSessions->subscriptionListForClient(_authToken).size();
             }
 
         }
@@ -1041,7 +1078,7 @@ void ClientHandler::processSubscribe(QVariant clientRequest)
     sendMapResponse(subResp);
 }
 
-void ClientHandler::processSearch(QVariant clientRequest)
+void ClientHandler::processSearch(const QVariant& clientRequest)
 {
     SearchRequest searchReq = clientRequest.value<SearchRequest>();
     MapResponse searchResp(searchReq.requestVersion());
@@ -1051,6 +1088,8 @@ void ClientHandler::processSearch(QVariant clientRequest)
 
     if (!requestError) {
         Subscription tempSub(searchReq.requestVersion());
+        // don't include this subscription in the subscription index:
+        tempSub._indexed = false;
         tempSub._search = searchReq.search();
 
         int currentDepth = -1;
@@ -1059,7 +1098,7 @@ void ClientHandler::processSearch(QVariant clientRequest)
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "Search Lists";
             // NB: idList size should be 1 or more, because we always include the starting identifier
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "    idList size:" << tempSub._idList.size();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "    ids size:" << tempSub._ids.size();
             qDebug() << __PRETTY_FUNCTION__ << ":" << "    linkList size:" << tempSub._linkList.size();
         }
 
@@ -1079,7 +1118,7 @@ void ClientHandler::processSearch(QVariant clientRequest)
     sendMapResponse(searchResp);
 }
 
-void ClientHandler::processPurgePublisher(QVariant clientRequest)
+void ClientHandler::processPurgePublisher(const QVariant& clientRequest)
 {
     PurgePublisherRequest ppReq = clientRequest.value<PurgePublisherRequest>();
 
@@ -1114,7 +1153,7 @@ void ClientHandler::processPurgePublisher(QVariant clientRequest)
     sendMapResponse(ppResp);
 }
 
-void ClientHandler::processPoll(QVariant clientRequest)
+void ClientHandler::processPoll(const QVariant& clientRequest)
 {
     PollRequest pollReq = clientRequest.value<PollRequest>();
 
@@ -1191,7 +1230,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
        server.
     */
     if (requestError) {
-        if (_mapSessions->removeSubscriptionListForClient(_authToken).size() > 0) {
+        if (_mapSessions->removeSubscriptionListForClient(_authToken) > 0) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:" << publisherId;
             }
@@ -1203,7 +1242,7 @@ void ClientHandler::processPoll(QVariant clientRequest)
     }
 }
 
-bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersion requestVersion)
+bool ClientHandler::terminateSession(const QString& sessionId, MapRequest::RequestVersion requestVersion)
 {
     bool hadExistingSSRCSession = _mapSessions->haveActiveSSRCForClient(_authToken);
     if (hadExistingSSRCSession) {
@@ -1217,7 +1256,7 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
            delete any previous subscriptions corresponding to the MAP Client. In
            other words, subscription lists are only valid for a single MAP Client session.
         */
-        if (_mapSessions->removeSubscriptionListForClient(_authToken).size() > 0) {
+        if (_mapSessions->removeSubscriptionListForClient(_authToken) > 0) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "Removing subscriptions for publisherId:"
                         << publisherId;
@@ -1245,7 +1284,7 @@ bool ClientHandler::terminateSession(QString sessionId, MapRequest::RequestVersi
     return hadExistingSSRCSession;
 }
 
-bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVersion requestVersion)
+bool ClientHandler::terminateARCSession(const QString& sessionId, MapRequest::RequestVersion requestVersion)
 {
     bool hadExistingARCSession = _mapSessions->haveActiveARCForClient(_authToken);
 
@@ -1281,7 +1320,7 @@ bool ClientHandler::terminateARCSession(QString sessionId, MapRequest::RequestVe
     return hadExistingARCSession;
 }
 
-bool ClientHandler::purgePublisher(QString publisherId, bool sessionMetadataOnly)
+bool ClientHandler::purgePublisher(const QString& publisherId, bool sessionMetadataOnly)
 {
     bool haveChanges = false;
     bool haveChange = true;
@@ -1307,14 +1346,14 @@ bool ClientHandler::purgePublisher(QString publisherId, bool sessionMetadataOnly
     return haveChanges;
 }
 
-QString ClientHandler::filteredMetadata(Meta meta, QString filter, QMap<QString, QString> searchNamespaces, MapRequest::RequestError &error)
+QString ClientHandler::filteredMetadata(const Meta& meta, const MetadataFilter& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error)
 {
     QList<Meta> singleMetaList;
     singleMetaList.append(meta);
     return filteredMetadata(singleMetaList, filter, searchNamespaces, error);
 }
 
-QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMap<QString, QString>searchNamespaces, MapRequest::RequestError &error)
+QString ClientHandler::filteredMetadata(const QList<Meta>& metaList, const MetadataFilter& filter, const QMap<QString, QString>& searchNamespaces, MapRequest::RequestError &error)
 {
     QString resultString("");
     bool matchAll = false;
@@ -1344,55 +1383,29 @@ QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMa
         matchAll = true;
     }
 
-    QString qString;
-    QTextStream queryStream(&qString);
+    if(filter.isSimple())
+    {
+        // the simplified filter will never be empty
+        const SimplifiedFilter* simFilter = filter.getSimplifiedFilter();
 
-    if (!matchAll) {
-        QMapIterator<QString, QString> nsIt(searchNamespaces);
-        while (nsIt.hasNext()) {
-            nsIt.next();
-            queryStream << "declare namespace "
-                    << nsIt.key()
-                    << " = \""
-                    << nsIt.value()
-                    << "\";";
+        // go through each metadata item
+        QListIterator<Meta> metaIt(metaList);
+        while (metaIt.hasNext()) {
+            const Meta& meta = metaIt.next();
+            // and iterate through each filter disjunction element
+            QListIterator<QPair<QString, QString> > filterIt(*simFilter);
+            while (filterIt.hasNext()) {
+                const QPair<QString, QString>& pair = filterIt.next();
+                // element name must match as well as namespace
+                if(pair.second == meta.elementName() && searchNamespaces[pair.first] == meta.elementNS())
+                {
+                    // qDebug() << "~~ filter " << pair.first << ':' << pair.second << " matches " << meta.metaXML();
+                    resultString.append(meta.metaXML());
+                    break;
+                }
+            }
         }
 
-        queryStream << "<metadata>";
-    }
-
-    QListIterator<Meta> metaIt(metaList);
-    while (metaIt.hasNext()) {
-        queryStream << metaIt.next().metaXML();
-    }
-
-    if (!matchAll) {
-        queryStream << "</metadata>";
-        queryStream << "//"
-                    << filter;
-    }
-
-    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterStatements))
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Statement:" << endl << qString;
-
-    QXmlQuery query;
-    bool qrc;
-
-    if (!matchAll) {
-        query.setQuery(qString);
-        qrc = query.evaluateTo(&resultString);
-    } else {
-        resultString = qString;
-        qrc = true;
-    }
-
-    // Make sure (resultString.size() == 0) is true for checking if we have results
-    resultString = resultString.trimmed();
-
-    if (! qrc) {
-        qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Error running query with filter:" << filter;
-        error = MapRequest::IfmapSystemError;
-    } else {
         // If there are no query results, we won't add <metadata> enclosing element
         if (! resultString.isEmpty()) {
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
@@ -1402,11 +1415,74 @@ QString ClientHandler::filteredMetadata(QList<Meta>metaList, QString filter, QMa
             resultString.append("</metadata>");
         }
     }
+    else
+    {
+        // run XMLQuery
+        QString qString;
+        QTextStream queryStream(&qString);
+
+        if (!matchAll) {
+            QMapIterator<QString, QString> nsIt(searchNamespaces);
+            while (nsIt.hasNext()) {
+                nsIt.next();
+                queryStream << "declare namespace "
+                        << nsIt.key()
+                        << " = \""
+                        << nsIt.value()
+                        << "\";";
+            }
+
+            queryStream << "<metadata>";
+        }
+
+        QListIterator<Meta> metaIt(metaList);
+        while (metaIt.hasNext()) {
+            queryStream << metaIt.next().metaXML();
+        }
+
+        if (!matchAll) {
+            queryStream << "</metadata>";
+            queryStream << "//"
+                        << filter.str();
+        }
+
+        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterStatements))
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Statement:" << endl << qString;
+
+        QXmlQuery query;
+        bool qrc;
+
+        if (!matchAll) {
+            query.setQuery(qString);
+            qrc = query.evaluateTo(&resultString);
+        } else {
+            resultString = qString;
+            qrc = true;
+        }
+
+        // Make sure (resultString.size() == 0) is true for checking if we have results
+        resultString = resultString.trimmed();
+
+        if (! qrc) {
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "ERROR: Error running query with filter:" << filter.str();
+            error = MapRequest::IfmapSystemError;
+        } else {
+            // If there are no query results, we won't add <metadata> enclosing element
+            if (! resultString.isEmpty()) {
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowXMLFilterResults))
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Query Result:" << endl << resultString;
+
+                resultString.prepend("<metadata>");
+                resultString.append("</metadata>");
+            }
+        }
+    }
 
     return resultString;
 }
 
-void ClientHandler::addIdentifierResult(Subscription &sub, Identifier id, QList<Meta> metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
+
+void ClientHandler::addIdentifierResult(Subscription &sub, const Identifier& id, const QList<Meta>& metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
 {
 
     SearchResult *searchResult = new SearchResult(resultType, SearchResult::IdentifierResult);
@@ -1433,18 +1509,20 @@ void ClientHandler::addIdentifierResult(Subscription &sub, Identifier id, QList<
     }
 }
 
-void ClientHandler::addLinkResult(Subscription &sub, Link link, QList<Meta> metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
+void ClientHandler::addLinkResult(Subscription &sub, const Link& link, const QList<Meta>& metaList, SearchResult::ResultType resultType, MapRequest::RequestError &operationError)
 {
 
     SearchResult *searchResult = new SearchResult(resultType, SearchResult::LinkResult);
     searchResult->_link = link;
 
     if (!metaList.isEmpty() && ! sub._search.resultFilter().isEmpty()) {
-        QString combinedFilter = sub._search.matchLinks();
-        if (sub._search.resultFilter().compare("*") != 0) {
-            combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
-        }
-        QString metaString = filteredMetadata(metaList, combinedFilter, sub._search.filterNamespaceDefinitions(), operationError);
+        // (LFu) - only match result against result filter
+//        QString combinedFilter = sub._search.matchLinks();
+//        if (sub._search.resultFilter().compare("*") != 0) {
+//            combinedFilter = Subscription::intersectFilter(sub._search.matchLinks(), sub._search.resultFilter());
+//        }
+//        QString metaString = filteredMetadata(metaList, combinedFilter, sub._search.filterNamespaceDefinitions(), operationError);
+          QString metaString = filteredMetadata(metaList, sub._search.resultFilter(), sub._search.filterNamespaceDefinitions(), operationError);
 
         if (! metaString.isEmpty()) {
             searchResult->_metadata = metaString;
@@ -1473,16 +1551,30 @@ void ClientHandler::collectSearchGraphMetadata(Subscription &sub, SearchResult::
        case, the MAP Server MUST return the identifier with no metadata or
        links attached to it.
     */
-    QSetIterator<Id> idIt(sub._idList);
-    while (idIt.hasNext() && !operationError) {
-        Id id = idIt.next();
-        QList<Meta> idMetaList = _mapGraph->metaForId(id);
-        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
+
+        QMapIterator<Id, int> idIt(sub._ids);
+        while (idIt.hasNext() && !operationError) {
+            Id id = idIt.next().key();
+            QList<Meta> idMetaList = _mapGraph->metaForId(id);
+            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
+            }
+            // TODO: Should the identifier be added if there is no metadata at all?
+            addIdentifierResult(sub, id, idMetaList, resultType, operationError);
         }
-        // TODO: Should the identifier be added if there is no metadata at all?
-        addIdentifierResult(sub, id, idMetaList, resultType, operationError);
-    }
+
+
+// (LFu) was:
+//    QSetIterator<Id> idIt(sub._idList);
+//    while (idIt.hasNext() && !operationError) {
+//        Id id = idIt.next();
+//        QList<Meta> idMetaList = _mapGraph->metaForId(id);
+//        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+//            qDebug() << __PRETTY_FUNCTION__ << ":" << "idMetaList size for id:" << id << "-->" << idMetaList.size();
+//        }
+//        // TODO: Should the identifier be added if there is no metadata at all?
+//        addIdentifierResult(sub, id, idMetaList, resultType, operationError);
+//    }
 
     QSetIterator<Link> linkIt(sub._linkList);
     while (linkIt.hasNext() && !operationError) {
@@ -1495,7 +1587,7 @@ void ClientHandler::collectSearchGraphMetadata(Subscription &sub, SearchResult::
     }
 }
 
-void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, QSet<Id>idList, QSet<Link>linkList, MapRequest::RequestError &operationError)
+void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::ResultType resultType, const QSet<Id>& idList, const QSet<Link>& linkList, MapRequest::RequestError &operationError)
 {
     QSetIterator<Id> idIt(idList);
     while (idIt.hasNext() && !operationError) {
@@ -1528,7 +1620,7 @@ void ClientHandler::addUpdateAndDeleteMetadata(Subscription &sub, SearchResult::
 }
 
 // currentDepth is pass by value!  Must initially be -1.
-void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentDepth)
+void ClientHandler::buildSearchGraph(Subscription &sub, const Id& startId, int currentDepth)
 {
     /* IFMAP20: 3.7.2.8: Recursive Algorithm is from spec */
     // 1. Current id, current results, current depth
@@ -1540,7 +1632,10 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
 
     // 2. Save current identifier in list of traversed identifiers
     // so we can later gather metadata from these identifiers.
-    sub._idList.insert(startId);
+
+    sub.addId(startId, currentDepth);
+    // LFu - was:
+    // sub._idList.insert(startId);
 
     // 3. If the current identifiers type is contained within
     // terminal-identifier-type, return current results.
@@ -1606,14 +1701,17 @@ void ClientHandler::buildSearchGraph(Subscription &sub, Id startId, int currentD
             Link link = linkIter.next();
             Id linkedId = Identifier::otherIdForLink(link, startId);
             // linkedId becomes startId in recursion
-            buildSearchGraph(sub, linkedId, currentDepth);
+            // LFu - filter out IDs in the recursion if we have visited them already
+            int linkedIdDepth = sub.getDepth(linkedId); // returns -1 if linkedId not in sub
+             if(linkedIdDepth == -1 || linkedIdDepth > currentDepth + 1)
+                buildSearchGraph(sub, linkedId, currentDepth);
         }
     }
 
 
 }
 
-void ClientHandler::updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, QHash<Link, QList<Meta> > linkMetaDeleted)
+void ClientHandler::updateSubscriptions(const QHash<Id, QList<Meta> >& idMetaDeleted, const QHash<Link, QList<Meta> >& linkMetaDeleted)
 {
     QHashIterator<Id, QList<Meta> > idIter(idMetaDeleted);
     while (idIter.hasNext()) {
@@ -1637,7 +1735,7 @@ void ClientHandler::updateSubscriptions(QHash<Id, QList<Meta> > idMetaDeleted, Q
 // the SearchGraphs.  If a subscription results in a changed SearchGraph that
 // matches the subscription, build the appropriate metadata results, so that we
 // can send out pollResults.
-void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> metaChanges, Meta::PublishOperationType publishType)
+void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QList<Meta>& metaChanges, Meta::PublishOperationType publishType)
 {
     // An existing subscription becomes dirty in 4 cases:
     // 1. metadata is added to or removed from an identifier already in the SearchGraph
@@ -1652,176 +1750,319 @@ void ClientHandler::updateSubscriptions(Link link, bool isLink, QList<Meta> meta
     //        new link could link two separate sub-graphs together or a deleted link
     //        could prune a graph into two separate sub-graphs.
 
-    QHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->subscriptionLists());
+    // QHash<QString, QList<Subscription*> > allSubLists(_mapSessions->subscriptionLists());
+    // LFu - only consider subscriptions that include the new/deleted Id(s):
+    QSet<Subscription*> allSubLists = MapSessions::getInstance()->getSubscriptionsForIdentifier(link.first);
+    if (isLink)
+       allSubLists += MapSessions::getInstance()->getSubscriptionsForIdentifier(link.second);
+
+    // QMutableHashIterator<QString,QList<Subscription*> > allSubsIt(allSubLists);
+    QMutableSetIterator<Subscription*> allSubsIt(allSubLists);
+
     while (allSubsIt.hasNext()) {
-        allSubsIt.next();
-        QString authToken = allSubsIt.key();
+        Subscription* sub = allSubsIt.next();
+        const QString& authToken = sub->_authToken;
         QString pubId = _mapSessions->pubIdForAuthToken(authToken);
-        QList<Subscription> subList = allSubsIt.value();
+        // QList<Subscription*>& subList = allSubsIt.value();
+        // if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+        //     qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
+        // }
+
+        // bool publisherHasDirtySub = false;
+        // QMutableListIterator<Subscription*> subIt(subList);
+        // while (subIt.hasNext()) {
+
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-            qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
+            qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub->_name;
         }
 
-        bool publisherHasDirtySub = false;
-        QMutableListIterator<Subscription> subIt(subList);
-        while (subIt.hasNext()) {
-            Subscription sub = subIt.next();
-            if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
+        QSet<Id> idsWithConnectedGraphUpdates, idsWithConnectedGraphDeletes;
+        QSet<Link> linksWithConnectedGraphUpdates, linksWithConnectedGraphDeletes;
+        bool modifiedSearchGraph = false;
+        bool subIsDirty = false;
+
+        if (! isLink) {
+            if (sub->_ids.contains(link.first)) {
+                // Case 1.
+                subIsDirty = true;
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
+                }
+            }
+        } else {
+
+            // is this link already in the search graph?
+            bool isLinkInSub = sub->_linkList.contains(link);
+            // at least one of the IDs is in the sub search graph ?
+            bool oneIdInSub = (sub->_ids.contains(link.first) || sub->_ids.contains(link.second));
+//            qDebug() << "~~handling link " << (publishType == Meta::PublishDelete ? "DELETE" : "UPDATE") << " in sub " << sub->_name;
+//            qDebug() << "~~ids in sub:";
+//            QMapIterator<Id, int> idit(sub->_ids);
+//            while(idit.hasNext()) qDebug() << "\t" << idit.next().key().value();
+//            qDebug() << "~~isLinkInSub: " << (isLinkInSub ? "true" : "false") << ", oneIdInSub: " << (oneIdInSub ? "true" : "false");
+//            qDebug() << "~~sub->_ids.contains(link.first): " << (sub->_ids.contains(link.first) ? "true" : "false")
+//                     << ", sub->_ids.contains(link.second): " << (sub->_ids.contains(link.second) ? "true" : "false");
+
+            bool needsBuildSearchGraph = true; // must call buildSearchGraph when true
+            bool needFullRebuild = true;       // if needsBuildSearchGraph: full rebuild or extend
+            bool deleteSingleLink = false;     // can delete be optimized to a simple link deletion
+            int deleteId = 0;                  // if deleteSingleLink: which one of the link IDs is going away? (0 means none)
+
+            if (isLinkInSub && publishType == Meta::PublishDelete) {
+                // Case 3.
+                subIsDirty = true;
+                if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
+                }
+
+                // for deletes, we check if the removal of metadata makes the link go away
+                QList<Meta> curLinkMeta = _mapGraph->metaForLink(link);
+                MapRequest::RequestError error = MapRequest::ErrorNone;
+                QString matchLinkMeta = filteredMetadata(curLinkMeta, sub->_search.matchLinks(), sub->_search.filterNamespaceDefinitions(), error);
+                if (! matchLinkMeta.isEmpty()) {
+                    // the link isn't going away, so the search graph will remain the same
+                    needsBuildSearchGraph = false;
+                }
+                else {
+                    // the link is going away. However, if the link forms a leaf in the search
+                    // graph then the removal will not have a ripple effect and we can also save a full rebuild
+                    int d1 = sub->_ids[link.first];
+                    int d2 = sub->_ids[link.second];
+                    if(d1 == d2)
+                    {
+                        // both identifiers have the same depth means we can always remove this link without
+                        // any other part of the search graph breaking away
+                        needsBuildSearchGraph = false;
+                        deleteSingleLink = true;
+                        needFullRebuild = false;
+                    }
+                    else if(d1 < d2 && sub->linksContaining(link.second) == 1) // 1 means this id is only used in the link we're deleting
+                    {
+                        needsBuildSearchGraph = false;
+                        deleteSingleLink = true;
+                        needFullRebuild = false;
+                        deleteId = 2;
+                    }
+                    else if(d2 < d1 && sub->linksContaining(link.second) == 1)
+                    {
+                        needsBuildSearchGraph = false;
+                        deleteSingleLink = true;
+                        needFullRebuild = false;
+                        deleteId = 1;
+                    }
+                    // in all other cases make a full search graph rebuild
+                }
             }
 
-            QSet<Id> idsWithConnectedGraphUpdates, idsWithConnectedGraphDeletes;
-            QSet<Link> linksWithConnectedGraphUpdates, linksWithConnectedGraphDeletes;
-            bool modifiedSearchGraph = false;
-            bool subIsDirty = false;
+            if (isLinkInSub && publishType == Meta::PublishUpdate) {
+                // Case 2.
+                subIsDirty = true;
+                // qDebug() << "~~oneIdInSub: case 2";
+            } else if(subIsDirty || (oneIdInSub && publishType == Meta::PublishUpdate)) {
+                // (LFu) - the way this else was written before, it also covered the case:
+                //    !sub._linkList.contains(link) && publishType == Meta::PublishDelete, which we should ignore
 
-            if (! isLink) {
-                if (sub._idList.contains(link.first)) {
-                    // Case 1.
+                // Case 4. (and search graph rebuild for case 3)
+
+                // (LFu) Changes:
+                // - when adding a link that contributes to the subscription's search graph, extend the search graph
+                // rather than rebuilding it completely. This will cause non-matching links or links attached to an
+                // identifier at max search depth to become noops
+
+                if (publishType == Meta::PublishUpdate) needFullRebuild = false;
+
+                // TODO: we should also be able to optimize removal of a link, e.g. any link that ends in an identifier
+                // of max subs search depth can be removed in isolation (i.e. no subs graph must be calculated)
+
+                QMap<Id, int> existingIdList = sub->_ids;
+                QSet<Link> existingLinkList = sub->_linkList;
+                int currentDepth = -1;
+                Id startId;
+//                qDebug() << "~~case 3: needsBuildSearchGraph = " << (needsBuildSearchGraph ? "true" : "false")
+//                         << ", needFullRebuild = " << (needFullRebuild ? "true" : "false")
+//                         << ", deleteSingleLink = " << (deleteSingleLink ? "true" : "false");
+                if(needFullRebuild) // full search graph rebuild
+                {
+                    sub->_ids.clear();
+                    sub->_linkList.clear();
+                    startId = sub->_search.startId();
+                    // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
+                }
+                else if(publishType == Meta::PublishUpdate) // extend the search graph
+                {
+                    // determine the identifier with the lowest depth to start the graph expansion:
+                    int depth1 = sub->getDepth(link.first);
+                    int depth2 = sub->getDepth(link.second);
+
+                    if(-1 == depth2 || (depth1 >= 0 && depth1 <= depth2))
+                    {
+                        startId = link.first;
+                        currentDepth = depth1;
+                    }
+                    else
+                    {
+                        startId = link.second;
+                        currentDepth = depth2;
+                    }
+                    // qDebug() << "~~making search graph exension for sub " << sub->_name;
+                }
+                else if (deleteSingleLink)
+                {
+                    // only delete a single link
+                    sub->_linkList.remove(link);
+                    // delete
+                    if(deleteId == 2)
+                        sub->_ids.remove(link.second);
+                    else if(deleteId == 1)
+                        sub->_ids.remove(link.first);
+                }
+
+                // qDebug() << "~~making full search graph rebuild for sub " << sub->_name;
+
+                // LFu - remove
+                // QTime buildSearchGraphTimer;
+                // buildSearchGraphTimer.start();
+
+                if(needsBuildSearchGraph)
+                    buildSearchGraph(*sub, startId, (needFullRebuild ? currentDepth : currentDepth - 1));
+                // qDebug() << "~~processing buildSearchGraph() took " << buildSearchGraphTimer.elapsed() << " ms for sub " << sub->_name;
+
+                if (sub->_ids != existingIdList) {
                     subIsDirty = true;
+                    modifiedSearchGraph = true;
+
+                    // subtract pre-existing IDs from recalculated search graph: Metadata on these ids are in updateResults
+                    idsWithConnectedGraphUpdates = sub->identifiersWithout(existingIdList);
+                    // we need to add all these IDs to the index:
+                    QSetIterator<Id> addIt(idsWithConnectedGraphUpdates);
+                    while(addIt.hasNext()) {
+                        MapSessions::getInstance()->addToIndex(addIt.next(), sub);
+                    }
+
+                    // subtract recalculated search graph IDs from pre-existing IDs: Metadata on these ids are in deleteResults
+                    idsWithConnectedGraphDeletes = sub->subtractFrom(existingIdList);
+                    // we need to remove all these IDs from the index:
+                    QSetIterator<Id> delIt(idsWithConnectedGraphDeletes);
+                    while(delIt.hasNext()) {
+                        MapSessions::getInstance()->addToIndex(delIt.next(), sub);
+                    }
+
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
+                        qDebug() << __PRETTY_FUNCTION__ << ":sub._linkList.contains(link) && " << "----subscription is dirty with newIdList.size:" << sub->_ids.size();
                     }
                 }
-            } else {
-                if (sub._linkList.contains(link) && publishType == Meta::PublishDelete) {
-                    // Case 3.
+
+                if (sub->_linkList != existingLinkList) {
                     subIsDirty = true;
+                    modifiedSearchGraph = true;
+                    // Metadata on these links are in updateResults
+                    linksWithConnectedGraphUpdates = sub->_linkList - existingLinkList;
+                    // Metadata on these links are in deleteResults
+                    linksWithConnectedGraphDeletes = existingLinkList - sub->_linkList;
+
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
-                    }
-                }
-
-                if (sub._linkList.contains(link) && publishType == Meta::PublishUpdate) {
-                    // Case 2.
-                    subIsDirty = true;
-                } else {
-                    // Case 4. (and search graph rebuild for case 3)
-                    QSet<Id> existingIdList = sub._idList;
-                    QSet<Link> existingLinkList = sub._linkList;
-                    sub._idList.clear();
-                    sub._linkList.clear();
-                    int currentDepth = -1;
-                    buildSearchGraph(sub, sub._search.startId(), currentDepth);
-
-                    if (sub._idList != existingIdList) {
-                        subIsDirty = true;
-                        modifiedSearchGraph = true;
-                        // Metadata on these ids are in updateResults
-                        idsWithConnectedGraphUpdates = sub._idList - existingIdList;
-                        // Metadata on these ids are in deleteResults
-                        idsWithConnectedGraphDeletes = existingIdList - sub._idList;
-
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newIdList.size:" << sub._idList.size();
-                        }
-                    }
-
-                    if (sub._linkList != existingLinkList) {
-                        subIsDirty = true;
-                        modifiedSearchGraph = true;
-                        // Metadata on these links are in updateResults
-                        linksWithConnectedGraphUpdates = sub._linkList - existingLinkList;
-                        // Metadata on these links are in deleteResults
-                        linksWithConnectedGraphDeletes = existingLinkList - sub._linkList;
-
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newLinkList.size:" << sub._linkList.size();
-                        }
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with newLinkList.size:" << sub->_linkList.size();
                     }
                 }
             }
+        }
 
-            if (subIsDirty && !sub._subscriptionError) {
-                // Construct results for the subscription
-                if (sub._requestVersion == MapRequest::IFMAPv11) {
-                    // Trigger to build and send pollResults
-                    sub._sentFirstResult = false;
-                } else if (sub._sentFirstResult && sub._requestVersion == MapRequest::IFMAPv20) {
-                    MapRequest::RequestError error = MapRequest::ErrorNone;
-                    // Add results from publish/delete/endSession/purgePublisher (that don't modify SearchGraph)
-                    if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
-                        SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding update/delete results from un-changed SearchGraph";
-                        }
-                        if (isLink) {
-                            addLinkResult(sub, link, metaChanges, resultType, error);
-                        } else {
-                            addIdentifierResult(sub, link.first, metaChanges, resultType, error);
-                        }
+        if (subIsDirty && !sub->_subscriptionError) {
+            // Construct results for the subscription
+            if (sub->_requestVersion == MapRequest::IFMAPv11) {
+                // Trigger to build and send pollResults
+                sub->_sentFirstResult = false;
+            } else if (sub->_sentFirstResult && sub->_requestVersion == MapRequest::IFMAPv20) {
+                MapRequest::RequestError error = MapRequest::ErrorNone;
+                // Add results from publish/delete/endSessipublisherHasDirtySubon/purgePublisher (that don't modify SearchGraph)
+                if (!modifiedSearchGraph || publishType == Meta::PublishDelete) {
+                    SearchResult::ResultType resultType = SearchResult::resultTypeForPublishType(publishType);
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding update/delete results from un-changed SearchGraph";
                     }
-                    // Add results from extending SearchGraph for this subscription
-                    if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding updateResults from changed SearchGraph";
-                        }
-                        addUpdateAndDeleteMetadata(sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
-                    }
-                    // Add results from pruning SearchGraph for this subscription
-                    if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
-                        if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                            qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding deleteResults from changed SearchGraph";
-                        }
-                        addUpdateAndDeleteMetadata(sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
+                    if (isLink) {
+                        addLinkResult(*sub, link, metaChanges, resultType, error);
+                    } else {
+                        addIdentifierResult(*sub, link.first, metaChanges, resultType, error);
                     }
                 }
-                subIt.setValue(sub);
-                publisherHasDirtySub = true;
-            }
-        }
 
-        if (publisherHasDirtySub) {
-            _mapSessions->setSubscriptionListForClient(authToken, subList);
+                // Add results from extending SearchGraph for this subscription
+                if (!idsWithConnectedGraphUpdates.isEmpty() || !linksWithConnectedGraphUpdates.isEmpty()) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding updateResults from changed SearchGraph";
+                    }
+                    addUpdateAndDeleteMetadata(*sub, SearchResult::UpdateResultType, idsWithConnectedGraphUpdates, linksWithConnectedGraphUpdates, error);
+                }
+                // Add results from pruning SearchGraph for this subscription
+                if (!idsWithConnectedGraphDeletes.isEmpty() || !linksWithConnectedGraphDeletes.isEmpty()) {
+                    if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "----adding deleteResults from changed SearchGraph";
+                    }
+                    addUpdateAndDeleteMetadata(*sub, SearchResult::DeleteResultType, idsWithConnectedGraphDeletes, linksWithConnectedGraphDeletes, error);
+                }
+            }
+
+            // LFu: not needed any longer:
+            // subIt.setValue(sub);
+            // publisherHasDirtySub = true;
         }
+        // }
+
+
+//        if (publisherHasDirtySub) {
+//            _mapSessions->setSubscriptionListForClient(authToken, subList);
+//        }
     }
 }
 
 // Iterate over all subscriptions for all publishers, checking the SearchGraphs
 // to see if subscriptions match the notify metadata.  If a subscription matches,
 // mark the subscription as dirty, so that we can send out pollResults.
-void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<Meta> notifyMetaList)
+void ClientHandler::updateSubscriptionsWithNotify(const Link& link, bool isLink, const QList<Meta>& notifyMetaList)
 {
     // An existing subscription becomes dirty in 3 cases:
     // 1. metadata is publish-notify on an identifier in the SearchGraph
     // 2. metadata is publish-notify on a link in the SearchGraph
     // 3. metadata is publish-notify on a link with one identifier in the SearchGraph
 
-    QHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->subscriptionLists());
+    QHash<QString, QList<Subscription*> > allSubLists(_mapSessions->subscriptionLists());
+    QMutableHashIterator<QString,QList<Subscription*> > allSubsIt(allSubLists);
+
     while (allSubsIt.hasNext()) {
         allSubsIt.next();
-        QString authToken = allSubsIt.key();
+        const QString& authToken = allSubsIt.key();
         QString pubId = _mapSessions->pubIdForAuthToken(authToken);
-        QList<Subscription> subList = allSubsIt.value();
+        QList<Subscription*>& subList = allSubsIt.value();
         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
             qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
         }
 
-        bool publisherHasDirtySub = false;
-        QMutableListIterator<Subscription> subIt(subList);
+        // bool publisherHasDirtySub = false;
+        QMutableListIterator<Subscription*> subIt(subList);
         while (subIt.hasNext()) {
-            Subscription sub = subIt.next();
+            Subscription* sub = subIt.next();
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub._name;
+                qDebug() << __PRETTY_FUNCTION__ << ":" << "--checking subscription named:" << sub->_name;
             }
             bool subIsDirty = false;
 
             if (! isLink) {
                 // Case 1.
-                if (sub._idList.contains(link.first)) {
+                if (sub->_ids.contains(link.first)) {
                     subIsDirty = true;
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with id in SearchGraph:" << link.first;
                     }
                 }
             } else {
-                if (sub._linkList.contains(link)) {
+                if (sub->_linkList.contains(link)) {
                     // Case 2.
                     subIsDirty = true;
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "----subscription is dirty with link in SearchGraph:" << link;
                     }
-                } else if (sub._idList.contains(link.first) || sub._idList.contains(link.second)) {
+                } else if (sub->_ids.contains(link.first) || sub->_ids.contains(link.second)) {
                     // Case 3.
                     subIsDirty = true;
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
@@ -1830,28 +2071,29 @@ void ClientHandler::updateSubscriptionsWithNotify(Link link, bool isLink, QList<
                 }
             }
 
-            if (subIsDirty && !sub._subscriptionError) {
+            if (subIsDirty && !sub->_subscriptionError) {
                 // Construct results for the subscription
                 MapRequest::RequestError error = MapRequest::ErrorNone;
                 if (isLink) {
-                    addLinkResult(sub, link, notifyMetaList, SearchResult::NotifyResultType, error);
+                    addLinkResult(*sub, link, notifyMetaList, SearchResult::NotifyResultType, error);
                 } else {
-                    addIdentifierResult(sub, link.first, notifyMetaList, SearchResult::NotifyResultType, error);
+                    addIdentifierResult(*sub, link.first, notifyMetaList, SearchResult::NotifyResultType, error);
                 }
 
-                if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT) { // TODO: Replace with client setting
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max poll result size with curSize:" << sub._curSize;
-                    sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
+                if (sub->_curSize > MAXPOLLRESULTSIZEDEFAULT) { // TODO: Replace with client setting
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max poll result size with curSize:" << sub->_curSize;
+                    sub->_subscriptionError = MapRequest::IfmapPollResultsTooBig;
                 }
 
                 subIt.setValue(sub);
-                publisherHasDirtySub = true;
+                // publisherHasDirtySub = true;
             }
         }
 
-        if (publisherHasDirtySub) {
-            _mapSessions->setSubscriptionListForClient(authToken, subList);
-        }
+//        (LFu) no longer needed:
+//        if (publisherHasDirtySub) {
+//            _mapSessions->setSubscriptionListForClient(authToken, subList);
+//        }
     }
 }
 
@@ -1860,14 +2102,15 @@ void ClientHandler::sendResultsOnActivePolls()
     // TODO: Often this slot gets signaled from a method that really only needs to
     // send results on active polls for a specific publisherId.  Could optimize
     // this slot in those cases.
-    QHashIterator<QString,QList<Subscription> > allSubsIt(_mapSessions->subscriptionLists());
+    QHash<QString, QList<Subscription*> > allSubLists(_mapSessions->subscriptionLists());
+    QMutableHashIterator<QString,QList<Subscription*> > allSubsIt(allSubLists);
     while (allSubsIt.hasNext()) {
         allSubsIt.next();
-        QString authToken = allSubsIt.key();
+        const QString& authToken = allSubsIt.key();
         // Only check subscriptions for publisher if client has an active poll
         if (_mapSessions->haveActivePollForClient(authToken)) {
             QString pubId = _mapSessions->pubIdForAuthToken(authToken);
-            QList<Subscription> subList = allSubsIt.value();
+            QList<Subscription*>& subList = allSubsIt.value();
             if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                 qDebug() << __PRETTY_FUNCTION__ << ":" << "publisher:" << pubId << "has num subscriptions:" << subList.size();
             }
@@ -1876,47 +2119,47 @@ void ClientHandler::sendResultsOnActivePolls()
             MapResponse *pollResponse = 0;
             MapRequest::RequestVersion pollResponseVersion = MapRequest::VersionNone;
 
-            QMutableListIterator<Subscription> subIt(subList);
+            QMutableListIterator<Subscription*> subIt(subList);
             while (subIt.hasNext()) {
-                Subscription sub = subIt.next();
+                Subscription* sub = subIt.next();
 
                 MapRequest::RequestError subError = MapRequest::ErrorNone;
                 if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
-                    qDebug() << __PRETTY_FUNCTION__ << ":" << "--Checking subscription named:" << sub._name;
+                    qDebug() << __PRETTY_FUNCTION__ << ":" << "--Checking subscription named:" << sub->_name;
                 }
 
                 if (pollResponseVersion == MapRequest::VersionNone) {
-                    pollResponseVersion = sub._requestVersion;
+                    pollResponseVersion = sub->_requestVersion;
                 }
 
-                if (sub._subscriptionError) {
+                if (sub->_subscriptionError) {
                     if (!pollResponse) {
                         pollResponse = new MapResponse(pollResponseVersion);
                         pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                     }
-                    pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
+                    pollResponse->addPollErrorResult(sub->_name, sub->_subscriptionError);
 
-                    sub.clearSearchResults();
-                    subIt.setValue(sub);
+                    sub->clearSearchResults();
+                    // subIt.setValue(sub);
 
                     publisherHasError = true;
-                } else if (!sub._sentFirstResult) {
+                } else if (!sub->_sentFirstResult) {
                     // Build results from entire search graph for the first poll response
-                    collectSearchGraphMetadata(sub, SearchResult::SearchResultType, subError);
+                    collectSearchGraphMetadata(*sub, SearchResult::SearchResultType, subError);
 
                     if (subError) {
-                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize:" << sub._curSize;
-                        sub._subscriptionError = subError;
-                        sub.clearSearchResults();
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max-size with curSize:" << sub->_curSize;
+                        sub->_subscriptionError = subError;
+                        sub->clearSearchResults();
                         publisherHasError = true;
 
                         if (!pollResponse) {
                             pollResponse = new MapResponse(pollResponseVersion);
                             pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                         }
-                        pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
-                        subIt.setValue(sub);
-                    } else if (sub._searchResults.count() > 0) {
+                        pollResponse->addPollErrorResult(sub->_name, sub->_subscriptionError);
+                        // subIt.setValue(sub);
+                    } else if (sub->_searchResults.count() > 0) {
                         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "--Gathering initial poll results for publisher with active poll:" << pubId;
                         }
@@ -1925,31 +2168,31 @@ void ClientHandler::sendResultsOnActivePolls()
                             pollResponse = new MapResponse(pollResponseVersion);
                             pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                         }
-                        pollResponse->addPollResults(sub._searchResults, sub._name);
-                        sub.clearSearchResults();
+                        pollResponse->addPollResults(sub->_searchResults, sub->_name);
+                        sub->clearSearchResults();
 
-                        sub._sentFirstResult = true;
-                        subIt.setValue(sub);
-                    } else if (sub._curSize > MAXPOLLRESULTSIZEDEFAULT &&
-                               sub._requestVersion == MapRequest::IFMAPv20) { // TODO: Replace with client setting
-                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max poll result size with curSize:" << sub._curSize;
-                        sub._subscriptionError = MapRequest::IfmapPollResultsTooBig;
-                        sub.clearSearchResults();
+                        sub->_sentFirstResult = true;
+                        // subIt.setValue(sub);
+                    } else if (sub->_curSize > MAXPOLLRESULTSIZEDEFAULT &&
+                               sub->_requestVersion == MapRequest::IFMAPv20) { // TODO: Replace with client setting
+                        qDebug() << __PRETTY_FUNCTION__ << ":" << "Search results exceeded max poll result size with curSize:" << sub->_curSize;
+                        sub->_subscriptionError = MapRequest::IfmapPollResultsTooBig;
+                        sub->clearSearchResults();
                         publisherHasError = true;
 
                         if (!pollResponse) {
                             pollResponse = new MapResponse(pollResponseVersion);
                             pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                         }
-                        pollResponse->addPollErrorResult(sub._name, sub._subscriptionError);
-                        subIt.setValue(sub);
+                        pollResponse->addPollErrorResult(sub->_name, sub->_subscriptionError);
+                        // subIt.setValue(sub);
                     } else {
                         if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "--No results for subscription at this time";
                             qDebug() << __PRETTY_FUNCTION__ << ":" << "----haveActivePollForClient(authToken):" << _mapSessions->haveActivePollForClient(authToken);
                         }
                     }
-                } else if (sub._deltaResults.count() > 0) {
+                } else if (sub->_deltaResults.count() > 0) {
                     // Build results from update/delete/notify results
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowClientOps)) {
                         qDebug() << __PRETTY_FUNCTION__ << ":" << "--Gathering delta poll results for publisher with active poll:" << pubId;
@@ -1959,10 +2202,10 @@ void ClientHandler::sendResultsOnActivePolls()
                         pollResponse = new MapResponse(pollResponseVersion);
                         pollResponse->startPollResponse(_mapSessions->sessIdForClient(authToken));
                     }
-                    pollResponse->addPollResults(sub._deltaResults, sub._name);
+                    pollResponse->addPollResults(sub->_deltaResults, sub->_name);
 
-                    sub.clearSearchResults();
-                    subIt.setValue(sub);
+                    sub->clearSearchResults();
+                    // subIt.setValue(sub);
                 }
             }
 
@@ -1973,7 +2216,8 @@ void ClientHandler::sendResultsOnActivePolls()
                 emit needToSendPollResponse(_mapSessions->pollConnectionForClient(authToken), pollResponse->responseData(), pollResponse->requestVersion());
                 delete pollResponse;
                 // Update subscription list for this publisher
-                _mapSessions->setSubscriptionListForClient(authToken, subList);
+                // (LFu) no longer needed
+                //_mapSessions->setSubscriptionListForClient(authToken, subList);
                 _mapSessions->removeActivePollForClient(authToken);
             }
 

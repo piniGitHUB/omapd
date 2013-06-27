@@ -45,49 +45,60 @@ public:
 
     static MapSessions* getInstance();
 
-    QString registerMapClient(ClientHandler *socket, MapRequest::AuthenticationType authType, QString authToken);
-    QString sessIdForClient(QString authToken);
-    QString addActiveSSRCForClient(ClientHandler *clientHandler, QString authToken);
+    QString registerMapClient(ClientHandler *socket, MapRequest::AuthenticationType authType, const QString& authToken);
+    QString sessIdForClient(const QString& authToken);
+    QString addActiveSSRCForClient(ClientHandler *clientHandler, const QString& authToken);
 
-    bool haveActiveSSRCForClient(QString authToken);
-    void removeActiveSSRCForClient(QString authToken);
+    bool haveActiveSSRCForClient(const QString& authToken);
+    void removeActiveSSRCForClient(const QString& authToken);
 
-    bool haveActivePollForClient(QString authToken);
-    void setActivePollForClient(QString authToken, ClientHandler *pollClientHandler);
-    void removeActivePollForClient(QString authToken);
-    ClientHandler* pollConnectionForClient(QString authToken);
-    ClientHandler* ssrcForClient(QString authToken);
-    void migrateSSRCForClient(QString authToken, ClientHandler *newSSRCClientHandler);
+    bool haveActivePollForClient(const QString& authToken);
+    void setActivePollForClient(const QString& authToken, ClientHandler *pollClientHandler);
+    void removeActivePollForClient(const QString& authToken);
+    ClientHandler* pollConnectionForClient(const QString& authToken);
+    ClientHandler* ssrcForClient(const QString& authToken);
+    void migrateSSRCForClient(const QString& authToken, ClientHandler *newSSRCClientHandler);
 
-    void setActiveARCForClient(QString authToken, ClientHandler *arcClientHandler);
-    bool haveActiveARCForClient(QString authToken);
-    void removeActiveARCForClient(QString authToken);
-    ClientHandler* arcForClient(QString authToken);
+    void setActiveARCForClient(const QString& authToken, ClientHandler *arcClientHandler);
+    bool haveActiveARCForClient(const QString& authToken);
+    void removeActiveARCForClient(const QString& authToken);
+    ClientHandler* arcForClient(const QString& authToken);
 
     void removeClientConnections(ClientHandler *clientHandler);
-    bool validateSessionId(QString sessId, QString authToken);
+    bool validateSessionId(const QString& sessId, const QString& authToken);
 
-    QString pubIdForAuthToken(QString authToken);
-    QString pubIdForSessId(QString sessId);
-    OmapdConfig::AuthzOptions authzForAuthToken(QString authToken);
-    bool metadataAuthorizationForAuthToken(QString authToken, QString metaName, QString metaNamespace);
+    QString pubIdForAuthToken(const QString& authToken);
+    QString pubIdForSessId(const QString& sessId);
+    OmapdConfig::AuthzOptions authzForAuthToken(const QString& authToken);
+    bool metadataAuthorizationForAuthToken(const QString& authToken, const QString& metaName, const QString& metaNamespace);
 
-    QList<Subscription> subscriptionListForClient(QString authToken);
-    QList<Subscription> removeSubscriptionListForClient(QString authToken);
-    void setSubscriptionListForClient(QString authToken, QList<Subscription> subList);
-    QHash<QString, QList<Subscription> > subscriptionLists(); // authToken --> subscriptionList for authToken
+    QList<Subscription*>& subscriptionListForClient(const QString& authToken);
+    void insertSubscriptionForClient(Subscription* sub, const QString&_authToken);
+    void removeSubscriptionForClient(const QString& name, const QString&_authToken);
+    int removeSubscriptionListForClient(const QString& authToken);
+    // void setSubscriptionListForClient(const QString& authToken, const QList<Subscription>& subList);
+    QHash<QString, QList<Subscription*> > subscriptionLists(); // authToken --> subscriptionList for authToken
 
-    bool validateMetadata(Meta aMeta);
+    bool validateMetadata(const Meta& aMeta);
 
     QString generateSessionId();
 
-    bool loadClientConfiguration(ClientConfiguration *client);
+    bool loadClientConfiguration(const ClientConfiguration *client);
     bool removeClientConfiguration(ClientConfiguration *client);
 
     void loadBlacklistedClients(QString blacklistDirectory, QString caCertFile);
     bool manageClientBlacklist(ClientConfiguration *client, MapSessions::BlacklistAction action);
     bool addBlacklistClientConfiguration(ClientConfiguration *client);
     bool removeBlacklistClientConfiguration(ClientConfiguration *client);
+
+    void removeMapClient(const QString& authToken);
+    void removeMapClientCA(const QString& authToken);
+
+    QSet<Subscription*> getSubscriptionsForIdentifier(const Id& id); // return list of all subscriptions that
+                                                                     // include id in their search graph
+    void addToIndex(const Id& id, Subscription* sub);
+    void removeFromIndex(const Id& id, Subscription* sub);
+
 
 private:
     MapSessions(QObject *parent = 0);
@@ -98,8 +109,9 @@ private:
 
     OmapdConfig *_omapdConfig;
 
-    QHash<QString, MapClient> _mapClients; // authToken --> MapClient
-    QHash<QString, MapClient> _mapClientCAs; // CA AuthToken --> MapClient
+    QHash<QString, MapClient*> _mapClients; // authToken --> MapClient
+    QHash<QString, MapClient*> _mapClientCAs; // CA AuthToken --> MapClient
+    QHash<Id, QSet<Subscription*> > _subs; // Identifier --> list of referenced subscriptions
     QSet<QString> _blacklistedClients; // blacklisted client authToken
     // Registry for published vendor specific metadata cardinalities
     QHash<VSM, Meta::Cardinality> _vsmRegistry;

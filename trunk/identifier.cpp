@@ -122,7 +122,7 @@ QString Identifier::idBaseStringForType(Identifier::IdType idType)
 
 }
 
-Link Identifier::makeLinkFromIds(Id id1, Id id2)
+Link Identifier::makeLinkFromIds(const Id& id1, const Id& id2)
 {
     Link link;
     // Make identifier ordering independent of received order
@@ -138,7 +138,7 @@ Link Identifier::makeLinkFromIds(Id id1, Id id2)
     return link;
 }
 
-Id Identifier::otherIdForLink(Link link, Id targetId)
+Id Identifier::otherIdForLink(const Link& link, const Id& targetId)
 {
     if (link.first == targetId)
         return link.second;
@@ -151,7 +151,7 @@ Identifier::Identifier(Identifier::IdType type)
 {
 }
 
-Identifier::Identifier(Identifier::IdType type, QString value, QString ad, QString other)
+Identifier::Identifier(Identifier::IdType type, const QString& value, const QString& ad, const QString& other)
         : _type(type), _value(value), _ad(ad), _other(other)
 {
 }

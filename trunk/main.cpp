@@ -221,5 +221,9 @@ int main(int argc, char *argv[])
         qDebug() << "Started management server";
     }
 
-    return a.exec();
+    int exitCode = a.exec();
+
+    OmapdConfig::destroy();
+
+    return exitCode;
 }

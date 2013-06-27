@@ -250,16 +250,111 @@ PublishRequest::PublishRequest(const PublishRequest &other)
     this->_publishOperations = other._publishOperations;
 }
 
-SearchType::SearchType()
+MetadataFilter::MetadataFilter(const QString& filterStr)
+    : _filter(""), _simFilter(NULL)
+{
+    setFilter(filterStr);
+}
+
+MetadataFilter::MetadataFilter(const MetadataFilter& other)
+{
+    _simFilter = NULL;
+    *this = other;
+}
+
+MetadataFilter::~MetadataFilter()
+{
+    if(_simFilter != NULL) delete _simFilter;
+}
+
+MetadataFilter& MetadataFilter::operator=(const MetadataFilter& other)
+{
+    _filter = other._filter;
+    if(_simFilter != NULL) delete(_simFilter);
+
+    if(other._simFilter != NULL)
+    {
+        _simFilter = new SimplifiedFilter(*other._simFilter);
+    }
+    else
+    {
+        _simFilter = NULL;
+    }
+
+    return *this;
+}
+
+bool MetadataFilter::operator==(const MetadataFilter& other) const
+{
+    return _filter == other._filter &&
+        (_simFilter == NULL
+            ? other._simFilter == NULL
+            : other._simFilter != NULL && *_simFilter == *other._simFilter);
+}
+
+bool MetadataFilter::operator==(const QString& filterStr) const
+{
+    return _filter == filterStr;
+}
+
+// (LFu) this code used be the translateFilter() method in class Subscription
+void MetadataFilter::setFilter(const QString& ifmapFilter)
+{
+    //const char *fnName = "MetadataFilter::setFilter:";
+
+    /* non-predicate expressions joined by "or" need to be translated
+       into a parenthesized expression separated by "|".
+
+       Examples:
+       meta:ip-mac or scada:node
+       --> (meta:ip-mac | scada:node)
+
+       meta:role[@publisher-id = "myPubId" or name="myRole"] or meta:ip-mac
+       --> (meta:role[@publisher-id = "myPubId" or name="myRole"] | meta:ip-mac)
+
+       standard XPath does not support predicate expressions that begin with [; need to add *
+    */
+
+    if(!ifmapFilter.isEmpty() && ifmapFilter != "*")
+    {
+        // (LFu) - determine if the filter looks like "ns-1:elem-1 or ... or ns-n:elem-n"
+        // and provide simplified metadata matching in this case:
+        QRegExp rx("((\\w|-)+:(\\w|-)+)(\\s+(or|OR)\\s+((\\w|-)+:(\\w|-)+))*");
+        if(rx.exactMatch(ifmapFilter))
+        {
+            _simFilter = new SimplifiedFilter();
+            // qDebug() << "~~regex matches filter: " << ifmapFilter;
+            int pos = 0;
+            QRegExp rx2("((\\w|-)+):((\\w|-)+)(\\s+(or|OR))?");
+            while ((pos = rx2.indexIn(ifmapFilter, pos)) != -1) {
+                _simFilter->append(QPair<QString, QString>(rx2.cap(1), rx2.cap(3)));
+                // qDebug() << "~~\tns:" << rx2.cap(1) << " elem:" << rx2.cap(3);
+                pos += rx2.matchedLength();
+            }
+        }
+    }
+
+    // TODO: Do this with QRegExp
+    _filter = ifmapFilter;
+    if (ifmapFilter.contains(" or ", Qt::CaseInsensitive)) {
+        //qDebug() << fnName << "WARNING! filter translation is woefully incomplete!";
+        //qDebug() << fnName << "filter before translation:" << ifmapFilter;
+        _filter.replace(" or "," | ");
+        _filter.prepend("(");
+        _filter.append(")");
+        //qDebug() << fnName << "filter after translation:" << qtFilter;
+    }
+}
+
+
+SearchType::SearchType()    
+    : _resultFilter("*"), _matchLinks("*") // Intepretation of the spec is that no match-links attribute matches all links
 {
     _clientSetMaxDepth = false;
     _clientSetMaxSize = false;
     _clientSetResultFilter = false;
     _clientSetMatchLinks = false;
     _clientSetTerminalId = false;
-    // Intepretation of the spec is that no match-links attribute matches all links
-    _matchLinks = "*";
-    _resultFilter = "*";
     _terminalId = "";
 }
 

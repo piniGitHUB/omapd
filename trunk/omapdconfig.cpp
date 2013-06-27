@@ -34,6 +34,14 @@ OmapdConfig* OmapdConfig::getInstance()
     return _instance;
 }
 
+void OmapdConfig::destroy()
+{
+    if (_instance != 0) {
+        delete _instance;
+        _instance = NULL;
+    }
+}
+
 OmapdConfig::IfmapDebugOptions OmapdConfig::debugOptions(unsigned int dbgValue)
 {
     OmapdConfig::IfmapDebugOptions debug = OmapdConfig::DebugNone;
@@ -189,9 +197,16 @@ OmapdConfig::~OmapdConfig()
 {
     const char *fnName = "OmapdConfig::~OmapdConfig():";
     qDebug() << fnName;
+
+    QListIterator<ClientConfiguration *> it(_clientConfigurations);
+    while(it.hasNext())
+    {
+        delete it.next();
+    }
+    _clientConfigurations.clear();
 }
 
-void OmapdConfig::addConfigItem(QString key, QVariant value)
+void OmapdConfig::addConfigItem(const QString& key, const QVariant& value)
 {
     _omapdConfig.insert(key,value);
 }
@@ -622,7 +637,7 @@ bool OmapdConfig::readConfigXML(QIODevice *device)
     return !xmlReader.error();
 }
 
-int OmapdConfig::readConfigFile(QString configFileName)
+int OmapdConfig::readConfigFile(const QString& configFileName)
 {
     const char *fnName = "ConfigFile::readConfigFile:";
     int rc = 0;
@@ -646,8 +661,7 @@ int OmapdConfig::readConfigFile(QString configFileName)
     return rc;
 }
 
-QVariant OmapdConfig::valueFor(QString key)
+const QVariant& OmapdConfig::valueFor(const QString& key)
 {
-    QVariant value = _omapdConfig.value(key);
-    return value;
+    return _omapdConfig[key];
 }
