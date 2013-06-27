@@ -29,20 +29,20 @@ class ClientConfiguration
 {
 public:
     ClientConfiguration();
-    void createBasicAuthClient(QString clientName, QString username, QString password, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
-    void createCertAuthClient(QString clientName, QString certFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy);
-    void createCAAuthClient(QString clientPrefix, QString issuingCACertFile, QString caCertFile, OmapdConfig::AuthzOptions authz, QString metadataPolicy, QString blacklistDir = QString());
+    void createBasicAuthClient(const QString& clientName, const QString& username, const QString& password, OmapdConfig::AuthzOptions authz, const QString& metadataPolicy);
+    void createCertAuthClient(const QString& clientName, const QString& certFile, const QString& caCertFile, OmapdConfig::AuthzOptions authz, const QString& metadataPolicy);
+    void createCAAuthClient(const QString& clientPrefix, const QString& issuingCACertFile, const QString& caCertFile, OmapdConfig::AuthzOptions authz, const QString& metadataPolicy, const QString& blacklistDir = "");
 
-    QString metadataPolicy() { return _metadataPolicy; }
-    QString name() { return _name; }
-    QString username() { return _username; }
-    QString password() { return _password; }
-    QString certFileName() { return _certFileName; }
-    QString caCertFileName() { return _caCertFileName; }
-    QString blacklistDirectory() { return _blacklistDirectory; }
-    bool haveClientCert() { return _haveClientCert; }
-    MapRequest::AuthenticationType authType() { return _authType; }
-    OmapdConfig::AuthzOptions authz() { return _authz; }
+    const QString& metadataPolicy() const { return _metadataPolicy; }
+    const QString& name() const { return _name; }
+    const QString& username() const { return _username; }
+    const QString& password() const { return _password; }
+    const QString& certFileName() const { return _certFileName; }
+    const QString& caCertFileName() const { return _caCertFileName; }
+    const QString& blacklistDirectory() { return _blacklistDirectory; }
+    bool haveClientCert() const { return _haveClientCert; }
+    MapRequest::AuthenticationType authType() const { return _authType; }
+    OmapdConfig::AuthzOptions authz() const { return _authz; }
 
 private:
     QString _metadataPolicy;

@@ -43,8 +43,8 @@ public:
 signals:
 
 public slots:
-    void sendPollResponseToClient(ClientHandler *client, QByteArray response, MapRequest::RequestVersion reqVersion);
-    void addClientToTimeout(QString authToken);
+    void sendPollResponseToClient(ClientHandler *client, const QByteArray& response, MapRequest::RequestVersion reqVersion);
+    void addClientToTimeout(const QString& authToken);
     void removeClientFromTimeout();
     void removeClientConnectionFromTimeout(ClientHandler *client);
 
@@ -54,7 +54,7 @@ private slots:
 
 private:
     void incomingConnection(int socketDescriptor);
-    void removeTimerForClient(QString authToken);
+    void removeTimerForClient(const QString& authToken);
 
 private:
     OmapdConfig* _omapdConfig;

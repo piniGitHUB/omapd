@@ -55,28 +55,29 @@ public:
     };
 
     Identifier(Identifier::IdType type = Identifier::IdNone);
-    Identifier(Identifier::IdType type, QString value, QString ad = QString(), QString other = QString());
+    Identifier(Identifier::IdType type, const QString& value, const QString& ad = QString(), const QString& other = QString());
 
     static QString idStringForType(Identifier::IdType idType);
     static QString idBaseStringForType(Identifier::IdType idType);
-    static Link makeLinkFromIds(Id id1, Id id2);
-    static Id otherIdForLink(Link link, Id targetId);
+    static Link makeLinkFromIds(const Id& id1, const Id& id2);
+    static Id otherIdForLink(const Link& link, const Id& targetId);
 
     // Two Identifier objects are equal iff their type, namespace, value, and other members are the same
     bool operator==(const Identifier &other) const;
+    bool operator< (const Id& other) const { return hashString() < other.hashString(); }
     //QDataStream & operator<< ( QDataStream & stream, const Identifier & id );
 
     Identifier::IdType type() const { return _type; }
-    QString value() const { return _value; }
-    QString ad() const { return _ad; }
-    QString other() const { return _other; }
+    const QString& value() const { return _value; }
+    const QString& ad() const { return _ad; }
+    const QString& other() const { return _other; }
 
     QString hashString() const;
 
     void setType(Identifier::IdType type) { _type = type; }
-    void setValue(QString value) { _value = value; }
-    void setAd(QString ad) { _ad = ad; }
-    void setOther(QString other) { _other = other; }
+    void setValue(const QString& value) { _value = value; }
+    void setAd(const QString& ad) { _ad = ad; }
+    void setOther(const QString& other) { _other = other; }
 
 private:
     Identifier::IdType _type;
