@@ -39,7 +39,7 @@ public:
     const QString& password() const { return _password; }
     const QString& certFileName() const { return _certFileName; }
     const QString& caCertFileName() const { return _caCertFileName; }
-    const QString& blacklistDirectory() { return _blacklistDirectory; }
+    const QString& blacklistDirectory() const { return _blacklistDirectory; }
     bool haveClientCert() const { return _haveClientCert; }
     MapRequest::AuthenticationType authType() const { return _authType; }
     OmapdConfig::AuthzOptions authz() const { return _authz; }
