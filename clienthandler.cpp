@@ -1946,7 +1946,7 @@ void ClientHandler::updateSubscriptions(const Link link, bool isLink, const QLis
                     // we need to remove all these IDs from the index:
                     QSetIterator<Id> delIt(idsWithConnectedGraphDeletes);
                     while(delIt.hasNext()) {
-                        MapSessions::getInstance()->addToIndex(delIt.next(), sub);
+                        MapSessions::getInstance()->removeFromIndex(delIt.next(), sub);
                     }
 
                     if (_omapdConfig->valueFor("debug_level").value<OmapdConfig::IfmapDebugOptions>().testFlag(OmapdConfig::ShowSearchAlgorithm)) {
